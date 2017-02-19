@@ -756,13 +756,18 @@ void InitHttpParser(Local<Object> target,
   t->Set(FIXED_ONE_BYTE_STRING(env->isolate(), "kOnExecute"),
          Integer::NewFromUnsigned(env->isolate(), kOnExecute));
 
-  Local<Array> methods = Array::New(env->isolate());
+  int methods_count = 0;  // avoid OOB array write
+#define V(num, name, string)                                                  \
+      methods_count += 1;
+    HTTP_METHOD_MAP(V)
+#undef V
+
+  Local<Array> methods = Array::New(env->isolate(), methods_count);
 #define V(num, name, string)                                                  \
     methods->Set(num, FIXED_ONE_BYTE_STRING(env->isolate(), #string));
   HTTP_METHOD_MAP(V)
 #undef V
   target->Set(FIXED_ONE_BYTE_STRING(env->isolate(), "methods"), methods);
-
   env->SetProtoMethod(t, "close", Parser::Close);
   env->SetProtoMethod(t, "execute", Parser::Execute);
   env->SetProtoMethod(t, "finish", Parser::Finish);
