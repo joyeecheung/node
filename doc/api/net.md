@@ -583,6 +583,8 @@ For TCP connections, available `options` are:
 * `port` {number} Required. Port the socket should connect to.
 * `host` {string} Host the socket should connect to. Defaults to `'localhost'`.
 * `localAddress` {string} Local address the socket should connect from.
+  Defaults to the [unspecified IPv6 address][] (`::`) when the `host` is an
+  IPv6 address, or the [unspecified IPv4 address][] (`0.0.0.0`) otherwise.
 * `localPort` {number} Local port the socket should connect from.
 * `family` {number}: Version of IP stack, can be either 4 or 6. Defaults to 4.
 * `hints` {number} Optional [`dns.lookup()` hints][].
