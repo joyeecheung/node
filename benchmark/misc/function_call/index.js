@@ -11,11 +11,9 @@ const common = require('../../common.js');
 // which is quite common for benchmarks.  so in that case, just
 // abort quietly.
 
-try {
-  var binding = require('./build/Release/binding');
-} catch (er) {
-  throw new Error('misc/function_call.js Binding failed to load');
-}
+// Run `make benchmark/misc/function_call/build/Release/binding.node`
+// to build the addon.
+const binding = require('./build/Release/binding');
 const cxx = binding.hello;
 
 var c = 0;
