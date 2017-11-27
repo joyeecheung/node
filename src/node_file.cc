@@ -52,6 +52,7 @@ using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
 using v8::HandleScope;
 using v8::Integer;
+using v8::Isolate;
 using v8::Local;
 using v8::MaybeLocal;
 using v8::Number;
@@ -178,6 +179,15 @@ void After(uv_fs_t *req) {
 
   if (req->result < 0) {
     // An error happened.
+    // TODO(joyeecheung): make it a normal object with the context, and
+    // construct the actual errors in the JS land using the context.
+    // The context should include fds for some fs APIs, currently they are
+    // missing in the error messages. The path, dest, syscall, fd, .etc
+    // can be put into the context before the binding is even invoked,
+    // the only information that has to come from the C++ layer is the
+    // error number (and possibly the syscall for abstraction),
+    // which is also why the errors should have been constructed
+    // in JS for more flexibility.
     argv[0] = UVException(env->isolate(),
                           req->result,
                           req_wrap->syscall(),
@@ -353,9 +363,9 @@ class fs_req_wrap {
 template <typename Func, typename... Args>
 inline FSReqWrap* AsyncDestCall(Environment* env, Local<Object> req,
     const char* dest, enum encoding enc, const char* syscall,
-    Func fn, Args... args) {
+    Func fn, Args... fn_args) {
   FSReqWrap* req_wrap = FSReqWrap::New(env, req, syscall, dest, enc);
-  int err = fn(env->event_loop(), req_wrap->req(), args..., After);
+  int err = fn(env->event_loop(), req_wrap->req(), fn_args..., After);
   req_wrap->Dispatched();
   if (err < 0) {
     uv_fs_t* uv_req = req_wrap->req();
@@ -371,8 +381,8 @@ inline FSReqWrap* AsyncDestCall(Environment* env, Local<Object> req,
 // Template counterpart of ASYNC_CALL
 template <typename Func, typename... Args>
 inline FSReqWrap* AsyncCall(Environment* env, Local<Object> req,
-    enum encoding enc, const char* syscall, Func fn, Args... args) {
-  return AsyncDestCall(env, req, nullptr, enc, syscall, fn, args...);
+    enum encoding enc, const char* syscall, Func fn, Args... fn_args) {
+  return AsyncDestCall(env, req, nullptr, enc, syscall, fn, fn_args...);
 }
 
 #define ASYNC_DEST_CALL(func, request, dest, encoding, ...)                   \
@@ -398,26 +408,37 @@ inline FSReqWrap* AsyncCall(Environment* env, Local<Object> req,
 #define ASYNC_CALL(func, req, encoding, ...)                                  \
   ASYNC_DEST_CALL(func, req, nullptr, encoding, __VA_ARGS__)                  \
 
-// Template counterpart of SYNC_DEST_CALL
+// Template counterpart of SYNC_DEST_CALL, except that it only puts
+// the error number and the syscall in the context instead of
+// creating an error in the C++ land.
 template <typename Func, typename... Args>
-inline void SyncDestCall(Environment* env, Local<Value> ctx,
-    const char* path, const char* dest, const char* syscall,
-    Func fn, Args... args) {
+inline void SyncDestCall(Environment* env,
+    const FunctionCallbackInfo<Value>& args, const char* syscall,
+    Func fn, Args... fn_args) {
   fs_req_wrap req_wrap;
   env->PrintSyncTrace();
-  int err = fn(env->event_loop(), &req_wrap.req, args..., nullptr);
+  int err = fn(env->event_loop(), &req_wrap.req, fn_args..., nullptr);
   if (err) {
     Local<Context> context = env->context();
-    Local<Object> ctx_obj = ctx->ToObject(context).ToLocalChecked();
-    env->CollectUVExceptionInfo(ctx_obj, err, syscall, nullptr, path, dest);
+    Isolate *isolate = env->isolate();
+    // Error context is the last argument
+    Local<Object> ctx_obj =
+        args[args.Length() - 1]->ToObject(context).ToLocalChecked();
+    ctx_obj->Set(context,
+                 env->errno_string(),
+                 Integer::New(isolate, err)).FromJust();
+    ctx_obj->Set(context,
+             env->syscall_string(),
+             OneByteString(isolate, syscall)).FromJust();
   }
 }
 
 // Template counterpart of SYNC_CALL
 template <typename Func, typename... Args>
-inline void SyncCall(Environment* env, Local<Value> ctx,
-    const char* path, const char* syscall, Func fn, Args... args) {
-  return SyncDestCall(env, ctx, path, nullptr, syscall, fn, args...);
+inline void SyncCall(Environment* env,
+    const FunctionCallbackInfo<Value>& args, const char* syscall,
+    Func fn, Args... fn_args) {
+  return SyncDestCall(env, args, syscall, fn, fn_args...);
 }
 
 #define SYNC_DEST_CALL(func, path, dest, ...)                                 \
@@ -456,25 +477,29 @@ void Access(const FunctionCallbackInfo<Value>& args) {
       args.GetReturnValue().Set(req_wrap->persistent());
     }
   } else {
-    SyncCall(env, args[3], *path, "access", uv_fs_access, *path, mode);
+    SyncCall(env, args, "access", uv_fs_access, *path, mode);
   }
 }
 
 
 void Close(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
+  Local<Context> context = env->context();
 
-  if (args.Length() < 1)
-    return TYPE_ERROR("fd is required");
-  if (!args[0]->IsInt32())
-    return TYPE_ERROR("fd must be a file descriptor");
+  CHECK_GE(args.Length(), 1);
+  CHECK(args[0]->IsInt32());
 
-  int fd = args[0]->Int32Value();
+  int fd = static_cast<int>(args[0]->Int32Value(context).FromJust());
 
   if (args[1]->IsObject()) {
-    ASYNC_CALL(close, args[1], UTF8, fd)
+    Local<Object> req_obj = args[1]->ToObject(context).ToLocalChecked();
+    FSReqWrap* req_wrap = AsyncCall(
+        env, req_obj, UTF8, "close", uv_fs_close, fd);
+    if (req_wrap != nullptr) {
+      args.GetReturnValue().Set(req_wrap->persistent());
+    }
   } else {
-    SYNC_CALL(close, 0, fd)
+    SyncCall(env, args, "close", uv_fs_close, fd);
   }
 }
 
