@@ -276,3 +276,54 @@ not inside of nested calls.
 Using C++ `throw` is not allowed.
 
 [errors]: https://github.com/nodejs/node/blob/master/doc/guides/using-internal-errors.md
+
+## Use `Maybe` version of V8 APIs
+
+V8 has deprecated a lot of APIs that do not signal failures properly.
+When compiling Node.js with a non-GCC compiler, the deprecation warnings
+may not appear and can be neglected.
+
+When using a V8 API, be sure to check if there is a `Maybe` version available
+(look for the prototypes in `deps/v8/include/v8.h`), and use that if possible.
+For example, when setting a property on an object, instead of:
+
+```cpp
+// Get a Environment* env from somewhere
+Local<String> key = env->message_string();
+Local<Value> value = obj->Get(key);
+```
+
+do
+
+```cpp
+Local<String> key = env->message_string();
+MaybeLocal<Value> maybe = obj->Get(env->context(), key);
+```
+
+To handle the returned maybe, if you do not forsee any exception from the
+previous operation, or do not know how to handle them and just want to abort
+if any exception occurs, simply call `FromJust()` or `ToLocalChecked()` to get
+the value or handle inside the `Maybe`.
+
+```cpp
+Local<String> key = env->message_string();
+Local<Value> value = obj->Get(env->context(), key).ToLocalChecked();
+```
+
+If you forsee that there could be exceptions from the operation (for example,
+when you are calling a function provided by users, or the maximum call stack
+size could be reached), and want the exception to be thrown in JavaScript,
+use `IsEmpty()` to check the status of the `Maybe` and return to JavaScript
+after necessary cleanup.
+
+```cpp
+MaybeLocal<Value> maybe = fn->Call(env->context(),
+                                   Undefined(env->isolate()),
+                                   arraysize(args),
+                                   args);
+if (maybe.IsEmpty()) {  // Exception occurs during function call
+  // Do some clean up
+  return;  // Back to JavaScript and let it throw
+}
+Local<Value> result = maybe.ToLocalChecked();
+```
