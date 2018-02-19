@@ -562,3 +562,23 @@ function re(literals, ...values) {
     );
   });
 }
+
+// fchmod
+{
+  const validateError = (err) => {
+    assert.strictEqual(err.message, 'EBADF: bad file descriptor, fchmod');
+    assert.strictEqual(err.errno, uv.UV_EBADF);
+    assert.strictEqual(err.code, 'EBADF');
+    assert.strictEqual(err.syscall, 'fchmod');
+    return true;
+  };
+
+  common.runWithInvalidFD((fd) => {
+    fs.fchmod(fd, 0o666, common.mustCall(validateError));
+
+    assert.throws(
+      () => fs.fchmodSync(fd, 0o666),
+      validateError
+    );
+  });
+}
