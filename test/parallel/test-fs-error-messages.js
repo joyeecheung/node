@@ -648,3 +648,23 @@ if (!common.isAIX) {
     validateError
   );
 }
+
+// utimes
+if (!common.isAIX) {
+  const validateError = (err) => {
+    assert.strictEqual(err.message, 'EBADF: bad file descriptor, futime');
+    assert.strictEqual(err.errno, uv.UV_EBADF);
+    assert.strictEqual(err.code, 'EBADF');
+    assert.strictEqual(err.syscall, 'futime');
+    return true;
+  };
+
+  common.runWithInvalidFD((fd) => {
+    fs.futimes(fd, new Date(), new Date(), common.mustCall(validateError));
+
+    assert.throws(
+      () => fs.futimesSync(fd, new Date(), new Date()),
+      validateError
+    );
+  });
+}
