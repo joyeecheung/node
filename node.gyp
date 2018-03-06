@@ -23,8 +23,8 @@
     'node_enable_v8_vtunejit%': 'false',
     'node_core_target_name%': 'node',
     'library_files': [
-      'lib/internal/bootstrap_loaders.js',
-      'lib/internal/bootstrap_node.js',
+      'lib/internal/bootstrap/loaders.js',
+      'lib/internal/bootstrap/node.js',
       'lib/async_hooks.js',
       'lib/assert.js',
       'lib/buffer.js',
