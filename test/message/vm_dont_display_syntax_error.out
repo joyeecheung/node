@@ -14,4 +14,4 @@ SyntaxError: Unexpected number
     at tryModuleLoad (module.js:*:*)
     at Function.Module._load (module.js:*)
     at Function.Module.runMain (module.js:*)
-    at startup (bootstrap_node.js:*:*)
+    at startup (internal/bootstrap/node.js:*:*)
