@@ -5,9 +5,20 @@ const http = require('http');
 
 // All of these values should cause http.request() to throw synchronously
 // when passed as the value of either options.hostname or options.host
-const vals = [{}, [], NaN, Infinity, -Infinity, true, false, 1, 0, new Date()];
+const vals = [
+  [{}, 'Object'],
+  [[], 'Array'],
+  [NaN, 'number'],
+  [Infinity, 'number'],
+  [-Infinity, 'number'],
+  [true, 'boolean'],
+  [false, 'boolean'],
+  [1, 'number'],
+  [0, 'number'],
+  [new Date(), 'Date']
+];
 
-vals.forEach((v) => {
+vals.forEach(([v, type]) => {
   common.expectsError(
     () => http.request({ hostname: v }),
     {
@@ -15,7 +26,7 @@ vals.forEach((v) => {
       type: TypeError,
       message: 'The "options.hostname" property must be one of ' +
                'type string, undefined, or null. ' +
-               `Received type ${typeof v}`
+               `Received type ${type}`
     }
   );
 
@@ -26,7 +37,7 @@ vals.forEach((v) => {
       type: TypeError,
       message: 'The "options.host" property must be one of ' +
                'type string, undefined, or null. ' +
-               `Received type ${typeof v}`
+               `Received type ${type}`
     }
   );
 });

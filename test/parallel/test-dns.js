@@ -115,7 +115,7 @@ common.expectsError(() => {
   code: 'ERR_INVALID_ARG_TYPE',
   type: TypeError,
   message: 'The "rrtype" argument must be of type string. ' +
-           'Received type object'
+           'Received type Array'
 });
 
 // dns.lookup should accept only falsey and string values

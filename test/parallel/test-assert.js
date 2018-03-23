@@ -317,40 +317,36 @@ try {
 
 {
   // Verify that throws() and doesNotThrow() throw on non-function block.
-  function typeName(value) {
-    return value === null ? 'null' : typeof value;
-  }
-
-  const testBlockTypeError = (method, block) => {
+  const testBlockTypeError = (method, block, typeName) => {
     common.expectsError(
       () => method(block),
       {
         code: 'ERR_INVALID_ARG_TYPE',
         type: TypeError,
         message: 'The "block" argument must be of type Function. Received ' +
-                `type ${typeName(block)}`
+                `type ${typeName}`
       }
     );
   };
 
-  testBlockTypeError(assert.throws, 'string');
-  testBlockTypeError(assert.doesNotThrow, 'string');
-  testBlockTypeError(assert.throws, 1);
-  testBlockTypeError(assert.doesNotThrow, 1);
-  testBlockTypeError(assert.throws, true);
-  testBlockTypeError(assert.doesNotThrow, true);
-  testBlockTypeError(assert.throws, false);
-  testBlockTypeError(assert.doesNotThrow, false);
-  testBlockTypeError(assert.throws, []);
-  testBlockTypeError(assert.doesNotThrow, []);
-  testBlockTypeError(assert.throws, {});
-  testBlockTypeError(assert.doesNotThrow, {});
-  testBlockTypeError(assert.throws, /foo/);
-  testBlockTypeError(assert.doesNotThrow, /foo/);
-  testBlockTypeError(assert.throws, null);
-  testBlockTypeError(assert.doesNotThrow, null);
-  testBlockTypeError(assert.throws, undefined);
-  testBlockTypeError(assert.doesNotThrow, undefined);
+  testBlockTypeError(assert.throws, 'string', 'string');
+  testBlockTypeError(assert.doesNotThrow, 'string', 'string');
+  testBlockTypeError(assert.throws, 1, 'number');
+  testBlockTypeError(assert.doesNotThrow, 1, 'number');
+  testBlockTypeError(assert.throws, true, 'boolean');
+  testBlockTypeError(assert.doesNotThrow, true, 'boolean');
+  testBlockTypeError(assert.throws, false, 'boolean');
+  testBlockTypeError(assert.doesNotThrow, false, 'boolean');
+  testBlockTypeError(assert.throws, [], 'Array');
+  testBlockTypeError(assert.doesNotThrow, [], 'Array');
+  testBlockTypeError(assert.throws, {}, 'Object');
+  testBlockTypeError(assert.doesNotThrow, {}, 'Object');
+  testBlockTypeError(assert.throws, /foo/, 'RegExp');
+  testBlockTypeError(assert.doesNotThrow, /foo/, 'RegExp');
+  testBlockTypeError(assert.throws, null, 'null');
+  testBlockTypeError(assert.doesNotThrow, null, 'null');
+  testBlockTypeError(assert.throws, undefined, 'undefined');
+  testBlockTypeError(assert.doesNotThrow, undefined, 'undefined');
 }
 
 // https://github.com/nodejs/node/issues/3275
@@ -805,7 +801,7 @@ common.expectsError(
       type: TypeError,
       code: 'ERR_INVALID_ARG_TYPE',
       message: 'The "expected" argument must be one of type Function or ' +
-               'RegExp. Received type object'
+               'RegExp. Received type Object'
     }
   );
 

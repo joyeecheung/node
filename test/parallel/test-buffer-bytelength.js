@@ -6,18 +6,18 @@ const SlowBuffer = require('buffer').SlowBuffer;
 const vm = require('vm');
 
 [
-  [32, 'latin1'],
-  [NaN, 'utf8'],
-  [{}, 'latin1'],
-  []
-].forEach((args) => {
+  [[32, 'latin1'], 'number'],
+  [[NaN, 'utf8'], 'number'],
+  [[{}, 'latin1'], 'Object'],
+  [[], 'undefined']
+].forEach(([args, type]) => {
   common.expectsError(
     () => Buffer.byteLength(...args),
     {
       code: 'ERR_INVALID_ARG_TYPE',
       type: TypeError,
       message: 'The "string" argument must be one of type string, ' +
-               `Buffer, or ArrayBuffer. Received type ${typeof args[0]}`
+               `Buffer, or ArrayBuffer. Received type ${type}`
     }
   );
 });

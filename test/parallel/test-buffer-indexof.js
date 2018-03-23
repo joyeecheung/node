@@ -347,17 +347,17 @@ assert.strictEqual(Buffer.from('aaaaa').indexOf('b', 'ucs2'), -1);
 }
 
 [
-  () => {},
-  {},
-  []
-].forEach((val) => {
+  [() => {}, 'function'],
+  [{}, 'Object'],
+  [[], 'Array']
+].forEach(([val, type]) => {
   common.expectsError(
     () => b.indexOf(val),
     {
       code: 'ERR_INVALID_ARG_TYPE',
       type: TypeError,
       message: 'The "value" argument must be one of type string, ' +
-               `Buffer, or Uint8Array. Received type ${typeof val}`
+               `Buffer, or Uint8Array. Received type ${type}`
     }
   );
 });

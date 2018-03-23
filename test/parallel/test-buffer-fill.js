@@ -187,15 +187,15 @@ common.expectsError(
 );
 
 [
-  ['a', 0, 0, NaN],
-  ['a', 0, 0, false]
-].forEach((args) => {
+  [['a', 0, 0, NaN], 'number'],
+  [['a', 0, 0, false], 'boolean']
+].forEach(([args, type]) => {
   common.expectsError(
     () => buf1.fill(...args),
     {
       code: 'ERR_INVALID_ARG_TYPE',
       message: 'The "encoding" argument must be of type ' +
-      `string. Received type ${args[3] === null ? 'null' : typeof args[3]}`
+      `string. Received type ${type}`
     }
   );
 });

@@ -1,6 +1,7 @@
 // Flags: --expose-internals
 'use strict';
 const common = require('../common');
+const fixtures = require('../common/fixtures');
 
 const assert = require('assert');
 const errors = require('internal/errors');
@@ -119,6 +120,15 @@ assert.strictEqual(
 assert.strictEqual(
   errors.message('ERR_INVALID_ARG_TYPE', [['a', 'b', 'c'], 'not d']),
   'The "a", "b", "c" arguments must not be of type d');
+
+const wasmBuffer = fixtures.readSync('test.wasm');
+assert.strictEqual(
+  errors.message(
+    'ERR_INVALID_ARG_TYPE', ['a', 'b', new WebAssembly.Module(wasmBuffer)]
+  ),
+  'The "a" argument must be of type b. Received type ' +
+  'Module [WebAssembly.Module]'
+);
 
 // Test ERR_INVALID_FD_TYPE
 assert.strictEqual(errors.message('ERR_INVALID_FD_TYPE', ['a']),

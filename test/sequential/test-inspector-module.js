@@ -20,7 +20,14 @@ common.expectsError(
 session.connect();
 session.post('Runtime.evaluate', { expression: '2 + 2' });
 
-[1, {}, [], true, Infinity, undefined].forEach((i) => {
+[
+  [1, 'number'],
+  [{}, 'Object'],
+  [[], 'Array'],
+  [true, 'boolean'],
+  [Infinity, 'number'],
+  [undefined, 'undefined']
+].forEach(([i, type]) => {
   common.expectsError(
     () => session.post(i),
     {
@@ -28,12 +35,16 @@ session.post('Runtime.evaluate', { expression: '2 + 2' });
       type: TypeError,
       message:
         'The "method" argument must be of type string. ' +
-        `Received type ${typeof i}`
+        `Received type ${type}`
     }
   );
 });
 
-[1, true, Infinity].forEach((i) => {
+[
+  [1, 'number'],
+  [true, 'boolean'],
+  [Infinity, 'number']
+].forEach(([i, type]) => {
   common.expectsError(
     () => session.post('test', i),
     {

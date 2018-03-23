@@ -23,14 +23,18 @@ keys.forEach((key) => {
 });
 
 function runTest(fn) {
-  ['test', {}, []].forEach((err) => {
+  [
+    ['test', 'string'],
+    [{}, 'Object'],
+    [[], 'Array']
+  ].forEach(([err, type]) => {
     common.expectsError(
       () => fn(err),
       {
         code: 'ERR_INVALID_ARG_TYPE',
         type: TypeError,
         message: 'The "err" argument must be of type number. ' +
-                 `Received type ${typeof err}`
+                 `Received type ${type}`
       });
   });
 

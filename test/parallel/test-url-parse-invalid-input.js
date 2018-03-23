@@ -11,8 +11,8 @@ const url = require('url');
   [false, 'boolean'],
   [0.0, 'number'],
   [0, 'number'],
-  [[], 'object'],
-  [{}, 'object'],
+  [[], 'Array'],
+  [{}, 'Object'],
   [() => {}, 'function'],
   [Symbol('foo'), 'symbol']
 ].forEach(([val, type]) => {
