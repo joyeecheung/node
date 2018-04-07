@@ -397,8 +397,7 @@ void FSReqWrap::Reject(Local<Value> reject) {
 }
 
 void FSReqWrap::ResolveStat(const uv_stat_t* stat) {
-  node::FillGlobalStatsArray(env(), stat);
-  Resolve(env()->fs_stats_field_array()->GetJSArray());
+  Resolve(node::FillGlobalStatsArray(env(), stat));
 }
 
 void FSReqWrap::Resolve(Local<Value> value) {
@@ -813,10 +812,13 @@ static void Stat(const FunctionCallbackInfo<Value>& args) {
     CHECK_EQ(argc, 3);
     FSReqWrapSync req_wrap_sync;
     int err = SyncCall(env, args[2], &req_wrap_sync, "stat", uv_fs_stat, *path);
-    if (err == 0) {
-      node::FillGlobalStatsArray(env,
-          static_cast<const uv_stat_t*>(req_wrap_sync.req.ptr));
+    if (err != 0) {
+      return;  // error info is in ctx
     }
+
+    Local<Value> arr = node::FillGlobalStatsArray(env,
+        static_cast<const uv_stat_t*>(req_wrap_sync.req.ptr));
+    args.GetReturnValue().Set(arr);
   }
 }
 
@@ -838,10 +840,13 @@ static void LStat(const FunctionCallbackInfo<Value>& args) {
     FSReqWrapSync req_wrap_sync;
     int err = SyncCall(env, args[2], &req_wrap_sync, "lstat", uv_fs_lstat,
                        *path);
-    if (err == 0) {
-      node::FillGlobalStatsArray(env,
-          static_cast<const uv_stat_t*>(req_wrap_sync.req.ptr));
+    if (err != 0) {
+      return;  // error info is in ctx
     }
+
+    Local<Value> arr = node::FillGlobalStatsArray(env,
+        static_cast<const uv_stat_t*>(req_wrap_sync.req.ptr));
+    args.GetReturnValue().Set(arr);
   }
 }
 
@@ -862,10 +867,13 @@ static void FStat(const FunctionCallbackInfo<Value>& args) {
     CHECK_EQ(argc, 3);
     FSReqWrapSync req_wrap_sync;
     int err = SyncCall(env, args[2], &req_wrap_sync, "fstat", uv_fs_fstat, fd);
-    if (err == 0) {
-      node::FillGlobalStatsArray(env,
-          static_cast<const uv_stat_t*>(req_wrap_sync.req.ptr));
+    if (err != 0) {
+      return;  // error info is in ctx
     }
+
+    Local<Value> arr = node::FillGlobalStatsArray(env,
+        static_cast<const uv_stat_t*>(req_wrap_sync.req.ptr));
+    args.GetReturnValue().Set(arr);
   }
 }
 
