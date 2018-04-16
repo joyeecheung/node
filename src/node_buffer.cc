@@ -21,6 +21,7 @@
 
 #include "node.h"
 #include "node_buffer.h"
+#include "node_errors.h"
 
 #include "env-inl.h"
 #include "string_bytes.h"
@@ -38,7 +39,9 @@
 
 #define THROW_AND_RETURN_IF_OOB(r)                                          \
   do {                                                                      \
-    if (!(r)) return env->ThrowRangeError("Index out of range");            \
+    if (!(r)) {                                                             \
+      isolate->ThrowException(node::ERR_INDEX_OUT_OF_RANGE(isolate));       \
+    }                                                                       \
   } while (0)
 
 #define SLICE_START_END(start_arg, end_arg, end_max)                        \
@@ -523,6 +526,7 @@ void StringSlice<UCS2>(const FunctionCallbackInfo<Value>& args) {
 // bytesCopied = copy(buffer, target[, targetStart][, sourceStart][, sourceEnd])
 void Copy(const FunctionCallbackInfo<Value> &args) {
   Environment* env = Environment::GetCurrent(args);
+  Isolate* isolate = env->isolate();
 
   THROW_AND_RETURN_UNLESS_BUFFER(env, args[0]);
   THROW_AND_RETURN_UNLESS_BUFFER(env, args[1]);
@@ -543,8 +547,10 @@ void Copy(const FunctionCallbackInfo<Value> &args) {
   if (target_start >= target_length || source_start >= source_end)
     return args.GetReturnValue().Set(0);
 
-  if (source_start > ts_obj_length)
-    return env->ThrowRangeError("Index out of range");
+  if (source_start > ts_obj_length) {
+    isolate->ThrowException(node::ERR_INDEX_OUT_OF_RANGE(isolate));
+    return;
+  }
 
   if (source_end - source_start > target_length - target_start)
     source_end = source_start + target_length - target_start;
@@ -652,6 +658,7 @@ void Fill(const FunctionCallbackInfo<Value>& args) {
 template <encoding encoding>
 void StringWrite(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
+  Isolate* isolate = env->isolate();
 
   THROW_AND_RETURN_UNLESS_BUFFER(env, args.This());
   SPREAD_BUFFER_ARG(args.This(), ts_obj);
@@ -711,6 +718,7 @@ static int normalizeCompareVal(int val, size_t a_length, size_t b_length) {
 
 void CompareOffset(const FunctionCallbackInfo<Value> &args) {
   Environment* env = Environment::GetCurrent(args);
+  Isolate* isolate = env->isolate();
 
   THROW_AND_RETURN_UNLESS_BUFFER(env, args[0]);
   THROW_AND_RETURN_UNLESS_BUFFER(env, args[1]);
