@@ -51,7 +51,6 @@ exports.harness = {
 
 
 function failWithTest(test, reason) {
-  console.log(test);
   let message = reason + ': ' + test.name + '\n';
   message += test.message;
   message += test.stack;
