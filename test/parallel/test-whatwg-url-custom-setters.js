@@ -10,7 +10,7 @@ if (!common.hasIntl) {
 
 const assert = require('assert');
 const URL = require('url').URL;
-const { test, assert_equals } = require('../common/wpt');
+const { test, assert_equals } = require('../common/wpt').harness;
 const fixtures = require('../common/fixtures');
 
 const additionalTestCases =

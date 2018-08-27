@@ -1,19 +1,3 @@
-'use strict';
-
-require('../common');
-const URLSearchParams = require('url').URLSearchParams;
-const {
-  test, assert_equals, assert_true,
-  assert_false, assert_throws, assert_array_equals
-} = require('../common/wpt');
-
-/* The following tests are copied from WPT. Modifications to them should be
-   upstreamed first. Refs:
-   https://github.com/w3c/web-platform-tests/blob/54c3502d7b/url/urlsearchparams-constructor.html
-   License: http://www.w3.org/Consortium/Legal/2008/04-testsuite-copyright.html
-*/
-/* eslint-disable */
-var params;  // Strict mode fix for WPT.
 test(function() {
     var params = new URLSearchParams();
     assert_equals(params + '', '');
@@ -30,19 +14,21 @@ test(function() {
     assert_equals(params.toString(), "")
 }, "URLSearchParams constructor, no arguments")
 
-// test(() => {
-//     params = new URLSearchParams(DOMException.prototype);
-//     assert_equals(params.toString(), "INDEX_SIZE_ERR=1&DOMSTRING_SIZE_ERR=2&HIERARCHY_REQUEST_ERR=3&WRONG_DOCUMENT_ERR=4&INVALID_CHARACTER_ERR=5&NO_DATA_ALLOWED_ERR=6&NO_MODIFICATION_ALLOWED_ERR=7&NOT_FOUND_ERR=8&NOT_SUPPORTED_ERR=9&INUSE_ATTRIBUTE_ERR=10&INVALID_STATE_ERR=11&SYNTAX_ERR=12&INVALID_MODIFICATION_ERR=13&NAMESPACE_ERR=14&INVALID_ACCESS_ERR=15&VALIDATION_ERR=16&TYPE_MISMATCH_ERR=17&SECURITY_ERR=18&NETWORK_ERR=19&ABORT_ERR=20&URL_MISMATCH_ERR=21&QUOTA_EXCEEDED_ERR=22&TIMEOUT_ERR=23&INVALID_NODE_TYPE_ERR=24&DATA_CLONE_ERR=25")
-// }, "URLSearchParams constructor, DOMException.prototype as argument")
+test(() => {
+    var params = new URLSearchParams(DOMException);
+    assert_equals(params.toString(), "INDEX_SIZE_ERR=1&DOMSTRING_SIZE_ERR=2&HIERARCHY_REQUEST_ERR=3&WRONG_DOCUMENT_ERR=4&INVALID_CHARACTER_ERR=5&NO_DATA_ALLOWED_ERR=6&NO_MODIFICATION_ALLOWED_ERR=7&NOT_FOUND_ERR=8&NOT_SUPPORTED_ERR=9&INUSE_ATTRIBUTE_ERR=10&INVALID_STATE_ERR=11&SYNTAX_ERR=12&INVALID_MODIFICATION_ERR=13&NAMESPACE_ERR=14&INVALID_ACCESS_ERR=15&VALIDATION_ERR=16&TYPE_MISMATCH_ERR=17&SECURITY_ERR=18&NETWORK_ERR=19&ABORT_ERR=20&URL_MISMATCH_ERR=21&QUOTA_EXCEEDED_ERR=22&TIMEOUT_ERR=23&INVALID_NODE_TYPE_ERR=24&DATA_CLONE_ERR=25")
+    assert_throws(new TypeError(), () => new URLSearchParams(DOMException.prototype),
+                  "Constructing a URLSearchParams from DOMException.prototype should throw due to branding checks");
+}, "URLSearchParams constructor, DOMException as argument")
 
 test(() => {
-    params = new URLSearchParams('');
+    var params = new URLSearchParams('');
     assert_true(params != null, 'constructor returned non-null value.');
     assert_equals(params.__proto__, URLSearchParams.prototype, 'expected URLSearchParams.prototype as prototype.');
 }, "URLSearchParams constructor, empty string as argument")
 
 test(() => {
-    params = new URLSearchParams({});
+    var params = new URLSearchParams({});
     assert_equals(params + '', "");
 }, 'URLSearchParams constructor, {} as argument');
 
@@ -51,11 +37,13 @@ test(function() {
     assert_true(params != null, 'constructor returned non-null value.');
     assert_true(params.has('a'), 'Search params object has name "a"');
     assert_false(params.has('b'), 'Search params object has not got name "b"');
-    var params = new URLSearchParams('a=b&c');
+
+    params = new URLSearchParams('a=b&c');
     assert_true(params != null, 'constructor returned non-null value.');
     assert_true(params.has('a'), 'Search params object has name "a"');
     assert_true(params.has('c'), 'Search params object has name "c"');
-    var params = new URLSearchParams('&a&&& &&&&&a+b=& c&m%c3%b8%c3%b8');
+
+    params = new URLSearchParams('&a&&& &&&&&a+b=& c&m%c3%b8%c3%b8');
     assert_true(params != null, 'constructor returned non-null value.');
     assert_true(params.has('a'), 'Search params object has name "a"');
     assert_true(params.has('a b'), 'Search params object has name "a b"');
@@ -181,11 +169,10 @@ test(function() {
 })
 
 test(() => {
-  params = new URLSearchParams()
+  var params = new URLSearchParams()
   params[Symbol.iterator] = function *() {
     yield ["a", "b"]
   }
   let params2 = new URLSearchParams(params)
   assert_equals(params2.get("a"), "b")
 }, "Custom [Symbol.iterator]")
-/* eslint-enable */

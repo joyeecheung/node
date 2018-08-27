@@ -1,16 +1,3 @@
-'use strict';
-
-require('../common');
-const URLSearchParams = require('url').URLSearchParams;
-const { test, assert_equals, assert_true, assert_array_equals } =
-  require('../common/wpt');
-
-/* The following tests are copied from WPT. Modifications to them should be
-   upstreamed first. Refs:
-   https://github.com/w3c/web-platform-tests/blob/8791bed/url/urlsearchparams-getall.html
-   License: http://www.w3.org/Consortium/Legal/2008/04-testsuite-copyright.html
-*/
-/* eslint-disable */
 test(function() {
     var params = new URLSearchParams('a=b&c=d');
     assert_array_equals(params.getAll('a'), ['b']);
@@ -36,4 +23,3 @@ test(function() {
     assert_true(matches && matches.length == 1, 'Search params object has values for name "a"');
     assert_array_equals(matches, ['one'], 'Search params object has expected name "a" values');
 }, 'getAll() multiples');
-/* eslint-enable */

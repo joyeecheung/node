@@ -1,15 +1,3 @@
-'use strict';
-
-require('../common');
-const URLSearchParams = require('url').URLSearchParams;
-const { test, assert_false, assert_true } = require('../common/wpt');
-
-/* The following tests are copied from WPT. Modifications to them should be
-   upstreamed first. Refs:
-   https://github.com/w3c/web-platform-tests/blob/8791bed/url/urlsearchparams-has.html
-   License: http://www.w3.org/Consortium/Legal/2008/04-testsuite-copyright.html
-*/
-/* eslint-disable */
 test(function() {
     var params = new URLSearchParams('a=b&c=d');
     assert_true(params.has('a'));
@@ -34,4 +22,3 @@ test(function() {
     params.delete('first');
     assert_false(params.has('first'), 'Search params object has no name "first"');
 }, 'has() following delete()');
-/* eslint-enable */

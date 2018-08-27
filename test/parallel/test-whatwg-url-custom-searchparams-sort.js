@@ -4,7 +4,7 @@
 
 require('../common');
 const { URL, URLSearchParams } = require('url');
-const { test, assert_array_equals } = require('../common/wpt');
+const { test, assert_array_equals } = require('../common/wpt').harness;
 
 // Test bottom-up iterative stable merge sort
 const tests = [{ input: '', output: [] }];

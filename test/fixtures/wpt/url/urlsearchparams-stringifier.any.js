@@ -1,15 +1,3 @@
-'use strict';
-
-require('../common');
-const URLSearchParams = require('url').URLSearchParams;
-const { test, assert_equals } = require('../common/wpt');
-
-/* The following tests are copied from WPT. Modifications to them should be
-   upstreamed first. Refs:
-   https://github.com/w3c/web-platform-tests/blob/8791bed/url/urlsearchparams-stringifier.html
-   License: http://www.w3.org/Consortium/Legal/2008/04-testsuite-copyright.html
-*/
-/* eslint-disable */
 test(function() {
     var params = new URLSearchParams();
     params.append('a', 'b c');
@@ -120,4 +108,16 @@ test(function() {
     params = new URLSearchParams('a=&a=b');
     assert_equals(params.toString(), 'a=&a=b');
 }, 'URLSearchParams.toString');
-/* eslint-enable */
+
+test(() => {
+    const url = new URL('http://www.example.com/?a=b,c');
+    const params = url.searchParams;
+
+    assert_equals(url.toString(), 'http://www.example.com/?a=b,c');
+    assert_equals(params.toString(), 'a=b%2Cc');
+
+    params.append('x', 'y');
+
+    assert_equals(url.toString(), 'http://www.example.com/?a=b%2Cc&x=y');
+    assert_equals(params.toString(), 'a=b%2Cc&x=y');
+}, 'URLSearchParams connected to URL');

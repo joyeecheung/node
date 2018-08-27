@@ -1,15 +1,3 @@
-'use strict';
-
-require('../common');
-const URLSearchParams = require('url').URLSearchParams;
-const { test, assert_equals, assert_true } = require('../common/wpt');
-
-/* The following tests are copied from WPT. Modifications to them should be
-   upstreamed first. Refs:
-   https://github.com/w3c/web-platform-tests/blob/8791bed/url/urlsearchparams-append.html
-   License: http://www.w3.org/Consortium/Legal/2008/04-testsuite-copyright.html
-*/
-/* eslint-disable */
 test(function() {
     var params = new URLSearchParams();
     params.append('a', 'b');
@@ -19,6 +7,7 @@ test(function() {
     params.append('a', 'c');
     assert_equals(params + '', 'a=b&a=b&a=c');
 }, 'Append same name');
+
 test(function() {
     var params = new URLSearchParams();
     params.append('', '');
@@ -26,6 +15,7 @@ test(function() {
     params.append('', '');
     assert_equals(params + '', '=&=');
 }, 'Append empty strings');
+
 test(function() {
     var params = new URLSearchParams();
     params.append(null, null);
@@ -33,6 +23,7 @@ test(function() {
     params.append(null, null);
     assert_equals(params + '', 'null=null&null=null');
 }, 'Append null');
+
 test(function() {
     var params = new URLSearchParams();
     params.append('first', 1);
@@ -46,4 +37,3 @@ test(function() {
     params.append('first', 10);
     assert_equals(params.get('first'), '1', 'Search params object has name "first" with value "1"');
 }, 'Append multiple');
-/* eslint-enable */

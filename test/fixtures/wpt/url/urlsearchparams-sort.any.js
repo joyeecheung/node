@@ -1,15 +1,3 @@
-'use strict';
-
-require('../common');
-const { URL, URLSearchParams } = require('url');
-const { test, assert_equals, assert_array_equals } = require('../common/wpt');
-
-/* The following tests are copied from WPT. Modifications to them should be
-   upstreamed first. Refs:
-   https://github.com/w3c/web-platform-tests/blob/70a0898763/url/urlsearchparams-sort.html
-   License: http://www.w3.org/Consortium/Legal/2008/04-testsuite-copyright.html
-*/
-/* eslint-disable */
 [
   {
     "input": "z=b&a=b&z=a&a=a",
@@ -30,6 +18,18 @@ const { test, assert_equals, assert_array_equals } = require('../common/wpt');
   {
     "input": "z=z&a=a&z=y&a=b&z=x&a=c&z=w&a=d&z=v&a=e&z=u&a=f&z=t&a=g",
     "output": [["a", "a"], ["a", "b"], ["a", "c"], ["a", "d"], ["a", "e"], ["a", "f"], ["a", "g"], ["z", "z"], ["z", "y"], ["z", "x"], ["z", "w"], ["z", "v"], ["z", "u"], ["z", "t"]]
+  },
+  {
+    "input": "bbb&bb&aaa&aa=x&aa=y",
+    "output": [["aa", "x"], ["aa", "y"], ["aaa", ""], ["bb", ""], ["bbb", ""]]
+  },
+  {
+    "input": "z=z&=f&=t&=x",
+    "output": [["", "f"], ["", "t"], ["", "x"], ["z", "z"]]
+  },
+  {
+    "input": "a🌈&a💩",
+    "output": [["a🌈", ""], ["a💩", ""]]
   }
 ].forEach((val) => {
   test(() => {
@@ -40,10 +40,10 @@ const { test, assert_equals, assert_array_equals } = require('../common/wpt');
       assert_array_equals(param, val.output[i])
       i++
     }
-  }, `Parse and sort: ${val.input}`)
+  }, "Parse and sort: " + val.input)
 
   test(() => {
-    let url = new URL(`?${val.input}`, "https://example/")
+    let url = new URL("?" + val.input, "https://example/")
     url.searchParams.sort()
     let params = new URLSearchParams(url.search),
         i = 0
@@ -51,7 +51,7 @@ const { test, assert_equals, assert_array_equals } = require('../common/wpt');
       assert_array_equals(param, val.output[i])
       i++
     }
-  }, `URL parse and sort: ${val.input}`)
+  }, "URL parse and sort: " + val.input)
 })
 
 test(function() {
@@ -60,4 +60,3 @@ test(function() {
   assert_equals(url.href, "http://example.com/")
   assert_equals(url.search, "")
 }, "Sorting non-existent params removes ? from URL")
-/* eslint-enable */
