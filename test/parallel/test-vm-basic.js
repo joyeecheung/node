@@ -307,6 +307,24 @@ const vm = require('vm');
     global
   );
 
+  // Test the produceCachedData and cachedData option
+  {
+    const source = 'return a + b + c;';
+    const params = ['a', 'b', 'c'];
+    const fn = vm.compileFunction(
+      source, params, { produceCachedData: true }
+    );
+    assert.strictEqual(fn.cachedDataProduced, true);
+    assert.ok(fn.cachedData instanceof Buffer);
+    assert.strictEqual(fn(1, 2, 3), 6);
+
+    const fn2 = vm.compileFunction(
+      source, params, { cachedData: fn.cachedData }
+    );
+    assert.strictEqual(fn2(1, 2, 3), 6);
+    assert.strictEqual(fn2.cachedDataRejected, false);
+  }
+
   // Resetting value
   Error.stackTraceLimit = oldLimit;
 }
