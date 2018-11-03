@@ -55,7 +55,7 @@ if (process.config.variables.node_code_cache_path === undefined) {
   for (const key of loadedModules) {
     if (!cannotUseCache.includes(key)) {
       assert(compiledWithCache.includes(key),
-            `"${key}" should've been compiled with code cache`);
+             `"${key}" should've been compiled with code cache`);
     }
   }
 

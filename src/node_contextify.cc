@@ -212,6 +212,8 @@ void ContextifyContext::Init(Environment* env, Local<Object> target) {
   env->SetMethod(target, "makeContext", MakeContext);
   env->SetMethod(target, "isContext", IsContext);
   env->SetMethod(target, "compileFunction", CompileFunction);
+  env->SetMethod(target, "createCodeCacheForFunction",
+                 CreateCodeCacheForFunction);
 }
 
 
@@ -971,6 +973,24 @@ ContextifyScript::~ContextifyScript() {
 }
 
 
+void ContextifyContext::CreateCodeCacheForFunction(
+    const FunctionCallbackInfo<Value>& args) {
+  Environment* env = Environment::GetCurrent(args);
+  CHECK(args[0]->IsFunction());
+  Local<Function> fun = args[0].As<Function>();
+
+  const std::unique_ptr<ScriptCompiler::CachedData> cached_data(
+      ScriptCompiler::CreateCodeCacheForFunction(fun));
+  bool cached_data_produced = cached_data != nullptr;
+  if (cached_data_produced) {
+    MaybeLocal<Object> buf = Buffer::Copy(
+        env,
+        reinterpret_cast<const char*>(cached_data->data),
+        cached_data->length);
+    args.GetReturnValue().Set(buf.ToLocalChecked());
+  }
+}
+
 void ContextifyContext::CompileFunction(
     const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
@@ -1000,35 +1020,31 @@ void ContextifyContext::CompileFunction(
     cached_data_buf = args[4].As<Uint8Array>();
   }
 
-  // Argument 6: produce cache data
-  CHECK(args[5]->IsBoolean());
-  bool produce_cached_data = args[5]->IsTrue();
-
-  // Argument 7: parsing context (optional)
+  // Argument 6: parsing context (optional)
   Local<Context> parsing_context;
-  if (!args[6]->IsUndefined()) {
-    CHECK(args[6]->IsObject());
+  if (!args[5]->IsUndefined()) {
+    CHECK(args[5]->IsObject());
     ContextifyContext* sandbox =
         ContextifyContext::ContextFromContextifiedSandbox(
-            env, args[6].As<Object>());
+            env, args[5].As<Object>());
     CHECK_NOT_NULL(sandbox);
     parsing_context = sandbox->context();
   } else {
     parsing_context = context;
   }
 
-  // Argument 8: context extensions (optional)
+  // Argument 7: context extensions (optional)
   Local<Array> context_extensions_buf;
-  if (!args[7]->IsUndefined()) {
-    CHECK(args[7]->IsArray());
-    context_extensions_buf = args[7].As<Array>();
+  if (!args[6]->IsUndefined()) {
+    CHECK(args[6]->IsArray());
+    context_extensions_buf = args[6].As<Array>();
   }
 
-  // Argument 9: params for the function (optional)
+  // Argument 8: params for the function (optional)
   Local<Array> params_buf;
-  if (!args[8]->IsUndefined()) {
-    CHECK(args[8]->IsArray());
-    params_buf = args[8].As<Array>();
+  if (!args[7]->IsUndefined()) {
+    CHECK(args[7]->IsArray());
+    params_buf = args[7].As<Array>();
   }
 
   // Read cache from cached data buffer
@@ -1083,28 +1099,6 @@ void ContextifyContext::CompileFunction(
     ContextifyScript::DecorateErrorStack(env, try_catch);
     try_catch.ReThrow();
     return;
-  }
-
-  if (produce_cached_data) {
-    const std::unique_ptr<ScriptCompiler::CachedData> cached_data(
-        ScriptCompiler::CreateCodeCacheForFunction(fun));
-    bool cached_data_produced = cached_data != nullptr;
-    if (cached_data_produced) {
-      MaybeLocal<Object> buf = Buffer::Copy(
-          env,
-          reinterpret_cast<const char*>(cached_data->data),
-          cached_data->length);
-      if (fun->Set(
-          parsing_context,
-          env->cached_data_string(),
-          buf.ToLocalChecked()).IsNothing()) return;
-    }
-
-    // Report if cache was produced.
-    if (fun->Set(
-        parsing_context,
-        env->cached_data_produced_string(),
-        Boolean::New(isolate, cached_data_produced)).IsNothing()) return;
   }
 
   // Report if cache was rejected.
