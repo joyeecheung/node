@@ -14,6 +14,43 @@
 
 namespace node {
 
+void DecorateErrorStack(Environment* env, const v8::TryCatch& try_catch);
+
+bool IsExceptionDecorated(Environment* env, v8::Local<v8::Value> er);
+
+enum ErrorHandlingMode { CONTEXTIFY_ERROR, FATAL_ERROR, MODULE_ERROR };
+void AppendExceptionLine(Environment* env,
+                         v8::Local<v8::Value> er,
+                         v8::Local<v8::Message> message,
+                         enum ErrorHandlingMode mode);
+
+[[noreturn]] void FatalError(const char* location, const char* message);
+void OnFatalError(const char* location, const char* message);
+
+// Like a `TryCatch` but exits the process if an exception was caught.
+class FatalTryCatch : public v8::TryCatch {
+ public:
+  explicit FatalTryCatch(Environment* env)
+      : TryCatch(env->isolate()), env_(env) {}
+  ~FatalTryCatch();
+
+ private:
+  Environment* env_;
+};
+
+void PrintErrorString(const char* format, ...);
+
+[[noreturn]] void Abort();
+[[noreturn]] void Assert(const char* const (*args)[4]);
+
+void FatalException(v8::Isolate* isolate,
+                    v8::Local<v8::Value> error,
+                    v8::Local<v8::Message> message);
+
+// void FatalException(v8::Isolate* isolate, const v8::TryCatch& try_catch);
+
+void FatalException(const v8::FunctionCallbackInfo<v8::Value>& args);
+
 // Helpers to construct errors similar to the ones provided by
 // lib/internal/errors.js.
 // Example: with `V(ERR_INVALID_ARG_TYPE, TypeError)`, there will be
