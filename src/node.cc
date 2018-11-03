@@ -25,10 +25,9 @@
 #include "node_errors.h"
 #include "node_internals.h"
 #include "node_javascript.h"
-#include "node_code_cache.h"
+#include "node_native_module.h"
+#include "node_perf.h"
 #include "node_platform.h"
-#include "node_version.h"
-#include "node_internals.h"
 #include "node_revert.h"
 #include "node_version.h"
 #include "tracing/traced_value.h"
@@ -127,6 +126,7 @@ typedef int mode_t;
 
 namespace node {
 
+using native_module::NativeModule;
 using options_parser::kAllowedInEnvironment;
 using options_parser::kDisallowedInEnvironment;
 using v8::Array;
@@ -756,6 +756,8 @@ static MaybeLocal<Value> ExecuteString(Environment* env,
   try_catch.SetVerbose(false);
 
   ScriptOrigin origin(filename);
+
+  // TODO(joyeecheung): use NativeModule::CompileFunction
   MaybeLocal<Script> script =
       Script::Compile(env->context(), source, &origin);
   if (script.IsEmpty()) {
@@ -777,31 +779,6 @@ static MaybeLocal<Value> ExecuteString(Environment* env,
 
   return scope.Escape(result.ToLocalChecked());
 }
-
-
-[[noreturn]] void Abort() {
-  DumpBacktrace(stderr);
-  fflush(stderr);
-  ABORT_NO_BACKTRACE();
-}
-
-
-[[noreturn]] void Assert(const char* const (*args)[4]) {
-  auto filename = (*args)[0];
-  auto linenum = (*args)[1];
-  auto message = (*args)[2];
-  auto function = (*args)[3];
-
-  char name[1024];
-  GetHumanReadableProcessName(&name);
-
-  fprintf(stderr, "%s: %s:%s:%s%s Assertion `%s' failed.\n",
-          name, filename, linenum, function, *function ? ":" : "", message);
-  fflush(stderr);
-
-  Abort();
-}
-
 
 static void WaitForInspectorDisconnect(Environment* env) {
 #if HAVE_INSPECTOR
@@ -1228,19 +1205,7 @@ static void GetInternalBinding(const FunctionCallbackInfo<Value>& args) {
     DefineConstants(env->isolate(), exports);
   } else if (!strcmp(*module_v, "natives")) {
     exports = Object::New(env->isolate());
-    DefineJavaScript(env, exports);
-  } else if (!strcmp(*module_v, "code_cache")) {
-    // internalBinding('code_cache')
-    exports = Object::New(env->isolate());
-    DefineCodeCache(env, exports);
-  } else if (!strcmp(*module_v, "code_cache_hash")) {
-    // internalBinding('code_cache_hash')
-    exports = Object::New(env->isolate());
-    DefineCodeCacheHash(env, exports);
-  } else if (!strcmp(*module_v, "natives_hash")) {
-    // internalBinding('natives_hash')
-    exports = Object::New(env->isolate());
-    DefineJavaScriptHash(env, exports);
+    NativeModule::GetNatives(env, exports);
   } else {
     return ThrowIfNoSuchModule(env, *module_v);
   }
@@ -1811,6 +1776,8 @@ void LoadEnvironment(Environment* env) {
     Boolean::New(env->isolate(),
                  env->options()->debug_options->break_node_first_line)
   };
+
+  NativeModule::LoadBindings(env);
 
   // Bootstrap internal loaders
   Local<Value> bootstrapped_loaders;
@@ -2464,6 +2431,8 @@ Local<Context> NewContext(Isolate* isolate,
   {
     // Run lib/internal/per_context.js
     Context::Scope context_scope(context);
+
+    // TODO(joyeecheung): use NativeModule::CompileFunction
     Local<String> per_context = NodePerContextSource(isolate);
     ScriptCompiler::Source per_context_src(per_context, nullptr);
     Local<Script> s = ScriptCompiler::Compile(
