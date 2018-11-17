@@ -4,7 +4,7 @@
     "path": "resources"
   },
   "interfaces": {
-    "commit": "db7f86289e47f0d124593cd27926529a6265ddb3",
+    "commit": "e66f3eb1314897562704d5df7bd435e1fbb2d99d",
     "path": "interfaces"
   },
   "console": {
@@ -14,5 +14,13 @@
   "url": {
     "commit": "75b0f336c50105c6fea47ad253d57219dfa744d3",
     "path": "url"
+  },
+  "performance-timeline": {
+    "commit": "14b8cd38f01ee9127919c12a7d29e372643c2097",
+    "path": "performance-timeline"
+  },
+  "user-timing": {
+    "commit": "a4efb68eb4bb30453a6c958ad58f8c2540dc967e",
+    "path": "user-timing"
   }
 }
