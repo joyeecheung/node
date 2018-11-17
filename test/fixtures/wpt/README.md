@@ -14,6 +14,7 @@ Last update:
 - interfaces: https://github.com/web-platform-tests/wpt/tree/db7f86289e/interfaces
 - console: https://github.com/web-platform-tests/wpt/tree/9786a4b131/console
 - url: https://github.com/web-platform-tests/wpt/tree/75b0f336c5/url
+- performance-timeline: https://github.com/web-platform-tests/wpt/tree/14b8cd38f0/performance-timeline
 
 [Web Platform Tests]: https://github.com/web-platform-tests/wpt
 [`git node wpt`]: https://github.com/nodejs/node-core-utils/blob/master/docs/git-node.md#git-node-wpt
