@@ -586,16 +586,13 @@ function expectsError(fn, settings, exact) {
           operator: 'strictEqual',
           stackStartFn: assert.throws
         });
+        const diff = err.message.split('\n').slice(1).join('\n');
         Error.stackTraceLimit = tmpLimit;
 
-        throw new assert.AssertionError({
-          actual: error,
-          expected: settings,
-          operator: 'common.expectsError',
-          message: err.message
-        });
+        const result = new Error(`Found mismatch in error properties\n${diff}`);
+        Error.captureStackTrace(result, assert.throws);
+        throw result;
       }
-
     }
     return true;
   }
