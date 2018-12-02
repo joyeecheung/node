@@ -410,7 +410,7 @@ void GetInternalBinding(const FunctionCallbackInfo<Value>& args) {
         exports->SetPrototype(env->context(), Null(env->isolate())).FromJust());
     DefineConstants(env->isolate(), exports);
   } else if (!strcmp(*module_v, "natives")) {
-    exports = per_process_loader.GetSourceObject(env->context());
+    exports = per_process::native_module_loader.GetSourceObject(env->context());
   } else {
     return ThrowIfNoSuchModule(env, *module_v);
   }

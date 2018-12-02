@@ -159,8 +159,6 @@ using v8::Undefined;
 using v8::V8;
 using v8::Value;
 
-static bool v8_is_profiling = false;
-
 #ifdef NODE_EXPERIMENTAL_HTTP
 static const char llhttp_version[] =
     NODE_STRINGIFY(LLHTTP_VERSION_MAJOR)
@@ -177,22 +175,37 @@ static const char http_parser_version[] =
     NODE_STRINGIFY(HTTP_PARSER_VERSION_PATCH);
 #endif  /* NODE_EXPERIMENTAL_HTTP */
 
-// Bit flag used to track security reverts (see node_revert.h)
-unsigned int reverted = 0;
-
+namespace per_process {
+// Defined in node_internals.h
+// Used when the tty setting is accessed
+Mutex tty_mutex;
+// Tells whether it is safe to call v8::Isolate::GetCurrent().
 bool v8_initialized = false;
-
-bool linux_at_secure = false;
-
 // process-relative uptime base, initialized at start-up
 double prog_start_time;
+// For access to the parsed CLI options
+Mutex cli_options_mutex;
+std::shared_ptr<PerProcessOptions> cli_options{new PerProcessOptions()};
 
-Mutex per_process_opts_mutex;
-std::shared_ptr<PerProcessOptions> per_process_opts {
-    new PerProcessOptions() };
-NativeModuleLoader per_process_loader;
-static Mutex node_isolate_mutex;
-static Isolate* node_isolate;
+// Defined in node_native_module.h
+// Used to load source code and prebuilt code cache of builtin JS modules
+NativeModuleLoader native_module_loader;
+
+// Defined in node_revert.h
+// Bit flag used to track security reverts.
+uint32_t reverted_cve = 0;
+
+// Used to check if the process should be treated securely on Linux
+// (e.g. it's run by another user so it should not access environemnt
+// variables).
+static bool linux_at_secure = false;
+// Tells whether the process is run with --prof
+static bool v8_is_profiling = false;
+// For checking if the process ends with the isolate in the main thread
+// destroyed
+static Mutex main_isolate_mutex;
+static Isolate* main_isolate;
+}  // namespace per_process
 
 // Ensures that __metadata trace events are only emitted
 // when tracing is enabled.
@@ -315,14 +328,15 @@ static struct {
 #endif  // HAVE_INSPECTOR
 
   void StartTracingAgent() {
-    if (per_process_opts->trace_event_categories.empty()) {
+    if (per_process::cli_options->trace_event_categories.empty()) {
       tracing_file_writer_ = tracing_agent_->DefaultHandle();
     } else {
       tracing_file_writer_ = tracing_agent_->AddClient(
-          ParseCommaSeparatedSet(per_process_opts->trace_event_categories),
+          ParseCommaSeparatedSet(
+              per_process::cli_options->trace_event_categories),
           std::unique_ptr<tracing::AsyncTraceWriter>(
               new tracing::NodeTraceWriter(
-                  per_process_opts->trace_event_file_pattern)),
+                  per_process::cli_options->trace_event_file_pattern)),
           tracing::Agent::kUseDefaultCategories);
     }
   }
@@ -546,14 +560,17 @@ const char* signo_string(int signo) {
 }
 
 // Look up environment variable unless running as setuid root.
+// FIXME(joyeecheung): make linux_at_secure a enum and make sure it is
+// initialized on Linux before this method is called.
 bool SafeGetenv(const char* key, std::string* text) {
 #if !defined(__CloudABI__) && !defined(_WIN32)
-  if (linux_at_secure || getuid() != geteuid() || getgid() != getegid())
+  if (per_process::linux_at_secure || getuid() != geteuid() ||
+      getgid() != getegid())
     goto fail;
 #endif
 
   {
-    Mutex::ScopedLock lock(environ_mutex);
+    Mutex::ScopedLock lock(per_process::envvar_mutex);
     if (const char* value = getenv(key)) {
       *text = value;
       return true;
@@ -567,7 +584,7 @@ fail:
 
 
 void* ArrayBufferAllocator::Allocate(size_t size) {
-  if (zero_fill_field_ || per_process_opts->zero_fill_all_buffers)
+  if (zero_fill_field_ || per_process::cli_options->zero_fill_all_buffers)
     return UncheckedCalloc(size);
   else
     return UncheckedMalloc(size);
@@ -1402,14 +1419,14 @@ void LoadEnvironment(Environment* env) {
   Isolate* isolate = env->isolate();
   Local<String> loaders_name =
       FIXED_ONE_BYTE_STRING(isolate, "internal/bootstrap/loaders.js");
-  Local<String> loaders_source =
-      per_process_loader.GetSource(isolate, "internal/bootstrap/loaders");
+  Local<String> loaders_source = per_process::native_module_loader.GetSource(
+      isolate, "internal/bootstrap/loaders");
   MaybeLocal<Function> loaders_bootstrapper =
       GetBootstrapper(env, loaders_source, loaders_name);
   Local<String> node_name =
       FIXED_ONE_BYTE_STRING(isolate, "internal/bootstrap/node.js");
-  Local<String> node_source =
-      per_process_loader.GetSource(isolate, "internal/bootstrap/node");
+  Local<String> node_source = per_process::native_module_loader.GetSource(
+      isolate, "internal/bootstrap/node");
   MaybeLocal<Function> node_bootstrapper =
       GetBootstrapper(env, node_source, node_name);
 
@@ -1743,12 +1760,12 @@ void ProcessArgv(std::vector<std::string>* args,
   {
     // TODO(addaleax): The mutex here should ideally be held during the
     // entire function, but that doesn't play well with the exit() calls below.
-    Mutex::ScopedLock lock(per_process_opts_mutex);
+    Mutex::ScopedLock lock(per_process::cli_options_mutex);
     options_parser::PerProcessOptionsParser::instance.Parse(
         args,
         exec_args,
         &v8_args,
-        per_process_opts.get(),
+        per_process::cli_options.get(),
         is_env ? kAllowedInEnvironment : kDisallowedInEnvironment,
         &errors);
   }
@@ -1760,20 +1777,20 @@ void ProcessArgv(std::vector<std::string>* args,
     exit(9);
   }
 
-  if (per_process_opts->print_version) {
+  if (per_process::cli_options->print_version) {
     printf("%s\n", NODE_VERSION);
     exit(0);
   }
 
-  if (per_process_opts->print_v8_help) {
+  if (per_process::cli_options->print_v8_help) {
     V8::SetFlagsFromString("--help", 6);
     exit(0);
   }
 
-  for (const std::string& cve : per_process_opts->security_reverts)
+  for (const std::string& cve : per_process::cli_options->security_reverts)
     Revert(cve.c_str());
 
-  auto env_opts = per_process_opts->per_isolate->per_env;
+  auto env_opts = per_process::cli_options->per_isolate->per_env;
   if (std::find(v8_args.begin(), v8_args.end(),
                 "--abort-on-uncaught-exception") != v8_args.end() ||
       std::find(v8_args.begin(), v8_args.end(),
@@ -1786,14 +1803,14 @@ void ProcessArgv(std::vector<std::string>* args,
   // behavior but it could also interfere with the user's intentions in ways
   // we fail to anticipate.  Dillema.
   if (std::find(v8_args.begin(), v8_args.end(), "--prof") != v8_args.end()) {
-    v8_is_profiling = true;
+    per_process::v8_is_profiling = true;
   }
 
 #ifdef __POSIX__
   // Block SIGPROF signals when sleeping in epoll_wait/kevent/etc.  Avoids the
   // performance penalty of frequent EINTR wakeups when the profiler is running.
   // Only do this for v8.log profiling, as it breaks v8::CpuProfiler users.
-  if (v8_is_profiling) {
+  if (per_process::v8_is_profiling) {
     uv_loop_configure(uv_default_loop(), UV_LOOP_BLOCK_SIGNAL, SIGPROF);
   }
 #endif
@@ -1822,7 +1839,20 @@ void ProcessArgv(std::vector<std::string>* args,
 void Init(std::vector<std::string>* argv,
           std::vector<std::string>* exec_argv) {
   // Initialize prog_start_time to get relative uptime.
-  prog_start_time = static_cast<double>(uv_now(uv_default_loop()));
+  per_process::prog_start_time = static_cast<double>(uv_now(uv_default_loop()));
+
+#if defined(__linux__)
+  char** envp = environ;
+  while (*envp++ != nullptr) {
+  }
+  Elf_auxv_t* auxv = reinterpret_cast<Elf_auxv_t*>(envp);
+  for (; auxv->a_type != AT_NULL; auxv++) {
+    if (auxv->a_type == AT_SECURE) {
+      node::per_process::linux_at_secure = auxv->a_un.a_val;
+      break;
+    }
+  }
+#endif
 
   // Register built-in modules
   binding::RegisterBuiltinModules();
@@ -1838,7 +1868,7 @@ void Init(std::vector<std::string>* argv,
 #endif
 
   std::shared_ptr<EnvironmentOptions> default_env_options =
-      per_process_opts->per_isolate->per_env;
+      per_process::cli_options->per_isolate->per_env;
   {
     std::string text;
     default_env_options->pending_deprecation =
@@ -1864,7 +1894,7 @@ void Init(std::vector<std::string>* argv,
   }
 
 #if HAVE_OPENSSL
-  std::string* openssl_config = &per_process_opts->openssl_config;
+  std::string* openssl_config = &per_process::cli_options->openssl_config;
   if (openssl_config->empty()) {
     SafeGetenv("OPENSSL_CONF", openssl_config);
   }
@@ -1898,16 +1928,16 @@ void Init(std::vector<std::string>* argv,
   ProcessArgv(argv, exec_argv, false);
 
   // Set the process.title immediately after processing argv if --title is set.
-  if (!per_process_opts->title.empty())
-    uv_set_process_title(per_process_opts->title.c_str());
+  if (!per_process::cli_options->title.empty())
+    uv_set_process_title(per_process::cli_options->title.c_str());
 
 #if defined(NODE_HAVE_I18N_SUPPORT)
   // If the parameter isn't given, use the env variable.
-  if (per_process_opts->icu_data_dir.empty())
-    SafeGetenv("NODE_ICU_DATA", &per_process_opts->icu_data_dir);
+  if (per_process::cli_options->icu_data_dir.empty())
+    SafeGetenv("NODE_ICU_DATA", &per_process::cli_options->icu_data_dir);
   // Initialize ICU.
   // If icu_data_dir is empty here, it will load the 'minimal' data.
-  if (!i18n::InitializeICUDirectory(per_process_opts->icu_data_dir)) {
+  if (!i18n::InitializeICUDirectory(per_process::cli_options->icu_data_dir)) {
     fprintf(stderr,
             "%s: could not initialize ICU "
             "(check NODE_ICU_DATA or --icu-data-dir parameters)\n",
@@ -2067,7 +2097,7 @@ Environment* CreateEnvironment(IsolateData* isolate_data,
   std::vector<std::string> args(argv, argv + argc);
   std::vector<std::string> exec_args(exec_argv, exec_argv + exec_argc);
   Environment* env = new Environment(isolate_data, context);
-  env->Start(args, exec_args, v8_is_profiling);
+  env->Start(args, exec_args, per_process::v8_is_profiling);
   return env;
 }
 
@@ -2121,7 +2151,7 @@ Local<Context> NewContext(Isolate* isolate,
     std::vector<Local<String>> parameters = {
         FIXED_ONE_BYTE_STRING(isolate, "global")};
     std::vector<Local<Value>> arguments = {context->Global()};
-    MaybeLocal<Value> result = per_process_loader.CompileAndCall(
+    MaybeLocal<Value> result = per_process::native_module_loader.CompileAndCall(
         context, "internal/per_context", &parameters, &arguments, nullptr);
     if (result.IsEmpty()) {
       // Execution failed during context creation.
@@ -2141,7 +2171,7 @@ inline int Start(Isolate* isolate, IsolateData* isolate_data,
   Local<Context> context = NewContext(isolate);
   Context::Scope context_scope(context);
   Environment env(isolate_data, context);
-  env.Start(args, exec_args, v8_is_profiling);
+  env.Start(args, exec_args, per_process::v8_is_profiling);
 
   const char* path = args.size() > 1 ? args[1].c_str() : nullptr;
   StartInspector(&env, path, env.options()->debug_options);
@@ -2248,9 +2278,9 @@ inline int Start(uv_loop_t* event_loop,
     return 12;  // Signal internal error.
 
   {
-    Mutex::ScopedLock scoped_lock(node_isolate_mutex);
-    CHECK_NULL(node_isolate);
-    node_isolate = isolate;
+    Mutex::ScopedLock scoped_lock(per_process::main_isolate_mutex);
+    CHECK_NULL(per_process::main_isolate);
+    per_process::main_isolate = isolate;
   }
 
   int exit_code;
@@ -2275,9 +2305,9 @@ inline int Start(uv_loop_t* event_loop,
   }
 
   {
-    Mutex::ScopedLock scoped_lock(node_isolate_mutex);
-    CHECK_EQ(node_isolate, isolate);
-    node_isolate = nullptr;
+    Mutex::ScopedLock scoped_lock(per_process::main_isolate_mutex);
+    CHECK_EQ(per_process::main_isolate, isolate);
+    per_process::main_isolate = nullptr;
   }
 
   isolate->Dispose();
@@ -2325,14 +2355,14 @@ int Start(int argc, char** argv) {
   V8::SetEntropySource(crypto::EntropySource);
 #endif  // HAVE_OPENSSL
 
-  InitializeV8Platform(per_process_opts->v8_thread_pool_size);
+  InitializeV8Platform(per_process::cli_options->v8_thread_pool_size);
   V8::Initialize();
   performance::performance_v8_start = PERFORMANCE_NOW();
-  v8_initialized = true;
+  per_process::v8_initialized = true;
   const int exit_code =
       Start(uv_default_loop(), args, exec_args);
   v8_platform.StopTracingAgent();
-  v8_initialized = false;
+  per_process::v8_initialized = false;
   V8::Dispose();
 
   // uv_run cannot be called from the time before the beforeExit callback

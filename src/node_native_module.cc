@@ -73,7 +73,8 @@ void NativeModuleLoader::GetCacheUsage(
 void NativeModuleLoader::GetSourceObject(
     const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
-  args.GetReturnValue().Set(per_process_loader.GetSourceObject(env->context()));
+  args.GetReturnValue().Set(
+      per_process::native_module_loader.GetSourceObject(env->context()));
 }
 
 Local<Object> NativeModuleLoader::GetSourceObject(
@@ -132,8 +133,9 @@ MaybeLocal<Value> NativeModuleLoader::CompileAndCall(
     std::vector<Local<Value>>* arguments,
     Environment* optional_env) {
   Isolate* isolate = context->GetIsolate();
-  MaybeLocal<Value> compiled = per_process_loader.LookupAndCompile(
-      context, id, parameters, CompilationResultType::kFunction, nullptr);
+  MaybeLocal<Value> compiled =
+      per_process::native_module_loader.LookupAndCompile(
+          context, id, parameters, CompilationResultType::kFunction, nullptr);
   if (compiled.IsEmpty()) {
     return compiled;
   }
@@ -149,7 +151,7 @@ MaybeLocal<Value> NativeModuleLoader::CompileAsModule(
                                            env->module_string(),
                                            env->process_string(),
                                            env->internal_binding_string()};
-  return per_process_loader.LookupAndCompile(
+  return per_process::native_module_loader.LookupAndCompile(
       env->context(), id, &parameters, result, env);
 }
 
@@ -179,10 +181,10 @@ MaybeLocal<Value> NativeModuleLoader::CompileAsModule(
 // Returns nullptr if there is no code cache corresponding to the id
 ScriptCompiler::CachedData* NativeModuleLoader::GetCachedData(
     const char* id) const {
-  const auto it = per_process_loader.code_cache_.find(id);
+  const auto it = per_process::native_module_loader.code_cache_.find(id);
   // This could be false if the module cannot be cached somehow.
   // See lib/internal/bootstrap/cache.js on the modules that cannot be cached
-  if (it == per_process_loader.code_cache_.end()) {
+  if (it == per_process::native_module_loader.code_cache_.end()) {
     return nullptr;
   }
 

@@ -87,10 +87,6 @@ extern char** environ;
 #include <signal.h>
 #endif
 
-namespace node {
-  extern bool linux_at_secure;
-}  // namespace node
-
 int main(int argc, char* argv[]) {
 #if defined(__POSIX__) && defined(NODE_SHARED_MODE)
   // In node::PlatformInit(), we squash all signal handlers for non-shared lib
@@ -106,17 +102,6 @@ int main(int argc, char* argv[]) {
   }
 #endif
 
-#if defined(__linux__)
-  char** envp = environ;
-  while (*envp++ != nullptr) {}
-  Elf_auxv_t* auxv = reinterpret_cast<Elf_auxv_t*>(envp);
-  for (; auxv->a_type != AT_NULL; auxv++) {
-    if (auxv->a_type == AT_SECURE) {
-      node::linux_at_secure = auxv->a_un.a_val;
-      break;
-    }
-  }
-#endif
   // Disable stdio buffering, it interacts poorly with printf()
   // calls elsewhere in the program (e.g., any logging from V8.)
   setvbuf(stdout, nullptr, _IONBF, 0);

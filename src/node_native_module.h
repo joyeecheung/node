@@ -98,6 +98,12 @@ class NativeModuleLoader {
 };
 
 }  // namespace native_module
+
+namespace per_process {
+// Used to load source code and prebuilt code cache of builtin JS modules
+extern native_module::NativeModuleLoader native_module_loader;
+}  // namespace per_process
+
 }  // namespace node
 
 #endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS

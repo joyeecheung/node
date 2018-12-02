@@ -83,15 +83,23 @@ namespace native_module {
 class NativeModuleLoader;
 }
 
-extern Mutex process_mutex;
-extern Mutex environ_mutex;
-
+namespace per_process {
+// Used when the tty setting is accessed
+// FIXME(joyeecheung): this is not always locked properly
+extern Mutex tty_mutex;
+// Used when the environment variables are accessed
+extern Mutex envvar_mutex;
 // Tells whether it is safe to call v8::Isolate::GetCurrent().
+// Used by allocation functions to check if it's OK to send
+// LowMemoryNotification to v8.
+// FIXME(joyeecheung): this is actually per-thread
 extern bool v8_initialized;
-
-extern Mutex per_process_opts_mutex;
-extern std::shared_ptr<PerProcessOptions> per_process_opts;
-extern native_module::NativeModuleLoader per_process_loader;
+// For access to the parsed CLI options
+extern Mutex cli_options_mutex;
+extern std::shared_ptr<PerProcessOptions> cli_options;
+// process-relative uptime base, initialized at start-up
+extern double prog_start_time;
+}  // namespace per_process
 
 // Forward declaration
 class Environment;
@@ -694,8 +702,6 @@ static inline const char* errno_string(int errorno) {
     TRACING_CATEGORY_NODE "." #one "." #two
 
 // Functions defined in node.cc that are exposed via the bootstrapper object
-
-extern double prog_start_time;
 
 void Abort(const v8::FunctionCallbackInfo<v8::Value>& args);
 void Chdir(const v8::FunctionCallbackInfo<v8::Value>& args);

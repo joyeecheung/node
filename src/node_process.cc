@@ -61,8 +61,11 @@ using v8::Uint32;
 using v8::Uint32Array;
 using v8::Value;
 
-Mutex process_mutex;
-Mutex environ_mutex;
+namespace per_process {
+// TODO(joyeecheung): this is per-Environment
+static Mutex debug_port_mutex;
+Mutex envvar_mutex;
+}  // namespace per_process
 
 // Microseconds in a second, as a float, used in CPUUsage() below
 #define MICROS_PER_SEC 1e6
@@ -257,7 +260,7 @@ void Uptime(const FunctionCallbackInfo<Value>& args) {
   double uptime;
 
   uv_update_time(env->event_loop());
-  uptime = uv_now(env->event_loop()) - prog_start_time;
+  uptime = uv_now(env->event_loop()) - per_process::prog_start_time;
 
   args.GetReturnValue().Set(uptime / 1000);
 }
@@ -611,7 +614,7 @@ void EnvGetter(Local<Name> property,
   if (property->IsSymbol()) {
     return info.GetReturnValue().SetUndefined();
   }
-  Mutex::ScopedLock lock(environ_mutex);
+  Mutex::ScopedLock lock(per_process::envvar_mutex);
 #ifdef __POSIX__
   node::Utf8Value key(isolate, property);
   const char* val = getenv(*key);
@@ -659,7 +662,7 @@ void EnvSetter(Local<Name> property,
       return;
   }
 
-  Mutex::ScopedLock lock(environ_mutex);
+  Mutex::ScopedLock lock(per_process::envvar_mutex);
 #ifdef __POSIX__
   node::Utf8Value key(info.GetIsolate(), property);
   node::Utf8Value val(info.GetIsolate(), value);
@@ -679,7 +682,7 @@ void EnvSetter(Local<Name> property,
 
 
 void EnvQuery(Local<Name> property, const PropertyCallbackInfo<Integer>& info) {
-  Mutex::ScopedLock lock(environ_mutex);
+  Mutex::ScopedLock lock(per_process::envvar_mutex);
   int32_t rc = -1;  // Not found unless proven otherwise.
   if (property->IsString()) {
 #ifdef __POSIX__
@@ -709,7 +712,7 @@ void EnvQuery(Local<Name> property, const PropertyCallbackInfo<Integer>& info) {
 
 void EnvDeleter(Local<Name> property,
                 const PropertyCallbackInfo<Boolean>& info) {
-  Mutex::ScopedLock lock(environ_mutex);
+  Mutex::ScopedLock lock(per_process::envvar_mutex);
   if (property->IsString()) {
 #ifdef __POSIX__
     node::Utf8Value key(info.GetIsolate(), property);
@@ -731,7 +734,7 @@ void EnvEnumerator(const PropertyCallbackInfo<Array>& info) {
   Environment* env = Environment::GetCurrent(info);
   Isolate* isolate = env->isolate();
 
-  Mutex::ScopedLock lock(environ_mutex);
+  Mutex::ScopedLock lock(per_process::envvar_mutex);
   Local<Array> envarr;
   int env_size = 0;
 #ifdef __POSIX__
@@ -825,7 +828,7 @@ void GetActiveHandles(const FunctionCallbackInfo<Value>& args) {
 void DebugPortGetter(Local<Name> property,
                      const PropertyCallbackInfo<Value>& info) {
   Environment* env = Environment::GetCurrent(info);
-  Mutex::ScopedLock lock(process_mutex);
+  Mutex::ScopedLock lock(per_process::debug_port_mutex);
   int port = env->options()->debug_options->port();
 #if HAVE_INSPECTOR
   if (port == 0) {
@@ -841,7 +844,7 @@ void DebugPortSetter(Local<Name> property,
                      Local<Value> value,
                      const PropertyCallbackInfo<void>& info) {
   Environment* env = Environment::GetCurrent(info);
-  Mutex::ScopedLock lock(process_mutex);
+  Mutex::ScopedLock lock(per_process::debug_port_mutex);
   env->options()->debug_options->host_port.port =
       value->Int32Value(env->context()).FromMaybe(0);
 }
