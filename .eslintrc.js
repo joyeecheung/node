@@ -1,3 +1,4 @@
+/* eslint-env node */
 'use strict';
 
 const Module = require('module');
@@ -31,7 +32,7 @@ Module._findPath = (request, paths, isMain) => {
 module.exports = {
   root: true,
   plugins: ['markdown', 'node-core'],
-  env: { node: true, es6: true },
+  env: { es6: true },
   parser: 'babel-eslint',
   parserOptions: { sourceType: 'script' },
   overrides: [

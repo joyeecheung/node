@@ -1219,31 +1219,26 @@ void LoadEnvironment(Environment* env) {
   Local<Context> context = env->context();
 
   // Add a reference to the global object
-  Local<Object> global = context->Global();
+  Local<Object> global_proxy = context->Global();
 
 #if defined HAVE_DTRACE || defined HAVE_ETW
-  InitDTrace(env, global);
+  InitDTrace(env, global_proxy);
 #endif
 
   Local<Object> process = env->process_object();
-
-  // Setting global properties for the bootstrappers to use:
-  // - global
-  // - process._rawDebug
-  // Expose the global object as a property on itself
-  // (Allows you to set stuff on `global` from anywhere in JavaScript.)
-  global->Set(context, FIXED_ONE_BYTE_STRING(env->isolate(), "global"), global)
-      .FromJust();
   env->SetMethod(process, "_rawDebug", RawDebug);
 
-  // Create binding loaders
+  // global, process, getBinding, getLinkedBinding, getInternalBinding,
+  // debugBreak
   std::vector<Local<String>> loaders_params = {
+      env->global_proxy_string(),
       env->process_string(),
       FIXED_ONE_BYTE_STRING(isolate, "getBinding"),
       FIXED_ONE_BYTE_STRING(isolate, "getLinkedBinding"),
       FIXED_ONE_BYTE_STRING(isolate, "getInternalBinding"),
       FIXED_ONE_BYTE_STRING(isolate, "debugBreak")};
   std::vector<Local<Value>> loaders_args = {
+      global_proxy,
       process,
       env->NewFunctionTemplate(binding::GetBinding)
           ->GetFunction(context)
@@ -1269,13 +1264,15 @@ void LoadEnvironment(Environment* env) {
   Local<Object> bootstrapper = Object::New(env->isolate());
   SetupBootstrapObject(env, bootstrapper);
 
-  // process, bootstrappers, loaderExports, triggerFatalException
+  // global, process, bootstrappers, loaderExports, triggerFatalException
   std::vector<Local<String>> node_params = {
+      env->global_proxy_string(),
       env->process_string(),
       FIXED_ONE_BYTE_STRING(isolate, "bootstrappers"),
       FIXED_ONE_BYTE_STRING(isolate, "loaderExports"),
       FIXED_ONE_BYTE_STRING(isolate, "triggerFatalException")};
   std::vector<Local<Value>> node_args = {
+      global_proxy,
       process,
       bootstrapper,
       loader_exports.ToLocalChecked(),
@@ -1913,7 +1910,7 @@ Local<Context> NewContext(Isolate* isolate,
     Context::Scope context_scope(context);
 
     std::vector<Local<String>> parameters = {
-        FIXED_ONE_BYTE_STRING(isolate, "global")};
+        FIXED_ONE_BYTE_STRING(isolate, "globalProxy")};
     std::vector<Local<Value>> arguments = {context->Global()};
     MaybeLocal<Value> result = per_process_loader.CompileAndCall(
         context, "internal/per_context", &parameters, &arguments, nullptr);

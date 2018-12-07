@@ -144,7 +144,8 @@ MaybeLocal<Value> NativeModuleLoader::CompileAndCall(
 
 MaybeLocal<Value> NativeModuleLoader::CompileAsModule(
     Environment* env, const char* id, CompilationResultType result) {
-  std::vector<Local<String>> parameters = {env->exports_string(),
+  std::vector<Local<String>> parameters = {env->global_proxy_string(),
+                                           env->exports_string(),
                                            env->require_string(),
                                            env->module_string(),
                                            env->process_string(),

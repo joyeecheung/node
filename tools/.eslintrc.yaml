@@ -1,3 +1,6 @@
+env:
+  node: true
+
 rules:
   # Variables
   # http://eslint.org/docs/rules/#variables

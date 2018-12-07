@@ -180,6 +180,7 @@ constexpr size_t kFsStatsBufferLength = kFsStatsFieldsNumber * 2;
   V(get_data_clone_error_string, "_getDataCloneError")                         \
   V(get_shared_array_buffer_id_string, "_getSharedArrayBufferId")              \
   V(gid_string, "gid")                                                         \
+  V(global_proxy_string, "globalProxy")                                        \
   V(handle_string, "handle")                                                   \
   V(help_text_string, "helpText")                                              \
   V(homedir_string, "homedir")                                                 \
@@ -307,7 +308,7 @@ constexpr size_t kFsStatsBufferLength = kFsStatsFieldsNumber * 2;
   V(write_host_object_string, "_writeHostObject")                              \
   V(write_queue_size_string, "writeQueueSize")                                 \
   V(x_forwarded_string, "x-forwarded-for")                                     \
-  V(zero_return_string, "ZERO_RETURN")                                         \
+  V(zero_return_string, "ZERO_RETURN")
 
 #define ENVIRONMENT_STRONG_PERSISTENT_PROPERTIES(V)                            \
   V(as_external, v8::External)                                                 \

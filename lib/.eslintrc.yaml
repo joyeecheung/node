@@ -24,12 +24,12 @@ rules:
     - selector: "NewExpression[callee.name=/Error$/]:not([callee.name=/^(AssertionError|NghttpError)$/])"
       message: "Use an error exported by the internal/errors module."
   # Custom rules in tools/eslint-rules
-  node-core/require-globals: error
   node-core/buffer-constructor: error
   node-core/no-let-in-for-declaration: error
   node-core/lowercase-name-for-primitive: error
   node-core/non-ascii-character: error
 globals:
+  # macros
   CHECK: false
   CHECK_EQ: false
   CHECK_GE: false
@@ -44,4 +44,10 @@ globals:
   DCHECK_LE: false
   DCHECK_LT: false
   DCHECK_NE: false
+  # NativeModule parameters
+  globalProxy: false
+  exports: true
+  require: false
+  module: false
+  process: false
   internalBinding: false

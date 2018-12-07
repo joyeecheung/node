@@ -1,4 +1,6 @@
 ## Test-specific linter rules
+env:
+  node: true
 
 rules:
   # ECMAScript 6

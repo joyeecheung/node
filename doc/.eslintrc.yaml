@@ -1,4 +1,6 @@
 ## Docs-specific linter rules
+env:
+  node: true
 
 rules:
   # ease some restrictions in doc examples
