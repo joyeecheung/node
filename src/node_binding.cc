@@ -56,6 +56,7 @@
   V(stream_wrap)                                                               \
   V(string_decoder)                                                            \
   V(symbols)                                                                   \
+  V(task_queue)                                                                \
   V(tcp_wrap)                                                                  \
   V(timers)                                                                    \
   V(trace_events)                                                              \
