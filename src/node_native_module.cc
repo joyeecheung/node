@@ -14,10 +14,12 @@ using v8::Local;
 using v8::Maybe;
 using v8::MaybeLocal;
 using v8::Object;
+using v8::PrimitiveArray;
 using v8::Script;
 using v8::ScriptCompiler;
 using v8::ScriptOrigin;
 using v8::String;
+using v8::Value;
 
 NativeModuleLoader NativeModuleLoader::instance_;
 
@@ -188,13 +190,24 @@ MaybeLocal<Function> NativeModuleLoader::LookupAndCompile(
   CHECK_NE(source_it, source_.end());
   Local<String> source = source_it->second.ToStringChecked(isolate);
 
-  std::string filename_s = id + std::string(".js");
-  Local<String> filename =
-      OneByteString(isolate, filename_s.c_str(), filename_s.size());
+  // TODO(joyeecheung): implement URL::href() but for now this is sufficient
+  // for our internal modules.
+  char url_buf[256];
+  int url_len = snprintf(url_buf, sizeof(url_buf), "node-internal://%s.js", id);
+  Local<String> url = OneByteString(isolate, url_buf, url_len);
   Local<Integer> line_offset = Integer::New(isolate, 0);
   Local<Integer> column_offset = Integer::New(isolate, 0);
-  ScriptOrigin origin(filename, line_offset, column_offset, True(isolate));
 
+  ScriptOrigin origin(url,
+                      line_offset,               // line offset
+                      column_offset,             // column offset
+                      True(isolate),             // is cross origin
+                      Local<Integer>(),          // script id
+                      Local<Value>(),            // source map URL
+                      True(isolate),             // is opaque (?)
+                      False(isolate),            // is WASM
+                      False(isolate),            // is ES Module
+                      Local<PrimitiveArray>());  // Host defined options
   Mutex::ScopedLock lock(code_cache_mutex_);
 
   ScriptCompiler::CachedData* cached_data = nullptr;
