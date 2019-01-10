@@ -123,16 +123,13 @@ static bool InspectorEnabled(Environment* env) {
   return agent->IsActive();
 }
 
-void AddCommandLineAPI(const FunctionCallbackInfo<Value>& info) {
+void SetConsoleExtensionInstaller(const FunctionCallbackInfo<Value>& info) {
   auto env = Environment::GetCurrent(info);
-  Local<Context> context = env->context();
 
-  // inspector.addCommandLineAPI takes 2 arguments: a string and a value.
-  CHECK_EQ(info.Length(), 2);
-  CHECK(info[0]->IsString());
+  CHECK_EQ(info.Length(), 1);
+  CHECK(info[0]->IsFunction());
 
-  Local<Object> console_api = env->inspector_console_api_object();
-  console_api->Set(context, info[0], info[1]).FromJust();
+  env->set_inspector_console_extension_installer(info[0].As<Function>());
 }
 
 void CallAndPauseOnStart(const FunctionCallbackInfo<v8::Value>& args) {
@@ -147,39 +144,6 @@ void CallAndPauseOnStart(const FunctionCallbackInfo<v8::Value>& args) {
   if (!retval.IsEmpty()) {
     args.GetReturnValue().Set(retval.ToLocalChecked());
   }
-}
-
-void InspectorConsoleCall(const FunctionCallbackInfo<Value>& info) {
-  Environment* env = Environment::GetCurrent(info);
-  Isolate* isolate = env->isolate();
-  Local<Context> context = isolate->GetCurrentContext();
-  CHECK_LT(2, info.Length());
-  SlicedArguments call_args(info, /* start */ 3);
-  if (InspectorEnabled(env)) {
-    Local<Value> inspector_method = info[0];
-    CHECK(inspector_method->IsFunction());
-    Local<Value> config_value = info[2];
-    CHECK(config_value->IsObject());
-    Local<Object> config_object = config_value.As<Object>();
-    Local<String> in_call_key = FIXED_ONE_BYTE_STRING(isolate, "in_call");
-    if (!config_object->Has(context, in_call_key).FromMaybe(false)) {
-      CHECK(config_object->Set(context,
-                               in_call_key,
-                               v8::True(isolate)).FromJust());
-      CHECK(!inspector_method.As<Function>()->Call(context,
-                                                   info.Holder(),
-                                                   call_args.size(),
-                                                   call_args.data()).IsEmpty());
-    }
-    CHECK(config_object->Delete(context, in_call_key).FromJust());
-  }
-
-  Local<Value> node_method = info[1];
-  CHECK(node_method->IsFunction());
-  node_method.As<Function>()->Call(context,
-                                   info.Holder(),
-                                   call_args.size(),
-                                   call_args.data()).FromMaybe(Local<Value>());
 }
 
 static void* GetAsyncTask(int64_t asyncId) {
@@ -279,8 +243,8 @@ void Initialize(Local<Object> target, Local<Value> unused,
   Environment* env = Environment::GetCurrent(context);
 
   Agent* agent = env->inspector_agent();
-  env->SetMethod(target, "consoleCall", InspectorConsoleCall);
-  env->SetMethod(target, "addCommandLineAPI", AddCommandLineAPI);
+  env->SetMethod(
+      target, "setConsoleExtensionInstaller", SetConsoleExtensionInstaller);
   if (agent->WillWaitForConnect())
     env->SetMethod(target, "callAndPauseOnStart", CallAndPauseOnStart);
   env->SetMethod(target, "open", Open);
