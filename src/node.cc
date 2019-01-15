@@ -684,6 +684,10 @@ void LoadEnvironment(Environment* env) {
     return StartExecution(env, "internal/main/eval");
   }
 
+  if (env->options()->syntax_check_only) {
+    env->set_execution_mode(Environment::ExecutionMode::kCheckSyntax);
+    return StartExecution(env, "internal/main/check_syntax");
+  }
   // TODO(joyeecheung): mkcodecache
 
   StartExecution(env, "internal/main/main_thread");

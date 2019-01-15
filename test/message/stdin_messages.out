@@ -10,10 +10,10 @@ SyntaxError: Strict mode code may not include a with statement
     at Object.<anonymous> ([stdin]-wrapper:*:*)
     at Module._compile (internal/modules/cjs/loader.js:*:*)
     at evalScript (internal/process/execution.js:*:*)
-    at Socket.process.stdin.on (internal/main/main_thread.js:*:*)
+    at readStdin (internal/main/main_thread.js:*:*)
+    at Socket.process.stdin.on (internal/process/execution.js:*:*)
     at Socket.emit (events.js:*:*)
     at endReadableNT (_stream_readable.js:*:*)
-    at processTicksAndRejections (internal/process/next_tick.js:*:*)
 42
 42
 [stdin]:1
@@ -27,10 +27,10 @@ Error: hello
     at Object.<anonymous> ([stdin]-wrapper:*:*)
     at Module._compile (internal/modules/cjs/loader.js:*:*)
     at evalScript (internal/process/execution.js:*:*)
-    at Socket.process.stdin.on (internal/main/main_thread.js:*:*)
+    at readStdin (internal/main/main_thread.js:*:*)
+    at Socket.process.stdin.on (internal/process/execution.js:*:*)
     at Socket.emit (events.js:*:*)
     at endReadableNT (_stream_readable.js:*:*)
-    at processTicksAndRejections (internal/process/next_tick.js:*:*)
 [stdin]:1
 throw new Error("hello")
 ^
@@ -42,10 +42,10 @@ Error: hello
     at Object.<anonymous> ([stdin]-wrapper:*:*)
     at Module._compile (internal/modules/cjs/loader.js:*:*)
     at evalScript (internal/process/execution.js:*:*)
-    at Socket.process.stdin.on (internal/main/main_thread.js:*:*)
+    at readStdin (internal/main/main_thread.js:*:*)
+    at Socket.process.stdin.on (internal/process/execution.js:*:*)
     at Socket.emit (events.js:*:*)
     at endReadableNT (_stream_readable.js:*:*)
-    at processTicksAndRejections (internal/process/next_tick.js:*:*)
 100
 [stdin]:1
 var x = 100; y = x;
@@ -58,10 +58,10 @@ ReferenceError: y is not defined
     at Object.<anonymous> ([stdin]-wrapper:*:*)
     at Module._compile (internal/modules/cjs/loader.js:*:*)
     at evalScript (internal/process/execution.js:*:*)
-    at Socket.process.stdin.on (internal/main/main_thread.js:*:*)
+    at readStdin (internal/main/main_thread.js:*:*)
+    at Socket.process.stdin.on (internal/process/execution.js:*:*)
     at Socket.emit (events.js:*:*)
     at endReadableNT (_stream_readable.js:*:*)
-    at processTicksAndRejections (internal/process/next_tick.js:*:*)
 
 [stdin]:1
 var ______________________________________________; throw 10
