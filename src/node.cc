@@ -678,6 +678,12 @@ void LoadEnvironment(Environment* env) {
     return StartExecution(env, "internal/main/prof_process");
   }
 
+  // -e/--eval without -i/--interactive
+  if (env->options()->has_eval_string && !env->options()->force_repl) {
+    env->set_execution_mode(Environment::ExecutionMode::kEval);
+    return StartExecution(env, "internal/main/eval");
+  }
+
   // TODO(joyeecheung): mkcodecache
 
   StartExecution(env, "internal/main/main_thread");

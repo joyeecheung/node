@@ -935,6 +935,8 @@ class Environment {
     kPrintHelp,            // node --help
     kPrintBashCompletion,  // node --completion-bash
     kProfProcess,          // node --prof-process
+    kEval,                 // node -e or node --eval without -i/--interactive
+    kRepl,
   };
 
   inline ExecutionMode execution_mode() { return execution_mode_; }
