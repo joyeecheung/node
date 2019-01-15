@@ -935,9 +935,10 @@ class Environment {
     kPrintHelp,            // node --help
     kPrintBashCompletion,  // node --completion-bash
     kProfProcess,          // node --prof-process
-    kEval,                 // node --eval without --interactive
+    kEvalString,           // node --eval without --interactive
     kCheckSyntax,          // node --check (incompatible with --eval)
     kRepl,
+    kEvalStdin,
     kRunMainModule
   };
 

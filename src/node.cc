@@ -680,8 +680,8 @@ void LoadEnvironment(Environment* env) {
 
   // -e/--eval without -i/--interactive
   if (env->options()->has_eval_string && !env->options()->force_repl) {
-    env->set_execution_mode(Environment::ExecutionMode::kEval);
-    return StartExecution(env, "internal/main/eval");
+    env->set_execution_mode(Environment::ExecutionMode::kEvalString);
+    return StartExecution(env, "internal/main/eval_string");
   }
 
   if (env->options()->syntax_check_only) {
@@ -691,7 +691,7 @@ void LoadEnvironment(Environment* env) {
   // TODO(joyeecheung): mkcodecache
 
   if (env->execution_mode() == Environment::ExecutionMode::kRunMainModule) {
-    return StartExecution(env, "internal/main/main_thread");
+    return StartExecution(env, "internal/main/run_main_module");
   }
 
   if (env->options()->force_repl || uv_guess_handle(STDIN_FILENO) == UV_TTY) {
@@ -699,6 +699,7 @@ void LoadEnvironment(Environment* env) {
     return StartExecution(env, "internal/main/repl");
   }
 
+  env->set_execution_mode(Environment::ExecutionMode::kEvalStdin);
   StartExecution(env, "internal/main/eval_stdin");
 }
 
