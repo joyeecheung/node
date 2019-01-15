@@ -186,9 +186,7 @@ void Worker::Run() {
         Environment::AsyncCallbackScope callback_scope(env_.get());
         env_->async_hooks()->push_async_ids(1, 0);
         RunBootstrapping(env_.get());
-        // TODO(joyeecheung): create a main script for worker threads
-        // that starts listening on the message port.
-        StartExecution(env_.get(), nullptr);
+        StartExecution(env_.get(), "internal/main/worker_thread");
         env_->async_hooks()->pop_async_id(1);
 
         Debug(this, "Loaded environment for worker %llu", thread_id_);

@@ -299,6 +299,18 @@ MaybeLocal<Function> NativeModuleLoader::LookupAndCompile(
   return scope.Escape(fun);
 }
 
+static void SetInternalBindingLoader(const FunctionCallbackInfo<Value>& args) {
+  Environment* env = Environment::GetCurrent(args);
+  CHECK(args[0]->IsFunction());
+  env->set_internal_binding_loader(args[0].As<Function>());
+}
+
+static void SetNativeModuleRequire(const FunctionCallbackInfo<Value>& args) {
+  Environment* env = Environment::GetCurrent(args);
+  CHECK(args[0]->IsFunction());
+  env->set_native_module_require(args[0].As<Function>());
+}
+
 void NativeModuleLoader::Initialize(Local<Object> target,
                                     Local<Value> unused,
                                     Local<Context> context,
@@ -331,6 +343,8 @@ void NativeModuleLoader::Initialize(Local<Object> target,
   env->SetMethod(
       target, "compileFunction", NativeModuleLoader::CompileFunction);
   env->SetMethod(target, "getCodeCache", NativeModuleLoader::GetCodeCache);
+  env->SetMethod(target, "setInternalBindingLoader", SetInternalBindingLoader);
+  env->SetMethod(target, "setNativeModuleRequire", SetNativeModuleRequire);
   // internalBinding('native_module') should be frozen
   target->SetIntegrityLevel(context, IntegrityLevel::kFrozen).FromJust();
 }

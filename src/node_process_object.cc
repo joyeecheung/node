@@ -229,7 +229,7 @@ Local<Object> CreateProcessObject(Environment* env,
 
   // --prof-process
   // TODO(addaleax): Remove this.
-  if (env->options()->prof_process) {
+  if (per_process::cli_options->prof_process) {
     READONLY_PROPERTY(process, "profProcess", True(env->isolate()));
   }
 

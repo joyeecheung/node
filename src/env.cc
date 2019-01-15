@@ -288,6 +288,14 @@ void Environment::Start(const std::vector<std::string>& args,
   HandleScope handle_scope(isolate());
   Context::Scope context_scope(context());
 
+  if (args.size() > 1) {
+    if (args[1] == "inspect") {
+      execution_mode_ = ExecutionMode::kInspect;
+    } else if (args[1] == "debug") {
+      execution_mode_ = ExecutionMode::kDebug;
+    }
+  }
+
   if (*TRACE_EVENT_API_GET_CATEGORY_GROUP_ENABLED(
       TRACING_CATEGORY_NODE1(environment)) != 0) {
     auto traced_value = tracing::TracedValue::Create();

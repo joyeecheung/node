@@ -104,7 +104,6 @@ class EnvironmentOptions : public Options {
   bool pending_deprecation = false;
   bool preserve_symlinks = false;
   bool preserve_symlinks_main = false;
-  bool prof_process = false;
   std::string redirect_warnings;
   bool throw_deprecation = false;
   bool trace_deprecation = false;
@@ -160,6 +159,7 @@ class PerProcessOptions : public Options {
   bool print_help = false;
   bool print_v8_help = false;
   bool print_version = false;
+  bool prof_process = false;
 
 #ifdef NODE_HAVE_I18N_SUPPORT
   std::string icu_data_dir;
