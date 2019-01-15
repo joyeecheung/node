@@ -690,7 +690,16 @@ void LoadEnvironment(Environment* env) {
   }
   // TODO(joyeecheung): mkcodecache
 
-  StartExecution(env, "internal/main/main_thread");
+  if (env->execution_mode() == Environment::ExecutionMode::kRunMainModule) {
+    return StartExecution(env, "internal/main/main_thread");
+  }
+
+  if (env->options()->force_repl || uv_guess_handle(STDIN_FILENO) == UV_TTY) {
+    env->set_execution_mode(Environment::ExecutionMode::kRepl);
+    return StartExecution(env, "internal/main/repl");
+  }
+
+  StartExecution(env, "internal/main/eval_stdin");
 }
 
 void RunBootstrapping(Environment* env) {

@@ -289,10 +289,13 @@ void Environment::Start(const std::vector<std::string>& args,
   Context::Scope context_scope(context());
 
   if (args.size() > 1) {
-    if (args[1] == "inspect") {
+    std::string first_arg = args[1];
+    if (first_arg == "inspect") {
       execution_mode_ = ExecutionMode::kInspect;
-    } else if (args[1] == "debug") {
+    } else if (first_arg == "debug") {
       execution_mode_ = ExecutionMode::kDebug;
+    } else if (first_arg != "-") {
+      execution_mode_ = ExecutionMode::kRunMainModule;
     }
   }
 

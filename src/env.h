@@ -938,6 +938,7 @@ class Environment {
     kEval,                 // node --eval without --interactive
     kCheckSyntax,          // node --check (incompatible with --eval)
     kRepl,
+    kRunMainModule
   };
 
   inline ExecutionMode execution_mode() { return execution_mode_; }
