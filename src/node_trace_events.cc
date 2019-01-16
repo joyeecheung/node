@@ -2,7 +2,7 @@
 #include "env.h"
 #include "node.h"
 #include "node_internals.h"
-#include "node_v8_platform.h"
+#include "node_v8_platform-inl.h"
 #include "tracing/agent.h"
 
 #include <set>

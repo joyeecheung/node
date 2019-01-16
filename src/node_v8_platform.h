@@ -13,8 +13,8 @@ namespace node {
 class NodeTraceStateObserver
     : public v8::TracingController::TraceStateObserver {
  public:
-  void OnTraceEnabled() override;
-  void OnTraceDisabled() override;
+  inline void OnTraceEnabled() override;
+  inline void OnTraceDisabled() override;
   explicit NodeTraceStateObserver(v8::TracingController* controller)
       : controller_(controller) {}
   ~NodeTraceStateObserver() override {}
@@ -25,20 +25,20 @@ class NodeTraceStateObserver
 
 struct V8Platform {
 #if NODE_USE_V8_PLATFORM
-  void Initialize(int thread_pool_size);
-  void Dispose();
-  void DrainVMTasks(v8::Isolate* isolate);
-  void CancelVMTasks(v8::Isolate* isolate);
+  inline void Initialize(int thread_pool_size);
+  inline void Dispose();
+  inline void DrainVMTasks(v8::Isolate* isolate);
+  inline void CancelVMTasks(v8::Isolate* isolate);
 
 #if HAVE_INSPECTOR
-  bool StartInspector(Environment* env, const char* script_path);
-  bool InspectorStarted(Environment* env);
+  inline bool StartInspector(Environment* env, const char* script_path);
+  inline bool InspectorStarted(Environment* env);
 #endif  // HAVE_INSPECTOR
 
-  void StartTracingAgent();
-  void StopTracingAgent();
-  tracing::AgentWriterHandle* GetTracingAgentWriter();
-  NodePlatform* Platform();
+  inline void StartTracingAgent();
+  inline void StopTracingAgent();
+  inline tracing::AgentWriterHandle* GetTracingAgentWriter();
+  inline NodePlatform* Platform();
 
   std::unique_ptr<NodeTraceStateObserver> trace_state_observer_;
   std::unique_ptr<tracing::Agent> tracing_agent_;
@@ -76,8 +76,8 @@ extern struct V8Platform v8_platform;
 extern bool v8_is_profiling;
 }  // namespace per_process
 
-tracing::AgentWriterHandle* GetTracingAgentWriter();
-void DisposePlatform();
+inline tracing::AgentWriterHandle* GetTracingAgentWriter();
+inline void DisposePlatform();
 
 }  // namespace node
 

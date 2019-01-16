@@ -53,7 +53,7 @@
 #include "async_wrap-inl.h"
 #include "env-inl.h"
 #include "handle_wrap.h"
-#include "node_v8_platform.h"
+#include "node_v8_platform-inl.h"
 #include "req_wrap-inl.h"
 #include "string_bytes.h"
 #include "util.h"

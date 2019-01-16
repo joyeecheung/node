@@ -1,8 +1,13 @@
-#include "node_v8_platform.h"
+#ifndef SRC_NODE_V8_PLATFORM_INL_H_
+#define SRC_NODE_V8_PLATFORM_INL_H_
+
+#if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
+
 #include "node.h"
 #include "node_internals.h"
 #include "node_metadata.h"
 #include "node_options.h"
+#include "node_v8_platform.h"
 #include "tracing/node_trace_writer.h"
 #include "tracing/traced_value.h"
 
@@ -14,7 +19,7 @@ using v8::V8;
 // Ensures that __metadata trace events are only emitted
 // when tracing is enabled.
 
-void NodeTraceStateObserver::OnTraceEnabled() {
+inline void NodeTraceStateObserver::OnTraceEnabled() {
   char name_buffer[512];
   if (uv_get_process_title(name_buffer, sizeof(name_buffer)) == 0) {
     // Only emit the metadata event if the title can be retrieved
@@ -56,14 +61,14 @@ void NodeTraceStateObserver::OnTraceEnabled() {
   controller_->RemoveTraceStateObserver(this);
 }
 
-void NodeTraceStateObserver::OnTraceDisabled() {
+inline void NodeTraceStateObserver::OnTraceDisabled() {
   // Do nothing here. This should never be called because the
   // observer removes itself when OnTraceEnabled() is called.
   UNREACHABLE();
 }
 
 #if NODE_USE_V8_PLATFORM
-void V8Platform::Initialize(int thread_pool_size) {
+inline void V8Platform::Initialize(int thread_pool_size) {
   tracing_agent_.reset(new tracing::Agent());
   node::tracing::TraceEventHelper::SetAgent(tracing_agent_.get());
   node::tracing::TracingController* controller =
@@ -76,7 +81,7 @@ void V8Platform::Initialize(int thread_pool_size) {
   V8::InitializePlatform(platform_);
 }
 
-void V8Platform::Dispose() {
+inline void V8Platform::Dispose() {
   StopTracingAgent();
   platform_->Shutdown();
   delete platform_;
@@ -87,7 +92,7 @@ void V8Platform::Dispose() {
   trace_state_observer_.reset(nullptr);
 }
 
-void V8Platform::DrainVMTasks(Isolate* isolate) {
+inline void V8Platform::DrainVMTasks(Isolate* isolate) {
   platform_->DrainTasks(isolate);
 }
 
@@ -96,7 +101,8 @@ void V8Platform::CancelVMTasks(Isolate* isolate) {
 }
 
 #if HAVE_INSPECTOR
-bool V8Platform::StartInspector(Environment* env, const char* script_path) {
+inline bool V8Platform::StartInspector(Environment* env,
+                                       const char* script_path) {
   // Inspector agent can't fail to start, but if it was configured to listen
   // right away on the websocket port and fails to bind/etc, this will return
   // false.
@@ -107,12 +113,12 @@ bool V8Platform::StartInspector(Environment* env, const char* script_path) {
       true);
 }
 
-bool V8Platform::InspectorStarted(Environment* env) {
+inline bool V8Platform::InspectorStarted(Environment* env) {
   return env->inspector_agent()->IsListening();
 }
 #endif  // HAVE_INSPECTOR
 
-void V8Platform::StartTracingAgent() {
+inline void V8Platform::StartTracingAgent() {
   if (per_process::cli_options->trace_event_categories.empty()) {
     tracing_file_writer_ = tracing_agent_->DefaultHandle();
   } else {
@@ -128,25 +134,29 @@ void V8Platform::StartTracingAgent() {
   }
 }
 
-void V8Platform::StopTracingAgent() {
+inline void V8Platform::StopTracingAgent() {
   tracing_file_writer_.reset();
 }
 
-tracing::AgentWriterHandle* V8Platform::GetTracingAgentWriter() {
+inline tracing::AgentWriterHandle* V8Platform::GetTracingAgentWriter() {
   return &tracing_file_writer_;
 }
 
-NodePlatform* V8Platform::Platform() {
+inline NodePlatform* V8Platform::Platform() {
   return platform_;
 }
 #endif  // NODE_USE_V8_PLATFORM
 
-tracing::AgentWriterHandle* GetTracingAgentWriter() {
+inline tracing::AgentWriterHandle* GetTracingAgentWriter() {
   return per_process::v8_platform.GetTracingAgentWriter();
 }
 
-void DisposePlatform() {
+inline void DisposePlatform() {
   per_process::v8_platform.Dispose();
 }
 
 }  // namespace node
+
+#endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
+
+#endif  // SRC_NODE_V8_PLATFORM_INL_H_
