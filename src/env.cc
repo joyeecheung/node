@@ -37,6 +37,7 @@ using v8::NewStringType;
 using v8::Number;
 using v8::Object;
 using v8::Private;
+using v8::SnapshotCreator;
 using v8::StackTrace;
 using v8::String;
 using v8::Symbol;
@@ -48,6 +49,29 @@ using worker::Worker;
 int const Environment::kNodeContextTag = 0x6e6f64;
 void* const Environment::kNodeContextTagPtr = const_cast<void*>(
     static_cast<const void*>(&Environment::kNodeContextTag));
+
+std::vector<size_t> IsolateData::Serialize(SnapshotCreator* creator) {
+  Isolate* isolate = creator->GetIsolate();
+  std::vector<size_t> indexes;
+  HandleScope handle_scope(isolate);
+
+#define V(PropertyName, StringValue)                                           \
+  indexes.push_back(creator->AddData(PropertyName##_.Get(isolate)));
+  PER_ISOLATE_PRIVATE_SYMBOL_PROPERTIES(V)
+#undef V
+
+#define V(PropertyName, StringValue)                                           \
+  indexes.push_back(creator->AddData(PropertyName##_.Get(isolate)));
+  PER_ISOLATE_SYMBOL_PROPERTIES(V)
+#undef V
+
+#define V(PropertyName, StringValue)                                           \
+  indexes.push_back(creator->AddData(PropertyName##_.Get(isolate)));
+  PER_ISOLATE_STRING_PROPERTIES(V)
+#undef V
+
+  return indexes;
+}
 
 IsolateData::IsolateData(Isolate* isolate,
                          uv_loop_t* event_loop,

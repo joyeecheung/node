@@ -421,6 +421,7 @@ class IsolateData : public MemoryRetainer {
   SET_MEMORY_INFO_NAME(IsolateData);
   SET_SELF_SIZE(IsolateData);
   void MemoryInfo(MemoryTracker* tracker) const override;
+  std::vector<size_t> Serialize(v8::SnapshotCreator* creator);
 
   inline uv_loop_t* event_loop() const;
   inline MultiIsolatePlatform* platform() const;
@@ -1132,6 +1133,7 @@ class Environment : public MemoryRetainer {
 #endif  // HAVE_INSPECTOR
 
  private:
+  class SnapshotBuilder;
   inline void CreateImmediate(native_immediate_callback cb,
                               void* data,
                               v8::Local<v8::Object> obj,
