@@ -156,6 +156,20 @@ void SetIsolateCreateParamsForNode(Isolate::CreateParams* params) {
 #endif
 }
 
+void SetIsolateUpForSnapshot(v8::Isolate* isolate) {
+  // This creates a foreign reference that we can't register.
+  // isolate->AddMessageListenerWithErrorLevel(
+  //     OnMessage,
+  //     Isolate::MessageErrorLevel::kMessageError |
+  //         Isolate::MessageErrorLevel::kMessageWarning);
+  isolate->SetAbortOnUncaughtExceptionCallback(ShouldAbortOnUncaughtException);
+  isolate->SetMicrotasksPolicy(MicrotasksPolicy::kExplicit);
+  isolate->SetFatalErrorHandler(OnFatalError);
+  isolate->SetAllowWasmCodeGenerationCallback(AllowWasmCodeGenerationCallback);
+  isolate->SetPromiseRejectCallback(task_queue::PromiseRejectCallback);
+  v8::CpuProfiler::UseDetailedSourcePositionsForProfiling(isolate);
+}
+
 void SetIsolateUpForNode(v8::Isolate* isolate) {
   isolate->AddMessageListenerWithErrorLevel(
       errors::PerIsolateMessageListener,
