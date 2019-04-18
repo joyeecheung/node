@@ -494,6 +494,7 @@
         'src/node_http_parser_traditional.cc',
         'src/node_http2.cc',
         'src/node_i18n.cc',
+        'src/snapshot_stub.cc',
         'src/node_main_instance.cc',
         'src/node_messaging.cc',
         'src/node_metadata.cc',

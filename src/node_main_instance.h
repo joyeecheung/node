@@ -63,6 +63,16 @@ class NodeMainInstance {
   std::unique_ptr<Environment> CreateMainEnvironment(int* exit_code);
 
  private:
+  struct IndexArray {
+    const size_t* data;
+    size_t length;
+  };
+
+  // If nullptr is returned, the binary is not built with embedded
+  // snapshot.
+  const IndexArray* GetIsolateDataIndexes();
+  const v8::StartupData* GetEmbeddedSnapshotBlob();
+
   NodeMainInstance(v8::Isolate* isolate,
                    uv_loop_t* event_loop,
                    const std::vector<std::string>& args,
