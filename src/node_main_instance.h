@@ -64,7 +64,16 @@ class NodeMainInstance {
   // and the environment creation routine in workers somehow.
   std::unique_ptr<Environment> CreateMainEnvironment(int* exit_code);
 
+  struct IndexArray {
+    const size_t* data;
+    size_t length;
+  };
  private:
+  // If nullptr is returned, the binary is not built with embedded
+  // snapshot.
+  const IndexArray* GetIsolateDataIndexes();
+  const v8::StartupData* GetEmbeddedSnapshotBlob();
+
   NodeMainInstance(v8::Isolate* isolate,
                    uv_loop_t* event_loop,
                    MultiIsolatePlatform* platform,

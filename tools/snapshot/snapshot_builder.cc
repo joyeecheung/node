@@ -30,7 +30,7 @@ std::string FormatBlob(v8::StartupData* blob,
 
 namespace node {
 
-static const char blob_data[] = {
+static const uint8_t blob_data[] = {
 )";
 
   for (int i = 0; i < blob->raw_size; i++) {
@@ -42,7 +42,10 @@ static const char blob_data[] = {
 
 static const int blob_size = )"
      << blob->raw_size << R"(;
-static const v8::StartupData blob = { blob_data, blob_size };
+static const v8::StartupData blob = {
+  reinterpret_cast<const char*>(blob_data),
+  blob_size
+};
 )";
 
   ss << R"(const v8::StartupData*
