@@ -279,8 +279,14 @@ void V8CpuProfilerConnection::Start() {
       isolate, R"({"id": 1, "method": "Profiler.enable"})");
   Local<String> start = FIXED_ONE_BYTE_STRING(
       isolate, R"({"id": 2, "method": "Profiler.start"})");
+  Local<String> interval = FIXED_ONE_BYTE_STRING(isolate, R"({
+      "id": 3,
+      "method": "Profiler.setSamplingInterval",
+      "params": { "interval": 10 }
+  })");
   DispatchMessage(enable);
   DispatchMessage(start);
+  DispatchMessage(interval);
 }
 
 void V8CpuProfilerConnection::End() {
@@ -290,7 +296,7 @@ void V8CpuProfilerConnection::End() {
   Isolate* isolate = env()->isolate();
   HandleScope scope(isolate);
   Local<String> end =
-      FIXED_ONE_BYTE_STRING(isolate, R"({"id": 3, "method": "Profiler.stop"})");
+      FIXED_ONE_BYTE_STRING(isolate, R"({"id": 4, "method": "Profiler.stop"})");
   DispatchMessage(end);
 }
 
