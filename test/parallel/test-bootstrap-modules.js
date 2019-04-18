@@ -58,6 +58,7 @@ const expectedModules = new Set([
   'NativeModule internal/util',
   'NativeModule internal/util/debuglog',
   'NativeModule internal/util/inspect',
+  'NativeModule internal/util/print',
   'NativeModule internal/util/types',
   'NativeModule internal/validators',
   'NativeModule path',
