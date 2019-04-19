@@ -885,8 +885,10 @@ int Start(int argc, char** argv) {
   }
 
   {
-    NodeMainInstance main_instance(
-        uv_default_loop(), result.args, result.exec_args);
+    NodeMainInstance main_instance(uv_default_loop(),
+                                   per_process::v8_platform.Platform(),
+                                   result.args,
+                                   result.exec_args);
     result.exit_code = main_instance.Run();
   }
 
