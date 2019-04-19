@@ -1103,6 +1103,7 @@
       'defines': [ 'NODE_WANT_INTERNALS=1' ],
 
       'sources': [
+        'src/node_snapshot_stub.cc',
         'src/node_code_cache_stub.cc',
         'test/cctest/node_test_fixture.cc',
         'test/cctest/test_aliased_buffer.cc',
@@ -1193,6 +1194,7 @@
         'NODE_WANT_INTERNALS=1'
       ],
       'sources': [
+        'src/node_snapshot_stub.cc',
         'src/node_code_cache_stub.cc',
         'tools/code_cache/mkcodecache.cc',
         'tools/code_cache/cache_builder.cc',
