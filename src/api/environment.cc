@@ -225,6 +225,21 @@ void FreeIsolateData(IsolateData* isolate_data) {
   delete isolate_data;
 }
 
+MaybeLocal<Value> PrepareEnvironmentForExecution(Environment* env) {
+  EscapableHandleScope scope(env->isolate());
+  std::vector<Local<String>> parameters = {
+      env->require_string(),
+      FIXED_ONE_BYTE_STRING(env->isolate(), "markBootstrapComplete")};
+  std::vector<Local<Value>> arguments = {
+      env->native_module_require(),
+      env->NewFunctionTemplate(MarkBootstrapComplete)
+          ->GetFunction(env->context())
+          .ToLocalChecked()};
+  MaybeLocal<Value> value = ExecuteBootstrapper(
+      env, "internal/bootstrap/environment", &parameters, &arguments);
+  return scope.EscapeMaybe(value);
+}
+
 Environment* CreateEnvironment(IsolateData* isolate_data,
                                Local<Context> context,
                                int argc,
@@ -247,21 +262,8 @@ Environment* CreateEnvironment(IsolateData* isolate_data,
                                       Environment::kOwnsInspector));
   env->InitializeLibuv(per_process::v8_is_profiling);
   env->ProcessCliArgs(args, exec_args);
-  if (RunBootstrapping(env).IsEmpty()) {
-    return nullptr;
-  }
-
-  std::vector<Local<String>> parameters = {
-      env->require_string(),
-      FIXED_ONE_BYTE_STRING(env->isolate(), "markBootstrapComplete")};
-  std::vector<Local<Value>> arguments = {
-      env->native_module_require(),
-      env->NewFunctionTemplate(MarkBootstrapComplete)
-          ->GetFunction(env->context())
-          .ToLocalChecked()};
-  if (ExecuteBootstrapper(
-          env, "internal/bootstrap/environment", &parameters, &arguments)
-          .IsEmpty()) {
+  if (RunBootstrapping(env).IsEmpty() ||
+      PrepareEnvironmentForExecution(env).IsEmpty()) {
     return nullptr;
   }
   return env;
