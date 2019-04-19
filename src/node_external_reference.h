@@ -19,13 +19,13 @@ class ExternalReferenceRegistry {
     external_references_.push_back(reinterpret_cast<intptr_t>(address));
   }
 
-  std::vector<intptr_t> external_references() const {
-    std::vector<intptr_t> result = external_references_;
-    result.push_back(reinterpret_cast<intptr_t>(nullptr));
-    return result;
-  }
+  // This can be called only once.
+  const std::vector<intptr_t>& external_references();
+
+  bool is_empty() { return external_references_.empty(); }
 
  private:
+  bool is_finalized_ = false;
   std::vector<intptr_t> external_references_;
 };
 

@@ -2,7 +2,7 @@
 
 namespace node {
 
-const v8::StartupData* NodeMainInstance::GetEmbeddedSnapshotBlob() {
+v8::StartupData* NodeMainInstance::GetEmbeddedSnapshotBlob() {
   return nullptr;
 }
 

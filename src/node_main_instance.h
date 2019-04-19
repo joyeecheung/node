@@ -3,6 +3,7 @@
 
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
+#include <cinttypes>
 #include "node.h"
 #include "util.h"
 #include "uv.h"
@@ -16,10 +17,15 @@ class ExternalReferenceRegistry;
 // We may be able to create an abstract class to reuse some of the routines.
 class NodeMainInstance {
  public:
-  NodeMainInstance(const NodeMainInstance&) = delete;
-  NodeMainInstance& operator=(const NodeMainInstance&) = delete;
-  NodeMainInstance(NodeMainInstance&&) = delete;
-  NodeMainInstance& operator=(NodeMainInstance&&) = delete;
+  struct IndexArray {
+    const size_t* data;
+    size_t length;
+
+    size_t Get(size_t index) const {
+      DCHECK_LT(index, lenth);
+      return data[index];
+    }
+  };
 
   // To create a main instance that does not own the isoalte,
   // The caller needs to do:
@@ -46,13 +52,22 @@ class NodeMainInstance {
                                   const std::vector<std::string>& exec_args);
   void Dispose();
 
-  static void CollectExternalReferences(ExternalReferenceRegistry* registry);
-  // Create a main instance that owns the isoalte
-  NodeMainInstance(uv_loop_t* event_loop,
+  // Create a main instance that owns the isolate
+  NodeMainInstance(v8::Isolate::CreateParams* params,
+                   uv_loop_t* event_loop,
                    MultiIsolatePlatform* platform,
                    const std::vector<std::string>& args,
-                   const std::vector<std::string>& exec_args);
+                   const std::vector<std::string>& exec_args,
+                   const IndexArray* per_isolate_data_indexes = nullptr);
   ~NodeMainInstance();
+
+  static const std::vector<intptr_t>& CollectExternalReferences();
+  // static NodeMainInstance* Deserialize(uv_loop_t* event_loop,
+  //                                      MultiIsolatePlatform* platform,
+  //                                      const std::vector<std::string>& args,
+  //                                      const std::vector<std::string>&
+  //                                      exec_args);
+
   void reset_isolate(v8::Isolate* isolate) { isolate_ = isolate; }
   v8::Isolate* isolate() { return isolate_; }
   IsolateData* isolate_data() { return isolate_data_.get(); }
@@ -64,21 +79,26 @@ class NodeMainInstance {
   // and the environment creation routine in workers somehow.
   std::unique_ptr<Environment> CreateMainEnvironment(int* exit_code);
 
-  struct IndexArray {
-    const size_t* data;
-    size_t length;
-  };
  private:
   // If nullptr is returned, the binary is not built with embedded
   // snapshot.
-  const IndexArray* GetIsolateDataIndexes();
-  const v8::StartupData* GetEmbeddedSnapshotBlob();
+  static const IndexArray* GetIsolateDataIndexes();
+  static v8::StartupData* GetEmbeddedSnapshotBlob();
+
+  NodeMainInstance(const NodeMainInstance&) = delete;
+  NodeMainInstance& operator=(const NodeMainInstance&) = delete;
+  NodeMainInstance(NodeMainInstance&&) = delete;
+  NodeMainInstance& operator=(NodeMainInstance&&) = delete;
 
   NodeMainInstance(v8::Isolate* isolate,
                    uv_loop_t* event_loop,
                    MultiIsolatePlatform* platform,
                    const std::vector<std::string>& args,
                    const std::vector<std::string>& exec_args);
+  // This installs per-isolate callbacks
+  void InstallPerIsolateSettings();
+
+  static std::unique_ptr<ExternalReferenceRegistry> registry_;
   std::vector<std::string> args_;
   std::vector<std::string> exec_args_;
   std::unique_ptr<ArrayBufferAllocator> array_buffer_allocator_;

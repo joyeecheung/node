@@ -14,6 +14,18 @@ using v8::Local;
 using v8::Locker;
 using v8::SealHandleScope;
 
+std::unique_ptr<ExternalReferenceRegistry> NodeMainInstance::registry_ =
+    nullptr;
+
+void NodeMainInstance::InstallPerIsolateSettings() {
+  SetIsolateUpForNode(isolate_);
+  // TODO(addaleax): This should load a real per-Isolate option, currently
+  // this is still effectively per-process.
+  if (isolate_data_->options()->track_heap_objects) {
+    isolate_->GetHeapProfiler()->StartTrackingHeapObjects(true);
+  }
+}
+
 NodeMainInstance::NodeMainInstance(Isolate* isolate,
                                    uv_loop_t* event_loop,
                                    MultiIsolatePlatform* platform,
@@ -26,18 +38,22 @@ NodeMainInstance::NodeMainInstance(Isolate* isolate,
       platform_(platform),
       isolate_data_(nullptr),
       owns_isolate_(false) {
-  SetIsolateUpForNode(isolate);
   isolate_data_.reset(new IsolateData(isolate_, event_loop, platform, nullptr));
+  InstallPerIsolateSettings();
 }
 
-void NodeMainInstance::CollectExternalReferences(
-    ExternalReferenceRegistry* registry) {
+const std::vector<intptr_t>& NodeMainInstance::CollectExternalReferences() {
+  // Cannot be called more than once.
+  CHECK_NULL(registry_);
+  registry_.reset(new ExternalReferenceRegistry());
+
   // TODO(joyeecheung): this is necessary because adding the message listener
   // in SetIsolateUpForNode() creates a foreign address that needs to be
   // registered. We could skip doing this when generating the snapshot, but
   // then if a JS exception is thrown during the snapshot generation,
   // it won't be handled the normal way.
-  registry->Register(&(errors::PerIsolateMessageListener));
+  registry_->Register(&(errors::PerIsolateMessageListener));
+  return registry_->external_references();
 }
 
 NodeMainInstance* NodeMainInstance::Create(
@@ -47,12 +63,14 @@ NodeMainInstance* NodeMainInstance::Create(
     const std::vector<std::string>& args,
     const std::vector<std::string>& exec_args) {
   return new NodeMainInstance(isolate, event_loop, platform, args, exec_args);
-}  // namespace node
+}
 
-NodeMainInstance::NodeMainInstance(uv_loop_t* event_loop,
+NodeMainInstance::NodeMainInstance(Isolate::CreateParams* params,
+                                   uv_loop_t* event_loop,
                                    MultiIsolatePlatform* platform,
                                    const std::vector<std::string>& args,
-                                   const std::vector<std::string>& exec_args)
+                                   const std::vector<std::string>& exec_args,
+                                   const IndexArray* per_isolate_data_indexes)
     : args_(args),
       exec_args_(exec_args),
       array_buffer_allocator_(ArrayBufferAllocator::Create()),
@@ -60,20 +78,24 @@ NodeMainInstance::NodeMainInstance(uv_loop_t* event_loop,
       platform_(platform),
       isolate_data_(nullptr),
       owns_isolate_(true) {
-  // TODO(joyeecheung): when we implement snapshot integration this needs to
-  // set params.external_references.
-  Isolate::CreateParams params;
-  params.array_buffer_allocator = array_buffer_allocator_.get();
+  params->array_buffer_allocator = array_buffer_allocator_.get();
   isolate_ = Isolate::Allocate();
   CHECK_NOT_NULL(isolate_);
   // Register the isolate on the platform before the isolate gets initialized,
   // so that the isolate can access the platform during initialization.
   platform->RegisterIsolate(isolate_, event_loop);
-  SetIsolateCreateParamsForNode(&params);
-  Isolate::Initialize(isolate_, params);
-  SetIsolateUpForNode(isolate_);
-  isolate_data_.reset(CreateIsolateData(
-      isolate_, event_loop, platform, array_buffer_allocator_.get()));
+  SetIsolateCreateParamsForNode(params);
+  Isolate::Initialize(isolate_, *params);
+
+  // If the indexes are not nullptr, we are not deserializing
+  CHECK_IMPLIES(per_isolate_data_indexes == nullptr,
+                params->external_references == nullptr);
+  isolate_data_.reset(new IsolateData(isolate_,
+                                      event_loop,
+                                      platform,
+                                      array_buffer_allocator_.get(),
+                                      per_isolate_data_indexes));
+  InstallPerIsolateSettings();
 }
 
 void NodeMainInstance::Dispose() {
@@ -164,12 +186,6 @@ std::unique_ptr<Environment> NodeMainInstance::CreateMainEnvironment(
   *exit_code = 0;  // Reset the exit code to 0
 
   HandleScope handle_scope(isolate_);
-
-  // TODO(addaleax): This should load a real per-Isolate option, currently
-  // this is still effectively per-process.
-  if (isolate_data_->options()->track_heap_objects) {
-    isolate_->GetHeapProfiler()->StartTrackingHeapObjects(true);
-  }
 
   Local<Context> context = NewContext(isolate_);
   CHECK(!context.IsEmpty());

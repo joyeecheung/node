@@ -42,13 +42,13 @@ static const uint8_t blob_data[] = {
 
 static const int blob_size = )"
      << blob->raw_size << R"(;
-static const v8::StartupData blob = {
+static v8::StartupData blob = {
   reinterpret_cast<const char*>(blob_data),
   blob_size
 };
 )";
 
-  ss << R"(const v8::StartupData*
+  ss << R"(v8::StartupData*
 NodeMainInstance::GetEmbeddedSnapshotBlob() {
   return &blob;
 }
@@ -81,9 +81,8 @@ NodeMainInstance::GetIsolateDataIndexes() {
 std::string SnapshotBuilder::Generate(
     const std::vector<std::string> args,
     const std::vector<std::string> exec_args) {
-  ExternalReferenceRegistry registry;
-  NodeMainInstance::CollectExternalReferences(&registry);
-  std::vector<intptr_t> external_references = registry.external_references();
+  const std::vector<intptr_t>& external_references =
+      NodeMainInstance::CollectExternalReferences();
   Isolate* isolate = Isolate::Allocate();
   per_process::v8_platform.Platform()->RegisterIsolate(isolate,
                                                        uv_default_loop());
