@@ -81,8 +81,9 @@ std::string SnapshotBuilder::Generate(
   ExternalReferenceRegistry registry;
   NodeMainInstance::CollectExternalReferences(&registry);
   std::vector<intptr_t> external_references = registry.external_references();
-
-  Isolate* isolate = NodeMainInstance::AllocateIsolate(uv_default_loop());
+  Isolate* isolate = Isolate::Allocate();
+  per_process::v8_platform.Platform()->RegisterIsolate(isolate,
+                                                       uv_default_loop());
   NodeMainInstance* main_instance = nullptr;
   std::string result;
 
@@ -91,7 +92,11 @@ std::string SnapshotBuilder::Generate(
     SnapshotCreator creator(isolate, external_references.data());
     {
       main_instance =
-          NodeMainInstance::Create(isolate, uv_default_loop(), args, exec_args);
+          NodeMainInstance::Create(isolate,
+                                   uv_default_loop(),
+                                   per_process::v8_platform.Platform(),
+                                   args,
+                                   exec_args);
       HandleScope scope(isolate);
       creator.SetDefaultContext(Context::New(isolate));
       isolate_data_indexes = main_instance->isolate_data()->Serialize(&creator);
@@ -105,11 +110,11 @@ std::string SnapshotBuilder::Generate(
         creator.CreateBlob(SnapshotCreator::FunctionCodeHandling::kClear);
     // Must be done while the snapshot creator isolate is entered i.e. the
     // creator is still alive.
-    main_instance->Cleanup();
+    main_instance->Dispose();
     result = FormatBlob(&blob, isolate_data_indexes);
   }
 
-  main_instance->Dispose();
+  per_process::v8_platform.Platform()->UnregisterIsolate(isolate);
   return result;
 }
 }  // namespace node
