@@ -1,4 +1,6 @@
 #include "node_main_instance.h"
+#include "node_errors.h"
+#include "node_external_reference.h"
 #include "node_internals.h"
 #include "node_options-inl.h"
 #include "node_v8_platform-inl.h"
@@ -29,9 +31,19 @@ NodeMainInstance::NodeMainInstance(Isolate* isolate,
       isolate_(isolate),
       isolate_data_(nullptr),
       owns_isolate_(false) {
-  // SetIsolateUpForNode(isolate);
+  SetIsolateUpForNode(isolate);
   isolate_data_.reset(new IsolateData(
       isolate_, event_loop, per_process::v8_platform.Platform(), nullptr));
+}
+
+void NodeMainInstance::CollectExternalReferences(
+    ExternalReferenceRegistry* registry) {
+  // TODO(joyeecheung): this is necessary because adding the message listener
+  // in SetIsolateUpForNode() creates a foreign address that needs to be
+  // registered. We could skip doing this when generating the snapshot, but
+  // then if a JS exception is thrown during the snapshot generation,
+  // it won't be handled the normal way.
+  registry->Register(&(errors::PerIsolateMessageListener));
 }
 
 NodeMainInstance* NodeMainInstance::Create(

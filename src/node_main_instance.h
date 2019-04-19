@@ -10,6 +10,8 @@
 
 namespace node {
 
+class ExternalReferenceRegistry;
+
 // TODO(joyeecheung): align this with the Worker/WorkerThreadData class.
 // We may be able to create an abstract class to reuse some of the routines.
 class NodeMainInstance {
@@ -43,6 +45,7 @@ class NodeMainInstance {
   void Cleanup();
   void Dispose();
 
+  static void CollectExternalReferences(ExternalReferenceRegistry* registry);
   // Create a main instance that owns the isoalte
   NodeMainInstance(uv_loop_t* event_loop,
                    const std::vector<std::string>& args,
