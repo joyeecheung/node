@@ -3,13 +3,15 @@
 
 #include <cstdlib>
 #include <memory>
-#include "gtest/gtest.h"
-#include "node.h"
-#include "node_platform.h"
-#include "node_internals.h"
+#include "debug_utils.h"
 #include "env.h"
-#include "v8.h"
+#include "gtest/gtest.h"
 #include "libplatform/libplatform.h"
+#include "node.h"
+#include "node_internals.h"
+#include "node_main_instance.h"
+#include "node_platform.h"
+#include "v8.h"
 
 struct Argv {
  public:
@@ -59,7 +61,7 @@ using ArrayBufferUniquePtr = std::unique_ptr<node::ArrayBufferAllocator,
 using TracingAgentUniquePtr = std::unique_ptr<node::tracing::Agent>;
 using NodePlatformUniquePtr = std::unique_ptr<node::NodePlatform>;
 
-class NodeTestFixture : public ::testing::Test {
+class NodeTestFixtureBase : public ::testing::Test {
  protected:
   static ArrayBufferUniquePtr allocator;
   static TracingAgentUniquePtr tracing_agent;
@@ -94,7 +96,9 @@ class NodeTestFixture : public ::testing::Test {
     v8::V8::ShutdownPlatform();
     CHECK_EQ(0, uv_loop_close(&current_loop));
   }
+};
 
+class NodeTestFixture : public NodeTestFixtureBase {
   void SetUp() override {
     allocator = ArrayBufferUniquePtr(node::CreateArrayBufferAllocator(),
                                      &node::FreeArrayBufferAllocator);
@@ -111,48 +115,67 @@ class NodeTestFixture : public ::testing::Test {
   }
 };
 
+class EnvironmentTestFixture : public NodeTestFixtureBase {
+ protected:
+  void SetUp() override {
+    allocator = ArrayBufferUniquePtr(node::CreateArrayBufferAllocator(),
+                                     &node::FreeArrayBufferAllocator);
+    isolate_ = v8::Isolate::Allocate();
+    CHECK_NE(isolate_, nullptr);
+    v8::Isolate::CreateParams params;
+    params.array_buffer_allocator = allocator.get();
+    platform->RegisterIsolate(isolate_, &current_loop);
+    v8::Isolate::Initialize(isolate_, params);
+    isolate_->Enter();
+  }
 
-class EnvironmentTestFixture : public NodeTestFixture {
+  void TearDown() override {
+    isolate_->Exit();
+    isolate_->Dispose();
+    platform->UnregisterIsolate(isolate_);
+    isolate_ = nullptr;
+  }
+
  public:
   class Env {
    public:
     Env(const v8::HandleScope& handle_scope, const Argv& argv) {
       auto isolate = handle_scope.GetIsolate();
-      context_ = node::NewContext(isolate);
-      CHECK(!context_.IsEmpty());
-      context_->Enter();
-
-      isolate_data_ = node::CreateIsolateData(isolate,
-                                              &NodeTestFixture::current_loop,
-                                              platform.get());
-      CHECK_NE(nullptr, isolate_data_);
-      environment_ = node::CreateEnvironment(isolate_data_,
-                                             context_,
-                                             1, *argv,
-                                             argv.nr_args(), *argv);
+      std::vector<std::string> args(*argv, *argv + 1);
+      std::vector<std::string> exec_args(*argv + 1, *argv + argv.nr_args());
+      main_instance_ =
+          node::NodeMainInstance::Create(isolate,
+                                         &(NodeTestFixtureBase::current_loop),
+                                         NodeTestFixtureBase::platform.get(),
+                                         args,
+                                         exec_args);
+      int exit_code = 0;
+      environment_ =
+          main_instance_->CreateMainEnvironment(&exit_code).release();
+      // TODO(joyeecheung): run pre-execution scripts
       CHECK_NE(nullptr, environment_);
+      PrepareEnvironmentForExecution(environment_).ToLocalChecked();
+      CHECK_EQ(exit_code, 0);
+      environment_->context()->Enter();  // XXX(joyeecheung): is this necessary?
     }
 
     ~Env() {
+      environment_->context()->Exit();
+      main_instance_->Dispose();
       node::FreeEnvironment(environment_);
-      node::FreeIsolateData(isolate_data_);
-      context_->Exit();
     }
 
     node::Environment* operator*() const {
       return environment_;
     }
 
-    v8::Local<v8::Context> context()  const {
-      return context_;
-    }
+    v8::Local<v8::Context> context() const { return environment_->context(); }
 
     Env(const Env&) = delete;
     Env& operator=(const Env&) = delete;
 
    private:
-    v8::Local<v8::Context> context_;
-    node::IsolateData* isolate_data_;
+    node::NodeMainInstance* main_instance_;
     node::Environment* environment_;
   };
 };
