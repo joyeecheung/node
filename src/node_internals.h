@@ -319,6 +319,7 @@ struct InitializationResult {
 };
 InitializationResult InitializeOncePerProcess(int argc, char** argv);
 void TearDownOncePerProcess();
+void SetIsolateCreateParamsForNode(v8::Isolate::CreateParams* params);
 
 #if HAVE_INSPECTOR
 namespace profiler {

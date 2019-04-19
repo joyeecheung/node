@@ -12,6 +12,36 @@ using v8::Local;
 using v8::Locker;
 using v8::SealHandleScope;
 
+Isolate* NodeMainInstance::AllocateIsolate(uv_loop_t* event_loop) {
+  Isolate* isolate = Isolate::Allocate();
+  CHECK_NOT_NULL(isolate);
+  per_process::v8_platform.Platform()->RegisterIsolate(isolate, event_loop);
+  return isolate;
+}
+
+NodeMainInstance::NodeMainInstance(Isolate* isolate,
+                                   uv_loop_t* event_loop,
+                                   const std::vector<std::string>& args,
+                                   const std::vector<std::string>& exec_args)
+    : args_(args),
+      exec_args_(exec_args),
+      array_buffer_allocator_(nullptr),
+      isolate_(isolate),
+      isolate_data_(nullptr),
+      owns_isolate_(false) {
+  // SetIsolateUpForNode(isolate);
+  isolate_data_.reset(new IsolateData(
+      isolate_, event_loop, per_process::v8_platform.Platform(), nullptr));
+}
+
+NodeMainInstance* NodeMainInstance::Create(
+    Isolate* isolate,
+    uv_loop_t* event_loop,
+    const std::vector<std::string>& args,
+    const std::vector<std::string>& exec_args) {
+  return new NodeMainInstance(isolate, event_loop, args, exec_args);
+}  // namespace node
+
 NodeMainInstance::NodeMainInstance(uv_loop_t* event_loop,
                                    const std::vector<std::string>& args,
                                    const std::vector<std::string>& exec_args)
@@ -19,22 +49,39 @@ NodeMainInstance::NodeMainInstance(uv_loop_t* event_loop,
       exec_args_(exec_args),
       array_buffer_allocator_(ArrayBufferAllocator::Create()),
       isolate_(nullptr),
-      isolate_data_(nullptr) {
+      isolate_data_(nullptr),
+      owns_isolate_(true) {
   // TODO(joyeecheung): when we implement snapshot integration this needs to
   // set params.external_references.
   Isolate::CreateParams params;
   params.array_buffer_allocator = array_buffer_allocator_.get();
-  isolate_ =
-      NewIsolate(&params, event_loop, per_process::v8_platform.Platform());
+  isolate_ = Isolate::Allocate();
   CHECK_NOT_NULL(isolate_);
+  // Register the isolate on the platform before the isolate gets initialized,
+  // so that the isolate can access the platform during initialization.
+  per_process::v8_platform.Platform()->RegisterIsolate(isolate_, event_loop);
+  SetIsolateCreateParamsForNode(&params);
+  Isolate::Initialize(isolate_, params);
+  SetIsolateUpForNode(isolate_);
   isolate_data_.reset(CreateIsolateData(isolate_,
                                         event_loop,
                                         per_process::v8_platform.Platform(),
                                         array_buffer_allocator_.get()));
 }
 
+void NodeMainInstance::Cleanup() {
+  per_process::v8_platform.Platform()->DrainTasks(isolate_);
+}
+
+void NodeMainInstance::Dispose() {
+  CHECK(!owns_isolate_);
+  delete this;
+}
+
 NodeMainInstance::~NodeMainInstance() {
-  isolate_->Dispose();
+  if (owns_isolate_) {
+    isolate_->Dispose();
+  }
   per_process::v8_platform.Platform()->UnregisterIsolate(isolate_);
 }
 
@@ -120,6 +167,7 @@ std::unique_ptr<Environment> NodeMainInstance::CreateMainEnvironment(
   }
 
   Local<Context> context = NewContext(isolate_);
+  CHECK(!context.IsEmpty());
   Context::Scope context_scope(context);
 
   std::unique_ptr<Environment> env = std::make_unique<Environment>(
