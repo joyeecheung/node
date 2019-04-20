@@ -11,6 +11,8 @@
 
 namespace node {
 
+class ExternalReferenceRegistry;
+
 // TODO(joyeecheung): align this with the Worker/WorkerThreadData class.
 // We may be able to create an abstract class to reuse some of the routines.
 class NodeMainInstance {
@@ -63,6 +65,7 @@ class NodeMainInstance {
   // snapshot.
   static const std::vector<size_t>* GetIsolateDataIndexes();
   static v8::StartupData* GetEmbeddedSnapshotBlob();
+  static const std::vector<intptr_t>& CollectExternalReferences();
 
   static const size_t kNodeContextIndex;
 
@@ -78,6 +81,7 @@ class NodeMainInstance {
                    const std::vector<std::string>& args,
                    const std::vector<std::string>& exec_args);
 
+  static std::unique_ptr<ExternalReferenceRegistry> registry_;
   std::vector<std::string> args_;
   std::vector<std::string> exec_args_;
   std::unique_ptr<ArrayBufferAllocator> array_buffer_allocator_;

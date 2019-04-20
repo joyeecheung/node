@@ -1,4 +1,6 @@
 #include "node_main_instance.h"
+#include "node_errors.h"
+#include "node_external_reference.h"
 #include "node_internals.h"
 #include "node_options-inl.h"
 #include "node_v8_platform-inl.h"
@@ -12,6 +14,8 @@ using v8::Local;
 using v8::Locker;
 using v8::SealHandleScope;
 
+std::unique_ptr<ExternalReferenceRegistry> NodeMainInstance::registry_ =
+    nullptr;
 const size_t NodeMainInstance::kNodeContextIndex = 0;
 
 NodeMainInstance::NodeMainInstance(Isolate* isolate,
@@ -29,6 +33,15 @@ NodeMainInstance::NodeMainInstance(Isolate* isolate,
       deserialize_mode_(false) {
   isolate_data_.reset(new IsolateData(isolate_, event_loop, platform, nullptr));
   SetIsolateUpForNode(isolate_, IsolateSettingCategories::kMisc);
+}
+
+const std::vector<intptr_t>& NodeMainInstance::CollectExternalReferences() {
+  // Cannot be called more than once.
+  CHECK_NULL(registry_);
+  registry_.reset(new ExternalReferenceRegistry());
+
+  // TODO(joyeecheung): collect more external references here.
+  return registry_->external_references();
 }
 
 NodeMainInstance* NodeMainInstance::Create(

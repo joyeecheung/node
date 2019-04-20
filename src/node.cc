@@ -901,14 +901,12 @@ int Start(int argc, char** argv) {
 
   {
     Isolate::CreateParams params;
-    // TODO(joyeecheung): collect external references and set it in
-    // params.external_references.
-    std::vector<intptr_t> external_references = {
-        reinterpret_cast<intptr_t>(nullptr)};
     v8::StartupData* blob = NodeMainInstance::GetEmbeddedSnapshotBlob();
     const std::vector<size_t>* indexes =
         NodeMainInstance::GetIsolateDataIndexes();
     if (blob != nullptr) {
+      const std::vector<intptr_t>& external_references =
+        NodeMainInstance::CollectExternalReferences();
       params.external_references = external_references.data();
       params.snapshot_blob = blob;
     }
