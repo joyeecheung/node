@@ -319,6 +319,8 @@ struct InitializationResult {
 };
 InitializationResult InitializeOncePerProcess(int argc, char** argv);
 void TearDownOncePerProcess();
+enum class IsolateSettingCategories { kErrorHandlers, kMisc };
+void SetIsolateUpForNode(v8::Isolate* isolate, IsolateSettingCategories cat);
 void SetIsolateCreateParamsForNode(v8::Isolate::CreateParams* params);
 v8::MaybeLocal<v8::Value> PrepareEnvironmentForExecution(Environment* env);
 

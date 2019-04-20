@@ -886,20 +886,22 @@ int Start(int argc, char** argv) {
 
   {
     Isolate::CreateParams params;
-    // v8::StartupData* blob = NodeMainInstance::GetEmbeddedSnapshotBlob();
-    // if (blob != nullptr) {
-    //   const std::vector<intptr_t>& external_references =
-    //     NodeMainInstance::CollectExternalReferences();
-    //   params.external_reference = external_references.data();
-    //   params.snapshot_blob = blob;
-    // }
+    v8::StartupData* blob = NodeMainInstance::GetEmbeddedSnapshotBlob();
+    const NodeMainInstance::IndexArray* indexes =
+        NodeMainInstance::GetIsolateDataIndexes();
+    if (blob != nullptr) {
+      const std::vector<intptr_t>& external_references =
+        NodeMainInstance::CollectExternalReferences();
+      params.external_references = external_references.data();
+      params.snapshot_blob = blob;
+    }
 
     NodeMainInstance main_instance(&params,
                                    uv_default_loop(),
                                    per_process::v8_platform.Platform(),
                                    result.args,
-                                   result.exec_args);
-                                  //  NodeMainInstance::GetIsolateDataIndexes());
+                                   result.exec_args,
+                                   indexes);
     result.exit_code = main_instance.Run();
   }
 

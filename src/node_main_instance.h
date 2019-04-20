@@ -79,12 +79,14 @@ class NodeMainInstance {
   // and the environment creation routine in workers somehow.
   std::unique_ptr<Environment> CreateMainEnvironment(int* exit_code);
 
- private:
   // If nullptr is returned, the binary is not built with embedded
   // snapshot.
   static const IndexArray* GetIsolateDataIndexes();
   static v8::StartupData* GetEmbeddedSnapshotBlob();
 
+  static const size_t kNodeContextIndex;
+
+ private:
   NodeMainInstance(const NodeMainInstance&) = delete;
   NodeMainInstance& operator=(const NodeMainInstance&) = delete;
   NodeMainInstance(NodeMainInstance&&) = delete;
@@ -95,8 +97,6 @@ class NodeMainInstance {
                    MultiIsolatePlatform* platform,
                    const std::vector<std::string>& args,
                    const std::vector<std::string>& exec_args);
-  // This installs per-isolate callbacks
-  void InstallPerIsolateSettings();
 
   static std::unique_ptr<ExternalReferenceRegistry> registry_;
   std::vector<std::string> args_;
@@ -106,6 +106,7 @@ class NodeMainInstance {
   MultiIsolatePlatform* platform_;
   std::unique_ptr<IsolateData> isolate_data_;
   bool owns_isolate_ = false;
+  bool deserialize_mode_ = false;
 };
 
 }  // namespace node

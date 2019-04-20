@@ -104,7 +104,7 @@ std::string SnapshotBuilder::Generate(
       isolate_data_indexes = main_instance->isolate_data()->Serialize(&creator);
 
       size_t index = creator.AddContext(NewContext(isolate));
-      CHECK_EQ(index, 0);
+      CHECK_EQ(index, NodeMainInstance::kNodeContextIndex);
     }
 
     // Must be out of HandleScope

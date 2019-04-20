@@ -74,6 +74,8 @@ std::vector<size_t> IsolateData::Serialize(SnapshotCreator* creator) {
 void IsolateData::DeserializeProperties(
     const NodeMainInstance::IndexArray* indexes) {
   size_t i = 0;
+  HandleScope handle_scope(isolate_);
+
 #define VP(PropertyName, StringValue) V(v8::Private, PropertyName)
 #define VY(PropertyName, StringValue) V(v8::Symbol, PropertyName)
 #define VS(PropertyName, StringValue) V(v8::String, PropertyName)
