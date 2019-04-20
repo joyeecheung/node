@@ -1038,6 +1038,7 @@ int Start(int argc, char** argv) {
       if (blob != nullptr) {
         // TODO(joyeecheung): collect external references and set it in
         // params.external_references.
+        external_references = NodeMainInstance::CollectExternalReferences();
         external_references.push_back(reinterpret_cast<intptr_t>(nullptr));
         params.external_references = external_references.data();
         params.snapshot_blob = blob;
