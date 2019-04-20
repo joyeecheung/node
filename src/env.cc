@@ -311,8 +311,14 @@ Environment::Environment(IsolateData* isolate_data,
   credentials::SafeGetenv("NODE_DEBUG_NATIVE", &debug_cats, this);
   set_debug_categories(debug_cats, true);
 
-  isolate()->GetHeapProfiler()->AddBuildEmbedderGraphCallback(
-      BuildEmbedderGraph, this);
+  // Store primordials setup by the per-context script in the environment.
+  Local<Object> per_context_bindings =
+      GetPerContextExports(context).ToLocalChecked();
+  Local<Value> primordials =
+      per_context_bindings->Get(context, primordials_string()).ToLocalChecked();
+  CHECK(primordials->IsObject());
+  set_primordials(primordials.As<Object>());
+
   if (options_->no_force_async_hooks_checks) {
     async_hooks_.no_force_checks();
   }

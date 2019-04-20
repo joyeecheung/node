@@ -123,7 +123,6 @@ using v8::Local;
 using v8::Maybe;
 using v8::MaybeLocal;
 using v8::Object;
-using v8::Script;
 using v8::String;
 using v8::Undefined;
 using v8::V8;
@@ -220,12 +219,12 @@ MaybeLocal<Value> ExecuteBootstrapper(Environment* env,
   return scope.EscapeMaybe(result);
 }
 
-MaybeLocal<Value> RunBootstrapping(Environment* env) {
-  CHECK(!env->has_run_bootstrapping_code());
-
-  EscapableHandleScope scope(env->isolate());
+void PrepareDiagnostics(Environment* env) {
   Isolate* isolate = env->isolate();
-  Local<Context> context = env->context();
+  HandleScope scope(isolate);
+
+  isolate->GetHeapProfiler()->AddBuildEmbedderGraphCallback(
+      Environment::BuildEmbedderGraph, env);
 
   Local<String> coverage_str = env->env_vars()->Get(
       isolate, FIXED_ONE_BYTE_STRING(isolate, "NODE_V8_COVERAGE"));
@@ -243,32 +242,9 @@ MaybeLocal<Value> RunBootstrapping(Environment* env) {
   }
 #endif  // HAVE_INSPECTOR
 
-  // Add a reference to the global object
-  Local<Object> global = context->Global();
-
 #if defined HAVE_DTRACE || defined HAVE_ETW
   InitDTrace(env);
 #endif
-
-  Local<Object> process = env->process_object();
-
-  // Setting global properties for the bootstrappers to use:
-  // - global
-  // Expose the global object as a property on itself
-  // (Allows you to set stuff on `global` from anywhere in JavaScript.)
-  global->Set(context, FIXED_ONE_BYTE_STRING(env->isolate(), "global"), global)
-      .Check();
-
-  // Store primordials setup by the per-context script in the environment.
-  Local<Object> per_context_bindings;
-  Local<Value> primordials;
-  if (!GetPerContextExports(context).ToLocal(&per_context_bindings) ||
-      !per_context_bindings->Get(context, env->primordials_string())
-           .ToLocal(&primordials) ||
-      !primordials->IsObject()) {
-    return MaybeLocal<Value>();
-  }
-  env->set_primordials(primordials.As<Object>());
 
 #if HAVE_INSPECTOR
   if (env->options()->debug_options().break_node_first_line) {
@@ -276,7 +252,14 @@ MaybeLocal<Value> RunBootstrapping(Environment* env) {
         "Break at bootstrap");
   }
 #endif  // HAVE_INSPECTOR
+}
 
+MaybeLocal<Value> BootstrapInternalLoaders(Environment* env) {
+  Isolate* isolate = env->isolate();
+  EscapableHandleScope scope(isolate);
+  Local<Context> context = env->context();
+
+  Local<Object> process = env->process_object();
   // Create binding loaders
   std::vector<Local<String>> loaders_params = {
       env->process_string(),
@@ -296,21 +279,30 @@ MaybeLocal<Value> RunBootstrapping(Environment* env) {
   // Bootstrap internal loaders
   MaybeLocal<Value> loader_exports = ExecuteBootstrapper(
       env, "internal/bootstrap/loaders", &loaders_params, &loaders_args);
-  if (loader_exports.IsEmpty()) {
-    return MaybeLocal<Value>();
-  }
+  return scope.EscapeMaybe(loader_exports);
+}
 
-  Local<Object> loader_exports_obj =
-      loader_exports.ToLocalChecked().As<Object>();
+MaybeLocal<Value> BootstrapNode(Environment* env, Local<Value> loader_exports) {
+  Isolate* isolate = env->isolate();
+  EscapableHandleScope scope(isolate);
+  Local<Context> context = env->context();
+
+  CHECK(loader_exports->IsObject());
+  Local<Object> loader_exports_obj = loader_exports.As<Object>();
   Local<Value> internal_binding_loader =
       loader_exports_obj->Get(context, env->internal_binding_string())
           .ToLocalChecked();
   env->set_internal_binding_loader(internal_binding_loader.As<Function>());
-
   Local<Value> require =
       loader_exports_obj->Get(context, env->require_string()).ToLocalChecked();
   env->set_native_module_require(require.As<Function>());
 
+  Local<Object> global = context->Global();
+  // TODO(joyeecheung): this can be done in JS land now.
+  global->Set(context, FIXED_ONE_BYTE_STRING(env->isolate(), "global"), global)
+      .Check();
+
+  Local<Object> process = env->process_object();
   // process, require, internalBinding, isMainThread,
   // ownsProcessState, primordials
   std::vector<Local<String>> node_params = {
@@ -330,7 +322,29 @@ MaybeLocal<Value> RunBootstrapping(Environment* env) {
 
   MaybeLocal<Value> result = ExecuteBootstrapper(
       env, "internal/bootstrap/node", &node_params, &node_args);
+  return scope.EscapeMaybe(result);
+}
 
+MaybeLocal<Value> RunBootstrapping(Environment* env) {
+  CHECK(!env->has_run_bootstrapping_code());
+
+  PrepareDiagnostics(env);
+
+  Isolate* isolate = env->isolate();
+  EscapableHandleScope scope(isolate);
+
+  Local<Value> loader_exports;
+  if (!BootstrapInternalLoaders(env).ToLocal(&loader_exports)) {
+    return MaybeLocal<Value>();
+  }
+
+  Local<Value> result;
+  if (!BootstrapNode(env, loader_exports).ToLocal(&result)) {
+    return MaybeLocal<Value>();
+  }
+
+  Local<Context> context = env->context();
+  Local<Object> process = env->process_object();
   Local<Object> env_var_proxy;
   if (!CreateEnvVarProxy(context, isolate, env->as_callback_data())
            .ToLocal(&env_var_proxy) ||
@@ -338,8 +352,9 @@ MaybeLocal<Value> RunBootstrapping(Environment* env) {
           ->Set(env->context(),
                 FIXED_ONE_BYTE_STRING(env->isolate(), "env"),
                 env_var_proxy)
-          .IsNothing())
+          .IsNothing()) {
     return MaybeLocal<Value>();
+  }
 
   // Make sure that no request or handle is created during bootstrap -
   // if necessary those should be done in pre-exeuction.
@@ -349,7 +364,7 @@ MaybeLocal<Value> RunBootstrapping(Environment* env) {
 
   env->set_has_run_bootstrapping_code(true);
 
-  return scope.EscapeMaybe(result);
+  return scope.Escape(result);
 }
 
 void MarkBootstrapComplete(const FunctionCallbackInfo<Value>& args) {
