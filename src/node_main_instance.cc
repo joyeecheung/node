@@ -4,7 +4,9 @@
 #include "debug_utils-inl.h"
 #include "node_external_reference.h"
 #include "node_internals.h"
+#include "node_main_instance.h"
 #include "node_options-inl.h"
+#include "node_process.h"
 #include "node_v8_platform-inl.h"
 #include "util-inl.h"
 #if defined(LEAK_SANITIZER)
@@ -175,8 +177,24 @@ void DeserializeNodeInternalFields(Local<Object> holder,
     holder->SetAlignedPointerInInternalField(index, nullptr);
     return;
   }
-  // No embedder object in the builtin snapshot yet.
-  UNREACHABLE();
+
+  Environment* env_ptr = static_cast<Environment*>(env);
+  const InternalFieldInfo* info =
+      reinterpret_cast<const InternalFieldInfo*>(payload.data);
+  switch (info->type) {
+    // case InternalFieldType::kNoBindingData: {
+    //   per_process::Debug(DebugCategory::MKSNAPSHOT,
+    //                      "Deserialize NoBindingData\n");
+    //   NoBindingData* data = new NoBindingData(env_ptr, holder);
+    //   env_ptr->EnqueueDeserializeRequest(NoBindingData::Deserialize,
+    //                                      {data, info->Copy()});
+    // }
+    case InternalFieldType::kDefault: {
+      per_process::Debug(DebugCategory::MKSNAPSHOT, "Deserialize default\n");
+      break;
+    }
+    default: { UNREACHABLE(); }
+  }
 }
 
 DeleteFnPtr<Environment, FreeEnvironment>

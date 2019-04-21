@@ -251,6 +251,21 @@ void TrackingTraceStateObserver::UpdateTraceCategoryState() {
   USE(cb->Call(env_->context(), Undefined(isolate), arraysize(args), args));
 }
 
+
+// NoBindingData::NoBindingData(Environment* env, Local<Object> obj)
+//     : BindingDataBase(env, obj) {
+//   set_type(InternalFieldType::kNoBindingData);
+// }
+
+// void NoBindingData::Deserialize(Local<Context> context,
+//                                 DeserializeRequestData data) {
+//   HandleScope scope(context->GetIsolate());
+//   NoBindingData* binding = static_cast<NoBindingData*>(data.native_object);
+//   v8::Local<v8::Uint32> index = BindingDataBase::Initialize(context, binding);
+//   binding->env()->set_default_callback_data(index);
+//   ::operator delete(data.info);
+// }
+
 void Environment::CreateProperties() {
   HandleScope handle_scope(isolate_);
   Local<Context> ctx = context();
@@ -490,7 +505,7 @@ Environment::~Environment() {
 
   context()->SetAlignedPointerInEmbedderData(ContextEmbedderIndex::kEnvironment,
                                              nullptr);
-
+ 
   if (trace_state_observer_) {
     tracing::AgentWriterHandle* writer = GetTracingAgentWriter();
     CHECK_NOT_NULL(writer);
@@ -1235,6 +1250,10 @@ EnvSerializeInfo Environment::Serialize(SnapshotCreator* creator) {
   EnvSerializeInfo info;
   Local<Context> ctx = context();
 
+  // NoBindingData* data =
+  //     BindingDataBase::Unwrap<NoBindingData>(ctx, default_callback_data());
+  // info.default_callback_data = creator->AddData(ctx, data->object());
+
   // Currently all modules are compiled without cache in builtin snapshot
   // builder.
   info.native_modules = std::vector<std::string>(
@@ -1326,8 +1345,25 @@ std::ostream& operator<<(std::ostream& output, const EnvSerializeInfo& i) {
   return output;
 }
 
+void Environment::EnqueueDeserializeRequest(DeserializeRequestCallback cb,
+                                            DeserializeRequestData data) {
+  deserialize_requests_.push_back({cb, data});
+}
+
+void Environment::RunDeserializeRequests() {
+  HandleScope scope(isolate());
+  Local<Context> ctx = context();
+  while (!deserialize_requests_.empty()) {
+    DeserializeRequest request = deserialize_requests_.front();
+    request.cb(ctx, request.data);
+    deserialize_requests_.pop_front();
+  }
+}
+
 void Environment::DeserializeProperties(const EnvSerializeInfo* info) {
   Local<Context> ctx = context();
+
+  RunDeserializeRequests();
 
   native_modules_in_snapshot = info->native_modules;
   async_hooks_.Deserialize(ctx);

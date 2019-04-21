@@ -929,8 +929,36 @@ struct PropInfo {
   SnapshotIndex index;  // In the snapshot
 };
 
+struct InternalFieldInfo {
+  InternalFieldType type;
+  size_t length;
+  // Below should be data of length bytes.
+  InternalFieldInfo(InternalFieldType t, size_t l) : type(t), length(l) {}
+  InternalFieldInfo* Copy() const {
+    void* mem = ::operator new(sizeof(InternalFieldInfo) + length);
+    InternalFieldInfo* result = new (mem) InternalFieldInfo(type, length);
+    return result;
+  }
+};
+
+struct DeserializeRequestData {
+  void* native_object;
+  InternalFieldInfo* info;  // Owned by the request
+};
+
+// class NoBindingData : public BindingDataBase {
+//  public:
+//   NoBindingData(Environment* env, v8::Local<v8::Object> obj);
+//   static void Deserialize(v8::Local<v8::Context> context,
+//                           DeserializeRequestData data);
+//   SET_NO_MEMORY_INFO()
+//   SET_MEMORY_INFO_NAME(NoBindingData)
+//   SET_SELF_SIZE(NoBindingData)
+// };
+
 struct EnvSerializeInfo {
   std::vector<std::string> native_modules;
+
   AsyncHooks::SerializeInfo async_hooks;
   TickInfo::SerializeInfo tick_info;
   ImmediateInfo::SerializeInfo immediate_info;
@@ -964,6 +992,11 @@ class Environment : public MemoryRetainer {
 
   void PrintAllBaseObjects();
   void VerifyNoStrongBaseObjects();
+  typedef void (*DeserializeRequestCallback)(v8::Local<v8::Context>,
+                                             DeserializeRequestData data);
+  void EnqueueDeserializeRequest(DeserializeRequestCallback request,
+                                 DeserializeRequestData data);
+  void RunDeserializeRequests();
   // Should be called before InitializeInspector()
   void InitializeDiagnostics();
 
@@ -1487,6 +1520,12 @@ class Environment : public MemoryRetainer {
   std::unique_ptr<inspector::Agent> inspector_agent_;
   bool is_in_inspector_console_call_ = false;
 #endif
+  struct DeserializeRequest {
+    DeserializeRequestCallback cb;
+    DeserializeRequestData data;
+  };
+
+  std::list<DeserializeRequest> deserialize_requests_;
 
   // handle_wrap_queue_ and req_wrap_queue_ needs to be at a fixed offset from
   // the start of the class because it is used by
