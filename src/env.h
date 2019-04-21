@@ -45,6 +45,7 @@
 #include <cstdint>
 #include <functional>
 #include <list>
+#include <map>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -862,6 +863,12 @@ class Environment : public MemoryRetainer {
   void MemoryInfo(MemoryTracker* tracker) const override;
 
   void CreateProperties();
+
+  typedef void (*BaseObjectIterator)(size_t, BaseObject*);
+  void ForEachBaseObject(BaseObjectIterator iterator);
+  void PrintAllBaseObjects();
+  void PrintAllBuffers();
+
   // Should be called before InitializeInspector()
   void InitializeDiagnostics();
 #if HAVE_INSPECTOR
@@ -1287,7 +1294,8 @@ class Environment : public MemoryRetainer {
  private:
   template <typename Fn>
   inline void CreateImmediate(Fn&& cb, bool ref);
-
+  
+  std::map<const void*, std::string> GetKnownBufferNames() const;
   inline void ThrowError(v8::Local<v8::Value> (*fun)(v8::Local<v8::String>),
                          const char* errmsg);
 
@@ -1475,9 +1483,6 @@ class Environment : public MemoryRetainer {
 
   std::function<void(Environment*, int)> process_exit_handler_ {
       DefaultProcessExitHandler };
-
-  template <typename T>
-  void ForEachBaseObject(T&& iterator);
 
 #define V(PropertyName, TypeName) v8::Global<TypeName> PropertyName ## _;
   ENVIRONMENT_CALLBACK_DATA(V)

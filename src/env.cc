@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
+#include <iostream>
 #include <memory>
 
 namespace node {
@@ -1095,6 +1096,102 @@ void Environment::stop_sub_worker_contexts() {
 Environment* Environment::worker_parent_env() const {
   if (worker_context() == nullptr) return nullptr;
   return worker_context()->env();
+}
+
+void Environment::ForEachBaseObject(BaseObjectIterator iterator) {
+  size_t i = 0;
+  for (const auto& hook : cleanup_hooks_) {
+    BaseObject* obj = hook.GetBaseObject();
+    if (obj != nullptr) iterator(i, obj);
+    i++;
+  }
+}
+
+void PrintBaseObject(size_t i, BaseObject* obj) {
+  std::cout << "#" << i << " " << obj << ": " << obj->MemoryInfoName() << "\n";
+}
+
+void Environment::PrintAllBaseObjects() {
+  std::cout << "BaseObjects\n";
+  ForEachBaseObject(PrintBaseObject);
+}
+
+struct PrinterData {
+  const std::map<const void*, std::string>* names;
+  size_t index = 0;
+};
+
+template <typename AliasedBufferBase>
+static void PrintBuffer(AliasedBufferBase* buf, void* data) {
+  PrinterData* printer_data = static_cast<PrinterData*>(data);
+  std::cout << "#" << printer_data->index++;
+  auto it = printer_data->names->find(buf);
+  if (it == printer_data->names->end()) {
+    std::cout << " Unkonwn " << buf;
+    // Require the Environment to register all known AliasedBuffers.
+    UNREACHABLE();
+  }
+
+  std::string type_name;
+  switch (buf->type()) {
+    case AliasedBufferType::kNew:
+      type_name = "new";
+      break;
+    case AliasedBufferType::kCopy:
+      type_name = "copy";
+      break;
+    case AliasedBufferType::kAssigned:
+      type_name = "assigned";
+      break;
+    case AliasedBufferType::kShared:
+      type_name = "shared";
+      break;
+    default:
+      UNREACHABLE();
+  }
+
+  std::cout << " " << it->second << "(length=" << buf->Length()
+            << ", address=" << buf << ", type=" << type_name << "): ";
+
+  size_t len = buf->Length();
+  auto buf_data = buf->GetNativeBuffer();
+  for (size_t j = 0; j < len; ++j) {
+    std::cout << std::to_string(buf_data[j]) << (j == len - 1 ? "\n" : ", ");
+  }
+}
+
+#define FOR_EACH_KNOWN_BUFFER_IN_ENV(V)                                        \
+  V(stream_base_state_, Int32Array)                                            \
+  V(performance_state_->root, Uint8Array)                                      \
+  V(performance_state_->milestones, Float64Array)                              \
+  V(performance_state_->observers, Uint32Array)                                \
+  V(should_abort_on_uncaught_toggle_, Uint32Array)                             \
+  V(async_hooks_.fields_, Uint32Array)                                         \
+  V(async_hooks_.async_ids_stack_, Float64Array)                               \
+  V(async_hooks_.async_id_fields_, Float64Array)                               \
+  V(tick_info_.fields_, Uint8Array)                                            \
+  V(immediate_info_.fields_, Uint32Array)
+
+std::map<const void*, std::string> Environment::GetKnownBufferNames() const {
+  std::map<const void*, std::string> names;
+
+#define V(Reference, V8T) names[&(Reference)] = #Reference;
+  FOR_EACH_KNOWN_BUFFER_IN_ENV(V)
+#undef V
+
+  return names;
+}
+
+void Environment::PrintAllBuffers() {
+  std::map<const void*, std::string> names = GetKnownBufferNames();
+  PrinterData printer_data{&names, 0};
+
+#define V(NativeT, V8T)                                                        \
+  std::cout << "Aliased" #V8T << "s\n";                                        \
+  Aliased##V8T::ForEachBuffer(PrintBuffer<Aliased##V8T>, &printer_data);       \
+  std::cout << "\n";
+  ALIASED_BUFFER_TYPES(V)
+#undef V
 }
 
 void MemoryTracker::TrackField(const char* edge_name,
