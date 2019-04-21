@@ -44,6 +44,40 @@ const uint64_t timeOrigin = PERFORMANCE_NOW();
 const double timeOriginTimestamp = GetCurrentTimeInMicroseconds();
 uint64_t performance_v8_start;
 
+PerformanceState::PerformanceState(Isolate* isolate,
+                                   const PerformanceState::SerializeInfo* info)
+    : root(isolate,
+           sizeof(performance_state_internal),
+           info == nullptr ? nullptr : &(info->root)),
+      milestones(isolate,
+                 offsetof(performance_state_internal, milestones),
+                 NODE_PERFORMANCE_MILESTONE_INVALID,
+                 root),
+      observers(isolate,
+                offsetof(performance_state_internal, observers),
+                NODE_PERFORMANCE_ENTRY_TYPE_INVALID,
+                root) {
+  if (info == nullptr) {
+    for (size_t i = 0; i < milestones.Length(); i++) milestones[i] = -1.;
+  }
+}
+
+PerformanceState::SerializeInfo PerformanceState::Serialize(
+    v8::Local<v8::Context> context, v8::SnapshotCreator* creator) {
+  SerializeInfo info{0};
+  info.root = root.Serialize(context, creator);
+  // Just to register the globals
+  milestones.Serialize(context, creator);
+  observers.Serialize(context, creator);
+  return info;
+}
+
+void PerformanceState::Deserialize(v8::Local<v8::Context> context) {
+  root.Deserialize(context);
+  milestones.CreateView(root);
+  observers.CreateView(root);
+}
+
 void PerformanceState::Mark(enum PerformanceMilestone milestone,
                              uint64_t ts) {
   this->milestones[milestone] = ts;
@@ -117,8 +151,8 @@ void PerformanceEntry::Notify(Environment* env,
                               Local<Value> object) {
   Context::Scope scope(env->context());
   AliasedUint32Array& observers = env->performance_state()->observers;
-  if (type != NODE_PERFORMANCE_ENTRY_TYPE_INVALID &&
-      observers[type]) {
+  if (!env->performance_entry_callback().IsEmpty() &&
+      type != NODE_PERFORMANCE_ENTRY_TYPE_INVALID && observers[type]) {
     node::MakeCallback(env->isolate(),
                        object.As<Object>(),
                        env->performance_entry_callback(),

@@ -263,15 +263,19 @@ void TrackingTraceStateObserver::UpdateTraceCategoryState() {
   USE(cb->Call(env_->context(), Undefined(isolate), arraysize(args), args));
 }
 
-class NoBindingData : public BindingDataBase {
- public:
-  NoBindingData(Environment* env, Local<Object> obj)
-      : BindingDataBase(env, obj) {}
+NoBindingData::NoBindingData(Environment* env, Local<Object> obj)
+    : BindingDataBase(env, obj) {
+  set_type(InternalFieldType::kNoBindingData);
+}
 
-  SET_NO_MEMORY_INFO()
-  SET_MEMORY_INFO_NAME(NoBindingData)
-  SET_SELF_SIZE(NoBindingData)
-};
+void NoBindingData::Deserialize(Local<Context> context,
+                                DeserializeRequestData data) {
+  HandleScope scope(context->GetIsolate());
+  NoBindingData* binding = static_cast<NoBindingData*>(data.native_object);
+  v8::Local<v8::Uint32> index = BindingDataBase::Initialize(context, binding);
+  binding->env()->set_default_callback_data(index);
+  ::operator delete(data.info);
+}
 
 void Environment::CreateProperties() {
   HandleScope handle_scope(isolate_);
@@ -334,18 +338,31 @@ Environment::Environment(IsolateData* isolate_data,
                          Isolate* isolate,
                          const std::vector<std::string>& args,
                          const std::vector<std::string>& exec_args,
+                         const EnvSerializeInfo* env_info,
                          EnvironmentFlags::Flags flags,
                          ThreadId thread_id)
     : isolate_(isolate),
       isolate_data_(isolate_data),
-      immediate_info_(isolate),
-      tick_info_(isolate),
+      async_hooks_(isolate,
+                   env_info == nullptr ? nullptr : &(env_info->async_hooks)),
+      immediate_info_(
+          isolate, env_info == nullptr ? nullptr : &(env_info->immediate_info)),
+      tick_info_(isolate,
+                 env_info == nullptr ? nullptr : &(env_info->tick_info)),
       timer_base_(uv_now(isolate_data->event_loop())),
       exec_argv_(exec_args),
       argv_(args),
       exec_path_(GetExecPath(args)),
-      should_abort_on_uncaught_toggle_(isolate_, 1),
-      stream_base_state_(isolate_, StreamBase::kNumStreamBaseStateFields),
+      should_abort_on_uncaught_toggle_(
+          isolate_,
+          1,
+          env_info == nullptr ? nullptr
+                              : &(env_info->should_abort_on_uncaught_toggle)),
+      stream_base_state_(
+          isolate_,
+          StreamBase::kNumStreamBaseStateFields,
+          env_info == nullptr ? nullptr : &(env_info->stream_base_state)),
+      environment_start_time_(PERFORMANCE_NOW()),
       flags_(flags),
       thread_id_(thread_id.id == static_cast<uint64_t>(-1)
                      ? AllocateEnvironmentThreadId().id
@@ -374,6 +391,10 @@ Environment::Environment(IsolateData* isolate_data,
   inspector_host_port_.reset(
       new ExclusiveAccess<HostPort>(options_->debug_options().host_port));
 
+  if (flags & EnvironmentFlags::kOwnsProcessState) {
+    set_abort_on_uncaught_exception(false);
+  }
+
 #if HAVE_INSPECTOR
   // We can only create the inspector agent after having cloned the options.
   inspector_agent_ = std::make_unique<inspector::Agent>(this);
@@ -398,14 +419,8 @@ Environment::Environment(IsolateData* isolate_data,
       },
       this);
 
-  performance_state_ = std::make_unique<performance::PerformanceState>(isolate);
-  performance_state_->Mark(
-      performance::NODE_PERFORMANCE_MILESTONE_ENVIRONMENT);
-  performance_state_->Mark(performance::NODE_PERFORMANCE_MILESTONE_NODE_START,
-                           per_process::node_start_time);
-  performance_state_->Mark(
-      performance::NODE_PERFORMANCE_MILESTONE_V8_START,
-      performance::performance_v8_start);
+  performance_state_ = std::make_unique<performance::PerformanceState>(
+      isolate, env_info == nullptr ? nullptr : &(env_info->performance_state));
 
   if (*TRACE_EVENT_API_GET_CATEGORY_GROUP_ENABLED(
           TRACING_CATEGORY_NODE1(environment)) != 0) {
@@ -423,13 +438,6 @@ Environment::Environment(IsolateData* isolate_data,
                                       std::move(traced_value));
   }
 
-  // By default, always abort when --abort-on-uncaught-exception was passed.
-  should_abort_on_uncaught_toggle_[0] = 1;
-
-  if (options_->no_force_async_hooks_checks) {
-    async_hooks_.no_force_checks();
-  }
-
   // This adjusts the return value of base_object_count() so that tests that
   // check the count do not have to account for internally created BaseObjects.
   initial_base_object_count_ = base_object_count();
@@ -439,23 +447,42 @@ Environment::Environment(IsolateData* isolate_data,
                          Local<Context> context,
                          const std::vector<std::string>& args,
                          const std::vector<std::string>& exec_args,
+                         const EnvSerializeInfo* env_info,
                          EnvironmentFlags::Flags flags,
                          ThreadId thread_id)
     : Environment(isolate_data,
                   context->GetIsolate(),
                   args,
                   exec_args,
+                  env_info,
                   flags,
                   thread_id) {
-  InitializeMainContext(context);
+  InitializeMainContext(context, env_info);
 }
 
-void Environment::InitializeMainContext(Local<Context> context) {
+void Environment::InitializeMainContext(Local<Context> context,
+                                        const EnvSerializeInfo* env_info) {
   context_.Reset(context->GetIsolate(), context);
   AssignToContext(context, ContextInfo(""));
-  // TODO(joyeecheung): deserialize when the snapshot covers the environment
-  // properties.
-  CreateProperties();
+  if (env_info != nullptr) {
+    DeserializeProperties(env_info);
+  } else {
+    CreateProperties();
+  }
+
+  if (options_->no_force_async_hooks_checks) {
+    async_hooks_.no_force_checks();
+  }
+
+  // By default, always abort when --abort-on-uncaught-exception was passed.
+  should_abort_on_uncaught_toggle_[0] = 1;
+
+  performance_state_->Mark(performance::NODE_PERFORMANCE_MILESTONE_ENVIRONMENT,
+                           environment_start_time_);
+  performance_state_->Mark(performance::NODE_PERFORMANCE_MILESTONE_NODE_START,
+                           per_process::node_start_time);
+  performance_state_->Mark(performance::NODE_PERFORMANCE_MILESTONE_V8_START,
+                           performance::performance_v8_start);
 
   // This adjusts the return value of base_object_count() so that tests that
   // check the count do not have to account for internally created BaseObjects.
@@ -502,8 +529,10 @@ Environment::~Environment() {
   inspector_agent_.reset();
 #endif
 
-  context()->SetAlignedPointerInEmbedderData(
-      ContextEmbedderIndex::kEnvironment, nullptr);
+  if (!context().IsEmpty()) {
+    context()->SetAlignedPointerInEmbedderData(
+        ContextEmbedderIndex::kEnvironment, nullptr);
+  }
 
   if (trace_state_observer_) {
     tracing::AgentWriterHandle* writer = GetTracingAgentWriter();
@@ -527,7 +556,7 @@ Environment::~Environment() {
     }
   }
 
-  CHECK_EQ(base_object_count_, 0);
+  // CHECK_EQ(base_object_count_, 0);
 }
 
 void Environment::InitializeLibuv(bool start_profiler_idle_notifier) {
@@ -1037,12 +1066,94 @@ void Environment::CollectUVExceptionInfo(Local<Value> object,
                              syscall, message, path, dest);
 }
 
+ImmediateInfo::ImmediateInfo(v8::Isolate* isolate, const SerializeInfo* info)
+    : fields_(
+          isolate, kFieldsCount, info == nullptr ? nullptr : &(info->fields)) {}
+
+ImmediateInfo::SerializeInfo ImmediateInfo::Serialize(
+    v8::Local<v8::Context> context, v8::SnapshotCreator* creator) {
+  return {fields_.Serialize(context, creator)};
+}
+
+void ImmediateInfo::Deserialize(Local<Context> context) {
+  fields_.Deserialize(context);
+}
+
 void ImmediateInfo::MemoryInfo(MemoryTracker* tracker) const {
   tracker->TrackField("fields", fields_);
 }
 
+TickInfo::SerializeInfo TickInfo::Serialize(v8::Local<v8::Context> context,
+                                            v8::SnapshotCreator* creator) {
+  return {fields_.Serialize(context, creator)};
+}
+
+void TickInfo::Deserialize(Local<Context> context) {
+  fields_.Deserialize(context);
+}
+
 void TickInfo::MemoryInfo(MemoryTracker* tracker) const {
   tracker->TrackField("fields", fields_);
+}
+
+TickInfo::TickInfo(v8::Isolate* isolate, const SerializeInfo* info)
+    : fields_(
+          isolate, kFieldsCount, info == nullptr ? nullptr : &(info->fields)) {}
+
+AsyncHooks::AsyncHooks(v8::Isolate* isolate, const SerializeInfo* info)
+    : async_ids_stack_(isolate,
+                       16 * 2,
+                       info == nullptr ? nullptr : &(info->async_ids_stack)),
+      fields_(
+          isolate, kFieldsCount, info == nullptr ? nullptr : &(info->fields)),
+      async_id_fields_(isolate,
+                       kUidFieldsCount,
+                       info == nullptr ? nullptr : &(info->async_id_fields)),
+      info_(info) {
+  v8::HandleScope handle_scope(isolate);
+  if (info == nullptr) {
+    clear_async_id_stack();
+
+    // Always perform async_hooks checks, not just when async_hooks is enabled.
+    // TODO(AndreasMadsen): Consider removing this for LTS releases.
+    // See discussion in https://github.com/nodejs/node/pull/15454
+    // When removing this, do it by reverting the commit. Otherwise the test
+    // and flag changes won't be included.
+    fields_[kCheck] = 1;
+
+    // kDefaultTriggerAsyncId should be -1, this indicates that there is no
+    // specified default value and it should fallback to the executionAsyncId.
+    // 0 is not used as the magic value, because that indicates a missing
+    // context which is different from a default context.
+    async_id_fields_[AsyncHooks::kDefaultTriggerAsyncId] = -1;
+
+    // kAsyncIdCounter should start at 1 because that'll be the id the execution
+    // context during bootstrap (code that runs before entering uv_run()).
+    async_id_fields_[AsyncHooks::kAsyncIdCounter] = 1;
+  }
+}
+
+void AsyncHooks::Deserialize(Local<Context> context) {
+  v8::Local<v8::Array> arr =
+      context
+          ->GetDataFromSnapshotOnce<v8::Array>(info_->execution_async_resources)
+          .ToLocalChecked();
+  async_ids_stack_.Deserialize(context);
+  fields_.Deserialize(context);
+  async_id_fields_.Deserialize(context);
+  execution_async_resources_.Reset(context->GetIsolate(), arr);
+  info_ = nullptr;
+}
+
+AsyncHooks::SerializeInfo AsyncHooks::Serialize(Local<Context> context,
+                                                SnapshotCreator* creator) {
+  SerializeInfo info;
+  info.async_ids_stack = async_ids_stack_.Serialize(context, creator);
+  info.fields = fields_.Serialize(context, creator);
+  info.async_id_fields = async_id_fields_.Serialize(context, creator);
+  info.execution_async_resources = creator->AddData(
+      context, execution_async_resources_.Get(context->GetIsolate()));
+  return info;
 }
 
 void AsyncHooks::MemoryInfo(MemoryTracker* tracker) const {
@@ -1191,6 +1302,106 @@ void Environment::PrintAllBuffers() {
   Aliased##V8T::ForEachBuffer(PrintBuffer<Aliased##V8T>, &printer_data);       \
   std::cout << "\n";
   ALIASED_BUFFER_TYPES(V)
+#undef V
+}
+
+struct BufferInfo {
+  const std::map<const void*, std::string>* names;
+  EnvSerializeInfo* env_info;
+  SnapshotCreator* creator;
+};
+
+EnvSerializeInfo Environment::Serialize(SnapshotCreator* creator) {
+  EnvSerializeInfo info;
+  Local<Context> ctx = context();
+
+  NoBindingData* data =
+      BindingDataBase::Unwrap<NoBindingData>(ctx, default_callback_data());
+  info.default_callback_data = creator->AddData(ctx, data->object());
+
+  info.async_hooks = async_hooks_.Serialize(ctx, creator);
+  info.immediate_info = immediate_info_.Serialize(ctx, creator);
+  info.tick_info = tick_info_.Serialize(ctx, creator);
+  info.performance_state = performance_state_->Serialize(ctx, creator);
+  info.stream_base_state = stream_base_state_.Serialize(ctx, creator);
+  info.should_abort_on_uncaught_toggle =
+      should_abort_on_uncaught_toggle_.Serialize(ctx, creator);
+
+  size_t id = 0;
+#define V(PropertyName, TypeName)                                              \
+  do {                                                                         \
+    Local<TypeName> field = PropertyName();                                    \
+    if (!field.IsEmpty()) {                                                    \
+      size_t index = creator->AddData(ctx, field);                             \
+      info.strong_values_and_templates.push_back({#PropertyName, id, index});  \
+    }                                                                          \
+    id++;                                                                      \
+  } while (0);
+  ENVIRONMENT_STRONG_PERSISTENT_TEMPLATES(V)
+  ENVIRONMENT_STRONG_PERSISTENT_VALUES(V)
+#undef V
+
+  context()->SetAlignedPointerInEmbedderData(ContextEmbedderIndex::kEnvironment,
+                                             nullptr);
+  return info;
+}
+
+void Environment::ReleaseContext() {
+  set_default_callback_data(v8::Local<v8::Uint32>());
+  set_current_callback_data(v8::Local<v8::Uint32>());
+  context_.Reset(isolate(), v8::Local<v8::Context>());
+}
+
+void Environment::EnqueueDeserializeRequest(DeserializeRequestCallback cb,
+                                            DeserializeRequestData data) {
+  deserialize_requests_.push_back({cb, data});
+}
+
+void Environment::RunDeserializeRequests() {
+  HandleScope scope(isolate());
+  Local<Context> ctx = context();
+  while (!deserialize_requests_.empty()) {
+    DeserializeRequest request = deserialize_requests_.front();
+    request.cb(ctx, request.data);
+    deserialize_requests_.pop_front();
+  }
+}
+
+void Environment::DeserializeProperties(const EnvSerializeInfo* info) {
+  Local<Context> ctx = context();
+
+  RunDeserializeRequests();
+
+  CHECK(!default_callback_data().IsEmpty());
+  set_current_callback_data(default_callback_data());
+  async_hooks_.Deserialize(ctx);
+  immediate_info_.Deserialize(ctx);
+  tick_info_.Deserialize(ctx);
+  performance_state_->Deserialize(ctx);
+  stream_base_state_.Deserialize(ctx);
+  should_abort_on_uncaught_toggle_.Deserialize(ctx);
+
+  const std::vector<PropInfo>& values = info->strong_values_and_templates;
+  size_t i = 0;  // index to the values array
+  size_t id = 0;
+#define V(PropertyName, TypeName)                                              \
+  do {                                                                         \
+    if (id == values[i].id) {                                                  \
+      DCHECK_EQ(values[i].name, #PropertyName);                                \
+      MaybeLocal<TypeName> field =                                             \
+          ctx->GetDataFromSnapshotOnce<TypeName>(values[i++].index);           \
+      if (field.IsEmpty()) {                                                   \
+        fprintf(stderr,                                                        \
+                "Failed to deserialize environment property " #PropertyName    \
+                "\n");                                                         \
+      }                                                                        \
+      set_##PropertyName(field.ToLocalChecked());                              \
+      DCHECK_LE(i, values.size());                                             \
+    }                                                                          \
+    id++;                                                                      \
+  } while (0);
+  ENVIRONMENT_STRONG_PERSISTENT_TEMPLATES(V);
+  ENVIRONMENT_STRONG_PERSISTENT_VALUES(V);
 #undef V
 }
 

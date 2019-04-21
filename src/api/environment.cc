@@ -369,15 +369,7 @@ Environment* CreateEnvironment(
   // TODO(addaleax): This is a much better place for parsing per-Environment
   // options than the global parse call.
   Environment* env = new Environment(
-      isolate_data,
-      context,
-      args,
-      exec_args,
-      flags,
-      thread_id);
-  if (flags & EnvironmentFlags::kOwnsProcessState) {
-    env->set_abort_on_uncaught_exception(false);
-  }
+      isolate_data, context, args, exec_args, nullptr, flags, thread_id);
 
 #if HAVE_INSPECTOR
   if (inspector_parent_handle) {
