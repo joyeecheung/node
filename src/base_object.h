@@ -30,6 +30,8 @@
 
 namespace node {
 
+enum class InternalFieldType { kDefault = 0, kNoBindingData };
+
 class Environment;
 template <typename T, bool kIsWeak>
 class BaseObjectPtrImpl;
@@ -98,10 +100,14 @@ class BaseObject : public MemoryRetainer {
   // a BaseObjectPtr to this object.
   inline void Detach();
 
+  InternalFieldType type() { return type_; }
+  void set_type(InternalFieldType type) { type_ = type; }
+
  protected:
   virtual inline void OnGCCollect();
 
  private:
+  InternalFieldType type_ = InternalFieldType::kDefault;
   v8::Local<v8::Object> WrappedObject() const override;
   static void DeleteMe(void* data);
 
