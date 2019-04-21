@@ -1242,15 +1242,6 @@ BaseObject* CleanupHookCallback::GetBaseObject() const {
     return nullptr;
 }
 
-template <typename T>
-void Environment::ForEachBaseObject(T&& iterator) {
-  for (const auto& hook : cleanup_hooks_) {
-    BaseObject* obj = hook.GetBaseObject();
-    if (obj != nullptr)
-      iterator(obj);
-  }
-}
-
 void Environment::modify_base_object_count(int64_t delta) {
   base_object_count_ += delta;
 }
