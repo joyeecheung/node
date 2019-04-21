@@ -1015,6 +1015,47 @@ void Environment::stop_sub_worker_contexts() {
   }
 }
 
+void Environment::ForEachBaseObject(BaseObjectIterator iterator) {
+  size_t i = 0;
+  for (const auto& hook : cleanup_hooks_) {
+    BaseObject* obj = hook.GetBaseObject();
+    if (obj != nullptr) iterator(i, obj);
+    i++;
+  }
+}
+
+void PrintBaseObject(size_t i, BaseObject* obj) {
+  std::cout << "#" << i << " " << obj << ": " << obj->MemoryInfoName() << "\n";
+}
+
+void Environment::PrintAllBaseObjects() {
+  std::cout << "BaseObjects\n";
+  ForEachBaseObject(PrintBaseObject);
+}
+
+void Environment::PrintAllBuffers() {
+  std::map<void*, std::string> names;
+  names[&fs_stats_field_array_] = "fs_stats_field_array";
+  names[&fs_stats_field_bigint_array_] = "fs_stats_field_bigint_array";
+  names[&stream_base_state_] = "stream_base_state";
+  CHECK_NOT_NULL(performance_state_);
+  names[&(performance_state_->root)] = "performance_state.root";
+  names[&(performance_state_->milestones)] = "performance_state.milestones";
+  names[&(performance_state_->observers)] = "performance_state.observers";
+  names[&should_abort_on_uncaught_toggle_] = "should_abort_on_uncaught_toggle";
+  names[&(async_hooks_.fields())] = "async_hooks.fields";
+  names[&(async_hooks_.async_ids_stack())] = "async_hooks.async_ids_stack";
+  names[&(async_hooks_.async_id_fields())] = "async_hooks.async_id_fields";
+  names[&(tick_info_.fields())] = "tick_info.fields";
+  names[&(immediate_info_.fields())] = "immediate_info.fields";
+
+#define V(NativeT, V8T)                                                        \
+  std::cout << "Aliased" #V8T << "s\n";                                        \
+  Aliased##V8T::PrintAllBuffers(names);
+  ALIASED_BUFFER_TYPES(V)
+#undef V
+}
+
 EnvSerializeInfo Environment::Serialize(SnapshotCreator* creator) {
   EnvSerializeInfo info;
   info.async_hooks_indexes.reserve(async_hooks_.providers_.size());

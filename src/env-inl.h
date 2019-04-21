@@ -996,15 +996,6 @@ BaseObject* CleanupHookCallback::GetBaseObject() const {
     return nullptr;
 }
 
-template <typename T>
-void Environment::ForEachBaseObject(T&& iterator) {
-  for (const auto& hook : cleanup_hooks_) {
-    BaseObject* obj = hook.GetBaseObject();
-    if (obj != nullptr)
-      iterator(obj);
-  }
-}
-
 bool AsyncRequest::is_stopped() const {
   return stopped_.load();
 }

@@ -18,7 +18,7 @@ using v8::Object;
 using v8::SnapshotCreator;
 using v8::StartupData;
 
-static bool log_progress = false;
+static bool log_debug = false;
 
 template <typename T>
 void WriteVector(std::stringstream* ss, const T* vec, size_t size) {
@@ -104,7 +104,7 @@ static v8::StartupData SerializeNodeContextInternalFields(Local<Object> holder,
                                                           int index,
                                                           void* env) {
   void* ptr = holder->GetAlignedPointerFromInternalField(index);
-  if (log_progress) {
+  if (log_debug) {
     std::cout << "Serializing Object with index " << index << " at " << ptr
               << " with Environment at " << env << "\n";
   }
@@ -133,7 +133,7 @@ std::string SnapshotBuilder::Generate(
     size_t env_size = sizeof(env_buf);
     int ret = uv_os_getenv("NODE_DEBUG", env_buf, &env_size);
     if (ret == 0 && strcmp(env_buf, "mksnapshot") == 0) {
-      log_progress = true;
+      log_debug = true;
     }
   }
 
@@ -164,6 +164,10 @@ std::string SnapshotBuilder::Generate(
                                           Environment::kOwnsInspector));
       // env->InitializeLibuv(per_process::v8_is_profiling);
       // env->ProcessCliArgs(args, exec_args);
+      if (log_debug) {
+        env->PrintAllBuffers();
+        env->PrintAllBaseObjects();
+      }
       env_info = env->Serialize(&creator);
       size_t index = creator.AddContext(
           context, {SerializeNodeContextInternalFields, env.get()});

@@ -813,6 +813,10 @@ class Environment : public MemoryRetainer {
   EnvSerializeInfo Serialize(v8::SnapshotCreator* creator);
   void CreateProperties();
   void DeserializeProperties(const EnvSerializeInfo* info);
+  typedef void (*BaseObjectIterator)(size_t, BaseObject*);
+  void ForEachBaseObject(BaseObjectIterator iterator);
+  void PrintAllBaseObjects();
+  void PrintAllBuffers();
 
   inline size_t async_callback_scope_depth() const;
   inline void PushAsyncCallbackScope();
@@ -1306,9 +1310,6 @@ class Environment : public MemoryRetainer {
   // A custom async abstraction (a pair of async handle and a state variable)
   // Used by embedders to shutdown running Node instance.
   AsyncRequest thread_stopper_;
-
-  template <typename T>
-  void ForEachBaseObject(T&& iterator);
 
   Persistent<v8::Context> context_;
 
