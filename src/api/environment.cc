@@ -343,6 +343,7 @@ Environment* CreateEnvironment(IsolateData* isolate_data,
       context,
       args,
       exec_args,
+      nullptr,
       static_cast<Environment::Flags>(Environment::kIsMainThread |
                                       Environment::kOwnsProcessState |
                                       Environment::kOwnsInspector));
