@@ -689,7 +689,11 @@ class AsyncHooks : public MemoryRetainer {
 
  private:
   friend class Environment;  // So we can call the constructor.
-  inline AsyncHooks();
+  explicit AsyncHooks(const EnvSerializeInfo* info);
+  void Serialize(v8::SnapshotCreator* creator, EnvSerializeInfo* info);
+  void CreateProperties();
+  void DeserializeProperties(const EnvSerializeInfo* info);
+
   // Keep a list of all Persistent strings used for Provider types.
   std::array<v8::Eternal<v8::String>, AsyncWrap::PROVIDERS_LENGTH> providers_;
   // Stores the ids of the current execution context stack.
@@ -823,6 +827,27 @@ class CleanupHookCallback {
   uint64_t insertion_order_counter_;
 };
 
+struct PropInfo {
+  std::string name;  // name for debugging
+  size_t id;         // In the list - in case there are any empty entires
+  size_t index;      // In the snapshot
+};
+
+struct EnvSerializeInfo {
+  size_t as_callback_data_index;
+  std::vector<size_t> async_hooks_indexes;
+  std::vector<PropInfo> strong_values_indexes;
+  std::vector<PropInfo> strong_templates_indexes;
+  std::vector<PropInfo> aliased_buffer_indexes;
+};
+
+enum class InternalFieldType { kDefault = 0, kIsEnvironment };
+
+struct InternalFieldInfo {
+  InternalFieldType type;
+  void* data;
+};
+
 class Environment : public MemoryRetainer {
  public:
   Environment(const Environment&) = delete;
@@ -836,8 +861,9 @@ class Environment : public MemoryRetainer {
   bool IsRootNode() const override { return true; }
   void MemoryInfo(MemoryTracker* tracker) const override;
 
+  EnvSerializeInfo Serialize(v8::SnapshotCreator* creator);
   void CreateProperties();
-
+  void DeserializeProperties(const EnvSerializeInfo* info);
   typedef void (*BaseObjectIterator)(size_t, BaseObject*);
   void ForEachBaseObject(BaseObjectIterator iterator);
   void PrintAllBaseObjects();
@@ -885,6 +911,7 @@ class Environment : public MemoryRetainer {
               v8::Local<v8::Context> context,
               const std::vector<std::string>& args,
               const std::vector<std::string>& exec_args,
+              const EnvSerializeInfo* serialize_info = nullptr,
               Flags flags = Flags(),
               uint64_t thread_id = kNoThreadId);
   ~Environment() override;

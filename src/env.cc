@@ -291,10 +291,12 @@ Environment::Environment(IsolateData* isolate_data,
                          Local<Context> context,
                          const std::vector<std::string>& args,
                          const std::vector<std::string>& exec_args,
+                         const EnvSerializeInfo* env_info,
                          Flags flags,
                          uint64_t thread_id)
     : isolate_(context->GetIsolate()),
       isolate_data_(isolate_data),
+      async_hooks_(env_info),
       immediate_info_(context->GetIsolate()),
       tick_info_(context->GetIsolate()),
       timer_base_(uv_now(isolate_data->event_loop())),
@@ -345,6 +347,8 @@ Environment::Environment(IsolateData* isolate_data,
       },
       this);
 
+  // Recreate these from scrach - the ones in the snapshot will be discarded
+  // because these values depend on run time states.
   performance_state_ =
       std::make_unique<performance::performance_state>(isolate());
   performance_state_->Mark(
@@ -378,9 +382,11 @@ Environment::Environment(IsolateData* isolate_data,
     async_hooks_.no_force_checks();
   }
 
-  // TODO(joyeecheung): deserialize when the snapshot covers the environment
-  // properties.
-  CreateProperties();
+  if (env_info != nullptr) {
+    DeserializeProperties(env_info);
+  } else {
+    CreateProperties();
+  }
 }
 
 Environment::~Environment() {
@@ -401,8 +407,10 @@ Environment::~Environment() {
   inspector_agent_.reset();
 #endif
 
-  context()->SetAlignedPointerInEmbedderData(
-      ContextEmbedderIndex::kEnvironment, nullptr);
+  if (!context().IsEmpty()) {
+    context()->SetAlignedPointerInEmbedderData(
+        ContextEmbedderIndex::kEnvironment, nullptr);
+  }
 
   if (trace_state_observer_) {
     tracing::AgentWriterHandle* writer = GetTracingAgentWriter();
@@ -927,6 +935,91 @@ void TickInfo::MemoryInfo(MemoryTracker* tracker) const {
   tracker->TrackField("fields", fields_);
 }
 
+AsyncHooks::AsyncHooks(const EnvSerializeInfo* info)
+    : async_ids_stack_(env()->isolate(), 16 * 2),
+      fields_(env()->isolate(), kFieldsCount),
+      async_id_fields_(env()->isolate(), kUidFieldsCount) {
+  v8::HandleScope handle_scope(env()->isolate());
+  clear_async_id_stack();
+
+  // Always perform async_hooks checks, not just when async_hooks is enabled.
+  // TODO(AndreasMadsen): Consider removing this for LTS releases.
+  // See discussion in https://github.com/nodejs/node/pull/15454
+  // When removing this, do it by reverting the commit. Otherwise the test
+  // and flag changes won't be included.
+  fields_[kCheck] = 1;
+
+  // kDefaultTriggerAsyncId should be -1, this indicates that there is no
+  // specified default value and it should fallback to the executionAsyncId.
+  // 0 is not used as the magic value, because that indicates a missing context
+  // which is different from a default context.
+  async_id_fields_[AsyncHooks::kDefaultTriggerAsyncId] = -1;
+
+  // kAsyncIdCounter should start at 1 because that'll be the id the execution
+  // context during bootstrap (code that runs before entering uv_run()).
+  async_id_fields_[AsyncHooks::kAsyncIdCounter] = 1;
+
+  if (info == nullptr) {
+    CreateProperties();
+  }
+}
+
+void AsyncHooks::CreateProperties() {
+  // Create all the provider strings that will be passed to JS. Place them in
+  // an array so the array index matches the PROVIDER id offset. This way the
+  // strings can be retrieved quickly.
+#define V(Provider)                                                            \
+  providers_[AsyncWrap::PROVIDER_##Provider].Set(                              \
+      env()->isolate(),                                                        \
+      v8::String::NewFromOneByte(env()->isolate(),                             \
+                                 reinterpret_cast<const uint8_t*>(#Provider),  \
+                                 v8::NewStringType::kInternalized,             \
+                                 sizeof(#Provider) - 1)                        \
+          .ToLocalChecked());
+  NODE_ASYNC_PROVIDER_TYPES(V)
+#undef V
+}
+
+void AsyncHooks::Serialize(SnapshotCreator* creator, EnvSerializeInfo* info) {
+  Isolate* isolate = env()->isolate();
+  Local<Context> ctx = env()->context();
+  info->async_hooks_indexes.reserve(providers_.size() + 1);
+  for (v8::Eternal<String> str : providers_) {
+    Local<String> local = str.Get(isolate);
+    info->async_hooks_indexes.push_back(creator->AddData(local));
+  }
+  info->async_hooks_indexes.push_back(
+      creator->AddData(ctx,
+                       execution_async_resources_.Get(isolate)));
+}
+
+void AsyncHooks::DeserializeProperties(const EnvSerializeInfo* info) {
+  size_t i = 0;
+  Isolate* isolate = env()->isolate();
+  Local<Context> ctx = env()->context();
+  const std::vector<size_t>& indexes = info->async_hooks_indexes;
+#define V(Provider)                                                            \
+  do {                                                                         \
+    MaybeLocal<String> str =                                                   \
+        isolate->GetDataFromSnapshotOnce<String>(indexes[i++]);                \
+    if (str.IsEmpty()) {                                                       \
+      fprintf(stderr,                                                          \
+              "Failed to deserialize provider string " #Provider "\n");        \
+    }                                                                          \
+    providers_[AsyncWrap::PROVIDER_##Provider].Set(isolate,                    \
+                                                   str.ToLocalChecked());      \
+  } while (0);
+  NODE_ASYNC_PROVIDER_TYPES(V)
+#undef V
+
+  MaybeLocal<Array> arr = ctx->GetDataFromSnapshotOnce<Array>(indexes[i++]);
+  if (arr.IsEmpty()) {
+    fprintf(stderr, "Failed to deserialize execution_async_resources \n");
+  }
+  execution_async_resources_.Reset(isolate, arr.ToLocalChecked());
+  CHECK_EQ(i, indexes.size());
+}
+
 void AsyncHooks::MemoryInfo(MemoryTracker* tracker) const {
   tracker->TrackField("providers", providers_);
   tracker->TrackField("async_ids_stack", async_ids_stack_);
@@ -1080,6 +1173,143 @@ void Environment::PrintAllBuffers() {
   Aliased##V8T::ForEachBuffer(PrintBuffer<Aliased##V8T>, &printer_data);       \
   std::cout << "\n";
   ALIASED_BUFFER_TYPES(V)
+#undef V
+}
+
+struct BufferInfo {
+  const std::map<const void*, std::string>* names;
+  EnvSerializeInfo* env_info;
+  SnapshotCreator* creator;
+};
+
+EnvSerializeInfo Environment::Serialize(SnapshotCreator* creator) {
+  EnvSerializeInfo info;
+  Local<Context> ctx = context();
+
+  info.as_callback_data_index = creator->AddData(as_callback_data());
+  async_hooks_.Serialize(creator, &info);
+
+  size_t id = 0;
+#define V(PropertyName, TypeName)                                              \
+  do {                                                                         \
+    Local<TypeName> field = PropertyName();                                    \
+    if (!field.IsEmpty()) {                                                    \
+      size_t index = creator->AddData(ctx, field);                             \
+      info.strong_values_indexes.push_back({#PropertyName, id, index});        \
+    }                                                                          \
+    id++;                                                                      \
+  } while (0);
+  ENVIRONMENT_STRONG_PERSISTENT_VALUES(V)
+#undef V
+
+  id = 0;
+#define V(PropertyName, TypeName)                                              \
+  do {                                                                         \
+    Local<TypeName> field = PropertyName();                                    \
+    if (!field.IsEmpty()) {                                                    \
+      size_t index = creator->AddTemplate(field);                              \
+      info.strong_templates_indexes.push_back({#PropertyName, id, index});     \
+    }                                                                          \
+    id++;                                                                      \
+  } while (0);
+  ENVIRONMENT_STRONG_PERSISTENT_TEMPLATES(V)
+#undef V
+
+  id = 0;
+#define V(Reference, TypeName)                                                 \
+  do {                                                                         \
+    auto field = Reference.GetJSArray();                                       \
+    DCHECK(!field.IsEmpty());                                                  \
+    size_t index = creator->AddData(ctx, field);                               \
+    info.aliased_buffer_indexes.push_back({#Reference, id, index});            \
+    id++;                                                                      \
+  } while (0);
+  FOR_EACH_KNOWN_BUFFER_IN_ENV(V)
+#undef V
+
+  context()->SetAlignedPointerInEmbedderData(
+      ContextEmbedderIndex::kEnvironment, nullptr);
+
+  context_.Reset();  // Release the global handle for the snapshot
+  return info;
+}
+void Environment::DeserializeProperties(const EnvSerializeInfo* info) {
+  Local<Context> ctx = context();
+  const std::vector<PropInfo>& values = info->strong_values_indexes;
+  size_t i = 0;  // index to the values array
+  size_t id = 0;
+
+  MaybeLocal<Value> data =                                            
+      isolate_->GetDataFromSnapshotOnce<Value>(info->as_callback_data_index);       
+  if (data.IsEmpty()) {                                                  
+    fprintf(stderr, "Failed to deserialize as_callack_data\n");         
+  }                                                                       
+  set_as_callback_data(data.ToLocalChecked());
+
+  async_hooks_.DeserializeProperties(info);
+
+#define V(PropertyName, TypeName)                                              \
+  do {                                                                         \
+    if (id == values[i].id) {                                                  \
+      DCHECK_EQ(values[i].name, #PropertyName);                                \
+      MaybeLocal<TypeName> field =                                             \
+          ctx->GetDataFromSnapshotOnce<TypeName>(values[i++].index);           \
+      if (field.IsEmpty()) {                                                   \
+        fprintf(stderr,                                                        \
+                "Failed to deserialize environment property " #PropertyName    \
+                "\n");                                                         \
+      }                                                                        \
+      set_##PropertyName(field.ToLocalChecked());                              \
+      DCHECK_LE(i, values.size());                                             \
+    }                                                                          \
+    id++;                                                                      \
+  } while (0);
+  ENVIRONMENT_STRONG_PERSISTENT_VALUES(V);
+#undef V
+
+  i = 0;
+  id = 0;
+  const std::vector<PropInfo>& templates = info->strong_templates_indexes;
+  if (templates.size() > 0) {
+#define V(PropertyName, TypeName)                                              \
+  do {                                                                         \
+    if (id == templates[i].id) {                                               \
+      DCHECK_EQ(templates[i].name, #PropertyName);                             \
+      MaybeLocal<TypeName> field =                                             \
+          TypeName::FromSnapshot(isolate_, templates[i++].index);              \
+      if (field.IsEmpty()) {                                                   \
+        fprintf(stderr,                                                        \
+                "Failed to deserialize environment property " #PropertyName    \
+                "\n");                                                         \
+      }                                                                        \
+      set_##PropertyName(field.ToLocalChecked());                              \
+      DCHECK_LE(i, templates.size());                                          \
+    }                                                                          \
+    id++;                                                                      \
+  } while (0);
+  ENVIRONMENT_STRONG_PERSISTENT_TEMPLATES(V);
+#undef V
+  }
+
+  const std::vector<PropInfo>& buffers = info->aliased_buffer_indexes;
+  i = 0;
+  id = 0;
+#define V(Reference, TypeName)                                                 \
+  do {                                                                         \
+    if (id == buffers[i].id) {                                                 \
+      MaybeLocal<v8::TypeName> field =                                         \
+          ctx->GetDataFromSnapshotOnce<v8::TypeName>(buffers[i++].index);      \
+      if (field.IsEmpty()) {                                                   \
+        fprintf(stderr,                                                        \
+                "Failed to deserialize environment property " #Reference       \
+                "\n");                                                         \
+      }                                                                        \
+      Reference.Deserialize(isolate_, field.ToLocalChecked());                 \
+      DCHECK_LE(i, buffers.size());                                            \
+    }                                                                          \
+    id++;                                                                      \
+  } while (0);
+  FOR_EACH_KNOWN_BUFFER_IN_ENV(V)
 #undef V
 }
 

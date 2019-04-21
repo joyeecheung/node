@@ -117,7 +117,8 @@ void PerformanceEntry::Notify(Environment* env,
                               Local<Value> object) {
   Context::Scope scope(env->context());
   AliasedUint32Array& observers = env->performance_state()->observers;
-  if (type != NODE_PERFORMANCE_ENTRY_TYPE_INVALID &&
+  if (!env->performance_entry_callback().IsEmpty() &&
+      type != NODE_PERFORMANCE_ENTRY_TYPE_INVALID &&
       observers[type]) {
     node::MakeCallback(env->isolate(),
                        object.As<Object>(),

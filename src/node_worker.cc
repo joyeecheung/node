@@ -320,6 +320,7 @@ void Worker::Run() {
                                    context,
                                    std::move(argv_),
                                    std::move(exec_argv_),
+                                   nullptr,
                                    Environment::kNoFlags,
                                    thread_id_));
         CHECK_NOT_NULL(env_);
