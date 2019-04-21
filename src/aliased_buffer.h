@@ -4,6 +4,7 @@
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
 #include <cinttypes>
+#include <unordered_set>
 #include "util-inl.h"
 #include "v8.h"
 
@@ -26,14 +27,23 @@ namespace node {
  * The encapsulation herein provides a placeholder where such writes can be
  * observed. Any notification APIs will be left as a future exercise.
  */
+
+enum class AliasedBufferType { kNew, kCopy, kShared, kAssigned };
+
 template <class NativeT,
           class V8T,
           // SFINAE NativeT to be scalar
-          typename = std::enable_if_t<std::is_scalar<NativeT>::value>>
+          typename Trait = std::enable_if_t<std::is_scalar<NativeT>::value>>
 class AliasedBufferBase {
  public:
-  AliasedBufferBase(v8::Isolate* isolate, const size_t count)
-      : isolate_(isolate), count_(count), byte_offset_(0) {
+  static std::unordered_set<AliasedBufferBase*> buffers;
+
+  inline AliasedBufferBase(v8::Isolate* isolate, const size_t count)
+      : isolate_(isolate),
+        count_(count),
+        byte_offset_(0),
+        type_(AliasedBufferType::kNew) {
+    buffers.insert(this);
     CHECK_GT(count, 0);
     const v8::HandleScope handle_scope(isolate_);
     const size_t size_in_bytes =
@@ -63,7 +73,11 @@ class AliasedBufferBase {
       const size_t byte_offset,
       const size_t count,
       const AliasedBufferBase<uint8_t, v8::Uint8Array>& backing_buffer)
-      : isolate_(isolate), count_(count), byte_offset_(byte_offset) {
+      : isolate_(isolate),
+        count_(count),
+        byte_offset_(byte_offset),
+        type_(AliasedBufferType::kShared) {
+    buffers.insert(this);
     const v8::HandleScope handle_scope(isolate_);
 
     v8::Local<v8::ArrayBuffer> ab = backing_buffer.GetArrayBuffer();
@@ -85,9 +99,13 @@ class AliasedBufferBase {
       : isolate_(that.isolate_),
         count_(that.count_),
         byte_offset_(that.byte_offset_),
-        buffer_(that.buffer_) {
+        buffer_(that.buffer_),
+        type_(AliasedBufferType::kCopy) {
+    buffers.insert(this);
     js_array_ = v8::Global<V8T>(that.isolate_, that.GetJSArray());
   }
+
+  inline ~AliasedBufferBase() { buffers.erase(this); }
 
   AliasedBufferBase& operator=(AliasedBufferBase&& that) noexcept {
     this->~AliasedBufferBase();
@@ -97,6 +115,7 @@ class AliasedBufferBase {
     buffer_ = that.buffer_;
 
     js_array_.Reset(isolate_, that.js_array_.Get(isolate_));
+    type_ = AliasedBufferType::kAssigned;
 
     that.buffer_ = nullptr;
     that.js_array_.Reset();
@@ -243,19 +262,40 @@ class AliasedBufferBase {
     count_ = new_capacity;
   }
 
+  AliasedBufferType type() const { return type_; }
+
+  typedef void (*AliasedBufferIterator)(AliasedBufferBase*, void* data);
+
+  static void ForEachBuffer(AliasedBufferIterator iter, void* data) {
+    for (const auto& item : buffers) {
+      iter(item, data);
+    }
+  }
+
  private:
   v8::Isolate* isolate_;
   size_t count_;
   size_t byte_offset_;
   NativeT* buffer_;
   v8::Global<V8T> js_array_;
+  AliasedBufferType type_;
 };
 
-typedef AliasedBufferBase<int32_t, v8::Int32Array> AliasedInt32Array;
-typedef AliasedBufferBase<uint8_t, v8::Uint8Array> AliasedUint8Array;
-typedef AliasedBufferBase<uint32_t, v8::Uint32Array> AliasedUint32Array;
-typedef AliasedBufferBase<double, v8::Float64Array> AliasedFloat64Array;
-typedef AliasedBufferBase<uint64_t, v8::BigUint64Array> AliasedBigUint64Array;
+template <class NativeT, class V8T, typename Trait>
+std::unordered_set<AliasedBufferBase<NativeT, V8T, Trait>*>
+    AliasedBufferBase<NativeT, V8T, Trait>::buffers;
+
+#define ALIASED_BUFFER_TYPES(V)                                                \
+  V(uint8_t, Uint8Array)                                                       \
+  V(int32_t, Int32Array)                                                       \
+  V(uint32_t, Uint32Array)                                                     \
+  V(double, Float64Array)                                                      \
+  V(uint64_t, BigUint64Array)
+
+#define V(NativeT, V8T)                                                        \
+  typedef AliasedBufferBase<NativeT, v8::V8T> Aliased##V8T;
+ALIASED_BUFFER_TYPES(V)
+#undef V
 }  // namespace node
 
 #endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
