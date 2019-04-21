@@ -45,6 +45,7 @@
 #include <cstdint>
 #include <functional>
 #include <list>
+#include <map>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -647,7 +648,10 @@ class AsyncHooks : public MemoryRetainer {
 
  private:
   friend class Environment;  // So we can call the constructor.
-  inline AsyncHooks();
+  explicit AsyncHooks(const EnvSerializeInfo* info);
+  void CreateProviderStrings();
+  void DeserializeProviderStrings(const std::vector<size_t>& indexes);
+
   // Keep a list of all Persistent strings used for Provider types.
   std::array<v8::Eternal<v8::String>, AsyncWrap::PROVIDERS_LENGTH> providers_;
   // Stores the ids of the current execution context stack.
@@ -781,6 +785,18 @@ class CleanupHookCallback {
   uint64_t insertion_order_counter_;
 };
 
+struct EnvSerializeInfo {
+  std::vector<size_t> async_hooks_indexes;
+  std::map<size_t, size_t> strong_props_indexes;
+};
+
+enum class InternalFieldType { kDefault = 0, kIsEnvironment };
+
+struct InternalFieldInfo {
+  InternalFieldType type;
+  void* data;
+};
+
 class Environment : public MemoryRetainer {
  public:
   Environment(const Environment&) = delete;
@@ -791,6 +807,12 @@ class Environment : public MemoryRetainer {
   inline size_t SelfSize() const override;
   bool IsRootNode() const override { return true; }
   void MemoryInfo(MemoryTracker* tracker) const override;
+
+  // The caller owns the data of the IndexArrays inside the returned
+  // EnvSerializeInfo
+  EnvSerializeInfo Serialize(v8::SnapshotCreator* creator);
+  void CreateProperties();
+  void DeserializeProperties(const EnvSerializeInfo* info);
 
   inline size_t async_callback_scope_depth() const;
   inline void PushAsyncCallbackScope();
@@ -819,6 +841,7 @@ class Environment : public MemoryRetainer {
 
   Environment(IsolateData* isolate_data,
               v8::Local<v8::Context> context,
+              const EnvSerializeInfo* serialize_info = nullptr,
               Flags flags = Flags(),
               uint64_t thread_id = kNoThreadId);
   ~Environment();

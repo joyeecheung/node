@@ -14,8 +14,11 @@ using v8::HandleScope;
 using v8::Isolate;
 using v8::Local;
 using v8::Locker;
+using v8::Object;
 using v8::SnapshotCreator;
 using v8::StartupData;
+
+static bool log_progress = false;
 
 template <typename T>
 void WriteVector(std::stringstream* ss, const T* vec, size_t size) {
@@ -25,11 +28,13 @@ void WriteVector(std::stringstream* ss, const T* vec, size_t size) {
 }
 
 std::string FormatBlob(v8::StartupData* blob,
-                       const std::vector<size_t>& isolate_data_indexes) {
+                       const std::vector<size_t>& isolate_data_indexes,
+                       const EnvSerializeInfo& env_info) {
   std::stringstream ss;
 
   ss << R"(#include <cinttypes>
 #include <array>
+#include "env.h"
 #include "node_main_instance.h"
 #include "v8.h"
 
@@ -59,10 +64,57 @@ static const std::vector<size_t> isolate_data_indexes {
 const std::vector<size_t>* NodeMainInstance::GetIsolateDataIndexes() {
   return &isolate_data_indexes;
 }
+
+static const std::vector<size_t> async_hooks_indexes {
+)";
+  WriteVector(&ss,
+              env_info.async_hooks_indexes.data(),
+              env_info.async_hooks_indexes.size());
+  ss << R"(
+};
+
+static const std::map<size_t, size_t> strong_props_indexes {
+)";
+  size_t i = 0;
+  size_t size = env_info.strong_props_indexes.size();
+  for (const auto& pair : env_info.strong_props_indexes) {
+    ss << "{" << std::to_string(pair.first) << ", "
+       << std::to_string(pair.second) << "}\n"
+       << (i++ == size - 1 ? '\n' : ',');
+  }
+  ss << R"(
+};
+
+static const EnvSerializeInfo env_info {
+  std::move(async_hooks_indexes),
+  std::move(strong_props_indexes)
+};
+
+const EnvSerializeInfo* NodeMainInstance::GetEnvSerializeInfo() {
+  return &env_info;
+}
+
 }  // namespace node
 )";
 
   return ss.str();
+}
+
+static v8::StartupData SerializeNodeContextInternalFields(Local<Object> holder,
+                                                          int index,
+                                                          void* env) {
+  void* ptr = holder->GetAlignedPointerFromInternalField(index);
+  if (log_progress) {
+    std::cout << "Serializing Object with index " << index << " at " << ptr
+              << " with Environment at " << env << "\n";
+  }
+  if (ptr == env) {
+    InternalFieldInfo* info =
+        new InternalFieldInfo{InternalFieldType::kIsEnvironment, 0};
+    // Points to nullptr
+    return StartupData{reinterpret_cast<const char*>(info), sizeof(*info)};
+  }
+  return StartupData{reinterpret_cast<const char*>(0), 0};
 }
 
 std::string SnapshotBuilder::Generate(
@@ -77,7 +129,17 @@ std::string SnapshotBuilder::Generate(
   std::string result;
 
   {
+    char env_buf[32];
+    size_t env_size = sizeof(env_buf);
+    int ret = uv_os_getenv("NODE_DEBUG", env_buf, &env_size);
+    if (ret == 0 && strcmp(env_buf, "mksnapshot") == 0) {
+      log_progress = true;
+    }
+  }
+
+  {
     std::vector<size_t> isolate_data_indexes;
+    EnvSerializeInfo env_info;
     SnapshotCreator creator(isolate, external_references.data());
     {
       main_instance =
@@ -90,7 +152,21 @@ std::string SnapshotBuilder::Generate(
       creator.SetDefaultContext(Context::New(isolate));
       isolate_data_indexes = main_instance->isolate_data()->Serialize(&creator);
 
-      size_t index = creator.AddContext(NewContext(isolate));
+      Local<Context> context = NewContext(isolate);
+      Context::Scope context_scope(context);
+
+      std::unique_ptr<Environment> env = std::make_unique<Environment>(
+          main_instance->isolate_data(),
+          context,
+          nullptr,
+          static_cast<Environment::Flags>(Environment::kIsMainThread |
+                                          Environment::kOwnsProcessState |
+                                          Environment::kOwnsInspector));
+      // env->InitializeLibuv(per_process::v8_is_profiling);
+      // env->ProcessCliArgs(args, exec_args);
+      env_info = env->Serialize(&creator);
+      size_t index = creator.AddContext(
+          context, {SerializeNodeContextInternalFields, env.get()});
       CHECK_EQ(index, NodeMainInstance::kNodeContextIndex);
     }
 
@@ -100,7 +176,7 @@ std::string SnapshotBuilder::Generate(
     // Must be done while the snapshot creator isolate is entered i.e. the
     // creator is still alive.
     main_instance->Dispose();
-    result = FormatBlob(&blob, isolate_data_indexes);
+    result = FormatBlob(&blob, isolate_data_indexes, env_info);
     delete blob.data;
   }
 

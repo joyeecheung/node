@@ -244,6 +244,7 @@ Environment* CreateEnvironment(IsolateData* isolate_data,
   Environment* env = new Environment(
       isolate_data,
       context,
+      nullptr,
       static_cast<Environment::Flags>(Environment::kIsMainThread |
                                       Environment::kOwnsProcessState |
                                       Environment::kOwnsInspector));

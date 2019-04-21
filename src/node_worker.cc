@@ -252,6 +252,7 @@ void Worker::Run() {
         // public API.
         env_.reset(new Environment(data.isolate_data_.get(),
                                    context,
+                                   nullptr,
                                    Environment::kNoFlags,
                                    thread_id_));
         CHECK_NOT_NULL(env_);

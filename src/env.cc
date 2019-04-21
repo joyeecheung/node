@@ -233,12 +233,60 @@ uint64_t Environment::AllocateThreadId() {
   return next_thread_id++;
 }
 
+void Environment::CreateProperties() {
+  Local<Context> ctx = context();
+  Local<FunctionTemplate> templ = FunctionTemplate::New(isolate());
+  templ->InstanceTemplate()->SetInternalFieldCount(1);
+  Local<Object> obj = templ->GetFunction(ctx)
+                          .ToLocalChecked()
+                          ->NewInstance(ctx)
+                          .ToLocalChecked();
+  obj->SetAlignedPointerInInternalField(0, this);
+  set_as_callback_data(obj);
+  set_as_callback_data_template(templ);
+
+  // Store primordials setup by the per-context script in the environment.
+  Local<Object> per_context_bindings =
+      GetPerContextExports(ctx).ToLocalChecked();
+  Local<Value> primordials =
+      per_context_bindings->Get(ctx, primordials_string()).ToLocalChecked();
+  CHECK(primordials->IsObject());
+  set_primordials(primordials.As<Object>());
+}
+
+void Environment::DeserializeProperties(const EnvSerializeInfo* info) {
+  size_t id = 0;
+  Local<Context> ctx = context();
+  const std::map<size_t, size_t>& indexes = info->strong_props_indexes;
+#define V(PropertyName, TypeName)                                              \
+  do {                                                                         \
+    const auto it = indexes.find(id);                                          \
+    if (it != indexes.end()) {                                                 \
+      MaybeLocal<TypeName> field =                                             \
+          ctx->GetDataFromSnapshotOnce<TypeName>(it->second);                  \
+      if (field.IsEmpty()) {                                                   \
+        fprintf(stderr,                                                        \
+                "Failed to deserialize environment property " #PropertyName    \
+                "\n");                                                         \
+      }                                                                        \
+                                                                               \
+      set_##PropertyName(field.ToLocalChecked());                              \
+    }                                                                          \
+    id++;                                                                      \
+  } while (0);
+  ENVIRONMENT_STRONG_PERSISTENT_DATA(V)
+  ENVIRONMENT_STRONG_PERSISTENT_VALUES(V)
+#undef V
+}
+
 Environment::Environment(IsolateData* isolate_data,
                          Local<Context> context,
+                         const EnvSerializeInfo* env_info,
                          Flags flags,
                          uint64_t thread_id)
     : isolate_(context->GetIsolate()),
       isolate_data_(isolate_data),
+      async_hooks_(env_info),
       immediate_info_(context->GetIsolate()),
       tick_info_(context->GetIsolate()),
       timer_base_(uv_now(isolate_data->event_loop())),
@@ -252,16 +300,6 @@ Environment::Environment(IsolateData* isolate_data,
   // We'll be creating new objects so make sure we've entered the context.
   HandleScope handle_scope(isolate());
   Context::Scope context_scope(context);
-  {
-    Local<FunctionTemplate> templ = FunctionTemplate::New(isolate());
-    templ->InstanceTemplate()->SetInternalFieldCount(1);
-    Local<Object> obj =
-        templ->GetFunction(context).ToLocalChecked()->NewInstance(
-            context).ToLocalChecked();
-    obj->SetAlignedPointerInInternalField(0, this);
-    set_as_callback_data(obj);
-    set_as_callback_data_template(templ);
-  }
 
   set_env_vars(per_process::system_environment);
 
@@ -294,6 +332,8 @@ Environment::Environment(IsolateData* isolate_data,
       },
       this);
 
+  // Recreate these from scrach - the ones in the snapshot will be discarded
+  // because these values depend on run time states.
   performance_state_ =
       std::make_unique<performance::performance_state>(isolate());
   performance_state_->Mark(
@@ -311,16 +351,14 @@ Environment::Environment(IsolateData* isolate_data,
   credentials::SafeGetenv("NODE_DEBUG_NATIVE", &debug_cats, this);
   set_debug_categories(debug_cats, true);
 
-  // Store primordials setup by the per-context script in the environment.
-  Local<Object> per_context_bindings =
-      GetPerContextExports(context).ToLocalChecked();
-  Local<Value> primordials =
-      per_context_bindings->Get(context, primordials_string()).ToLocalChecked();
-  CHECK(primordials->IsObject());
-  set_primordials(primordials.As<Object>());
-
   if (options_->no_force_async_hooks_checks) {
     async_hooks_.no_force_checks();
+  }
+
+  if (env_info != nullptr) {
+    DeserializeProperties(env_info);
+  } else {
+    CreateProperties();
   }
 }
 
@@ -874,6 +912,72 @@ void TickInfo::MemoryInfo(MemoryTracker* tracker) const {
   tracker->TrackField("fields", fields_);
 }
 
+AsyncHooks::AsyncHooks(const EnvSerializeInfo* info)
+    : async_ids_stack_(env()->isolate(), 16 * 2),
+      fields_(env()->isolate(), kFieldsCount),
+      async_id_fields_(env()->isolate(), kUidFieldsCount) {
+  v8::HandleScope handle_scope(env()->isolate());
+
+  // Always perform async_hooks checks, not just when async_hooks is enabled.
+  // TODO(AndreasMadsen): Consider removing this for LTS releases.
+  // See discussion in https://github.com/nodejs/node/pull/15454
+  // When removing this, do it by reverting the commit. Otherwise the test
+  // and flag changes won't be included.
+  fields_[kCheck] = 1;
+
+  // kDefaultTriggerAsyncId should be -1, this indicates that there is no
+  // specified default value and it should fallback to the executionAsyncId.
+  // 0 is not used as the magic value, because that indicates a missing context
+  // which is different from a default context.
+  async_id_fields_[AsyncHooks::kDefaultTriggerAsyncId] = -1;
+
+  // kAsyncIdCounter should start at 1 because that'll be the id the execution
+  // context during bootstrap (code that runs before entering uv_run()).
+  async_id_fields_[AsyncHooks::kAsyncIdCounter] = 1;
+
+  if (info != nullptr) {
+    DeserializeProviderStrings(info->async_hooks_indexes);
+  } else {
+    CreateProviderStrings();
+  }
+}
+
+void AsyncHooks::CreateProviderStrings() {
+  // Create all the provider strings that will be passed to JS. Place them in
+  // an array so the array index matches the PROVIDER id offset. This way the
+  // strings can be retrieved quickly.
+#define V(Provider)                                                            \
+  providers_[AsyncWrap::PROVIDER_##Provider].Set(                              \
+      env()->isolate(),                                                        \
+      v8::String::NewFromOneByte(env()->isolate(),                             \
+                                 reinterpret_cast<const uint8_t*>(#Provider),  \
+                                 v8::NewStringType::kInternalized,             \
+                                 sizeof(#Provider) - 1)                        \
+          .ToLocalChecked());
+  NODE_ASYNC_PROVIDER_TYPES(V)
+#undef V
+}
+
+void AsyncHooks::DeserializeProviderStrings(
+    const std::vector<size_t>& indexes) {
+  size_t i = 0;
+  Isolate* isolate = env()->isolate();
+#define V(Provider)                                                            \
+  do {                                                                         \
+    MaybeLocal<String> str =                                                   \
+        isolate->GetDataFromSnapshotOnce<String>(indexes[i++]);                \
+    if (str.IsEmpty()) {                                                       \
+      fprintf(stderr,                                                          \
+              "Failed to deserialize provider string " #Provider "\n");        \
+    }                                                                          \
+    providers_[AsyncWrap::PROVIDER_##Provider].Set(isolate,                    \
+                                                   str.ToLocalChecked());      \
+  } while (0);
+  NODE_ASYNC_PROVIDER_TYPES(V)
+#undef V
+  CHECK_EQ(i, indexes.size());
+}
+
 void AsyncHooks::MemoryInfo(MemoryTracker* tracker) const {
   tracker->TrackField("providers", providers_);
   tracker->TrackField("async_ids_stack", async_ids_stack_);
@@ -909,6 +1013,30 @@ void Environment::stop_sub_worker_contexts() {
     w->Exit(1);
     w->JoinThread();
   }
+}
+
+EnvSerializeInfo Environment::Serialize(SnapshotCreator* creator) {
+  EnvSerializeInfo info;
+  info.async_hooks_indexes.reserve(async_hooks_.providers_.size());
+  for (v8::Eternal<String> str : async_hooks_.providers_) {
+    info.async_hooks_indexes.push_back(creator->AddData(str.Get(isolate_)));
+  }
+
+  size_t id = 0;
+  Local<Context> ctx = context();
+#define V(PropertyName, TypeName)                                              \
+  do {                                                                         \
+    Local<TypeName> field = PropertyName();                                    \
+    if (!field.IsEmpty()) {                                                    \
+      info.strong_props_indexes[id] = creator->AddData(ctx, field);            \
+    }                                                                          \
+    id++;                                                                      \
+  } while (0);
+  ENVIRONMENT_STRONG_PERSISTENT_DATA(V)
+  ENVIRONMENT_STRONG_PERSISTENT_VALUES(V)
+#undef V
+
+  return info;
 }
 
 void MemoryTracker::TrackField(const char* edge_name,
