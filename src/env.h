@@ -35,6 +35,7 @@
 #include "node_binding.h"
 #include "node_main_instance.h"
 #include "node_options.h"
+#include "node_perf_common.h"
 #include "req_wrap.h"
 #include "util.h"
 #include "uv.h"
@@ -44,6 +45,7 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <iostream>
 #include <list>
 #include <unordered_map>
 #include <unordered_set>
@@ -468,6 +470,7 @@ constexpr size_t kFsStatsBufferLength =
 
 class Environment;
 
+typedef size_t SnapshotIndex;
 class IsolateData : public MemoryRetainer {
  public:
   IsolateData(v8::Isolate* isolate,
@@ -617,6 +620,8 @@ namespace per_process {
 extern std::shared_ptr<KVStore> system_environment;
 }
 
+struct EnvSerializeInfo;
+
 class AsyncHooks : public MemoryRetainer {
  public:
   SET_MEMORY_INFO_NAME(AsyncHooks)
@@ -688,9 +693,21 @@ class AsyncHooks : public MemoryRetainer {
     double old_default_trigger_async_id_;
   };
 
+  struct SerializeInfo {
+    AliasedBufferInfo async_ids_stack;
+    AliasedBufferInfo fields;
+    AliasedBufferInfo async_id_fields;
+    SnapshotIndex execution_async_resources;
+  };
+
+  SerializeInfo Serialize(v8::Local<v8::Context> context,
+                          v8::SnapshotCreator* creator);
+  void Deserialize(v8::Local<v8::Context> context);
+
  private:
   friend class Environment;  // So we can call the constructor.
-  inline AsyncHooks();
+  explicit AsyncHooks(v8::Isolate* isolate, const SerializeInfo* info);
+
   // Stores the ids of the current execution context stack.
   AliasedFloat64Array async_ids_stack_;
   // Attached to a Uint32Array that tracks the number of active hooks for
@@ -702,6 +719,9 @@ class AsyncHooks : public MemoryRetainer {
   void grow_async_ids_stack();
 
   v8::Global<v8::Array> execution_async_resources_;
+
+  // Non-empty during deserialization
+  const SerializeInfo* info_ = nullptr;
 };
 
 class ImmediateInfo : public MemoryRetainer {
@@ -723,9 +743,16 @@ class ImmediateInfo : public MemoryRetainer {
   SET_SELF_SIZE(ImmediateInfo)
   void MemoryInfo(MemoryTracker* tracker) const override;
 
+  struct SerializeInfo {
+    AliasedBufferInfo fields;
+  };
+  SerializeInfo Serialize(v8::Local<v8::Context> context,
+                          v8::SnapshotCreator* creator);
+  void Deserialize(v8::Local<v8::Context> context);
+
  private:
   friend class Environment;  // So we can call the constructor.
-  inline explicit ImmediateInfo(v8::Isolate* isolate);
+  explicit ImmediateInfo(v8::Isolate* isolate, const SerializeInfo* info);
 
   enum Fields { kCount, kRefCount, kHasOutstanding, kFieldsCount };
 
@@ -748,9 +775,16 @@ class TickInfo : public MemoryRetainer {
   TickInfo& operator=(TickInfo&&) = delete;
   ~TickInfo() = default;
 
+  struct SerializeInfo {
+    AliasedBufferInfo fields;
+  };
+  SerializeInfo Serialize(v8::Local<v8::Context> context,
+                          v8::SnapshotCreator* creator);
+  void Deserialize(v8::Local<v8::Context> context);
+
  private:
   friend class Environment;  // So we can call the constructor.
-  inline explicit TickInfo(v8::Isolate* isolate);
+  explicit TickInfo(v8::Isolate* isolate, const SerializeInfo* info);
 
   enum Fields { kHasTickScheduled = 0, kHasRejectionToWarn, kFieldsCount };
 
@@ -822,6 +856,27 @@ class CleanupHookCallback {
   uint64_t insertion_order_counter_;
 };
 
+struct PropInfo {
+  std::string name;     // name for debugging
+  size_t id;            // In the list - in case there are any empty entires
+  SnapshotIndex index;  // In the snapshot
+};
+
+struct EnvSerializeInfo {
+  AsyncHooks::SerializeInfo async_hooks;
+  TickInfo::SerializeInfo tick_info;
+  ImmediateInfo::SerializeInfo immediate_info;
+  performance::PerformanceState::SerializeInfo performance_state;
+  AliasedBufferInfo stream_base_state;
+  AliasedBufferInfo should_abort_on_uncaught_toggle;
+
+  std::vector<PropInfo> persistent_templates;
+  std::vector<PropInfo> persistent_values;
+
+  SnapshotIndex context;
+  friend std::ostream& operator<<(std::ostream& o, const EnvSerializeInfo& i);
+};
+
 class Environment : public MemoryRetainer {
  public:
   Environment(const Environment&) = delete;
@@ -835,7 +890,13 @@ class Environment : public MemoryRetainer {
   bool IsRootNode() const override { return true; }
   void MemoryInfo(MemoryTracker* tracker) const override;
 
+  EnvSerializeInfo Serialize(v8::SnapshotCreator* creator);
   void CreateProperties();
+  void DeserializeProperties(const EnvSerializeInfo* info);
+
+  typedef void (*BaseObjectIterator)(size_t, BaseObject*);
+  void ForEachBaseObject(BaseObjectIterator iterator);
+  void PrintAllBaseObjects();
   // Should be called before InitializeInspector()
   void InitializeDiagnostics();
 #if HAVE_INSPECTOR
@@ -890,14 +951,17 @@ class Environment : public MemoryRetainer {
               v8::Isolate* isolate,
               const std::vector<std::string>& args,
               const std::vector<std::string>& exec_args,
+              const EnvSerializeInfo* env_info,
               EnvironmentFlags::Flags flags,
               ThreadId thread_id);
-  void InitializeMainContext(v8::Local<v8::Context> context);
+  void InitializeMainContext(v8::Local<v8::Context> context,
+                             const EnvSerializeInfo* env_info);
   // Create an Environment and initialize the provided main context for it.
   Environment(IsolateData* isolate_data,
               v8::Local<v8::Context> context,
               const std::vector<std::string>& args,
               const std::vector<std::string>& exec_args,
+              const EnvSerializeInfo* env_info,
               EnvironmentFlags::Flags flags,
               ThreadId thread_id);
   ~Environment() override;
@@ -1329,6 +1393,7 @@ class Environment : public MemoryRetainer {
 
   AliasedInt32Array stream_base_state_;
 
+  uint64_t environment_start_time_;
   std::unique_ptr<performance::PerformanceState> performance_state_;
   std::unordered_map<std::string, uint64_t> performance_marks_;
 

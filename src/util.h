@@ -785,6 +785,7 @@ class FastStringKey {
   size_t cached_hash_;
 };
 
+#define MAYBE_FIELD_PTR(ptr, field) ptr == nullptr ? nullptr : &(ptr->field)
 }  // namespace node
 
 #endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
