@@ -31,7 +31,7 @@ using v8::Value;
 
 namespace quic {
 
-constexpr FastStringKey QuicState::binding_data_name;
+constexpr FastStringKey QuicState::type_name;
 
 void QuicState::MemoryInfo(MemoryTracker* tracker) const {
   tracker->TrackField("root_buffer", root_buffer);

@@ -8,9 +8,11 @@
 #include "node_buffer.h"
 #include "node_context_data.h"
 #include "node_errors.h"
+#include "node_file.h"
 #include "node_internals.h"
 #include "node_options-inl.h"
 #include "node_process.h"
+#include "node_v8.h"
 #include "node_v8_platform-inl.h"
 #include "node_worker.h"
 #include "req_wrap-inl.h"
@@ -72,12 +74,15 @@ std::vector<size_t> IsolateData::Serialize(SnapshotCreator* creator) {
 #define VP(PropertyName, StringValue) V(Private, PropertyName)
 #define VY(PropertyName, StringValue) V(Symbol, PropertyName)
 #define VS(PropertyName, StringValue) V(String, PropertyName)
+#define VB(PropertyName, _) V(v8::String, PropertyName##_string)
 #define V(TypeName, PropertyName)                                              \
   indexes.push_back(creator->AddData(PropertyName##_.Get(isolate)));
   PER_ISOLATE_PRIVATE_SYMBOL_PROPERTIES(VP)
   PER_ISOLATE_SYMBOL_PROPERTIES(VY)
   PER_ISOLATE_STRING_PROPERTIES(VS)
+  SERIALIZABLE_OBJECT_TYPES(VB)
 #undef V
+#undef VB
 #undef VY
 #undef VS
 #undef VP
@@ -94,6 +99,7 @@ void IsolateData::DeserializeProperties(const std::vector<size_t>* indexes) {
 #define VP(PropertyName, StringValue) V(Private, PropertyName)
 #define VY(PropertyName, StringValue) V(Symbol, PropertyName)
 #define VS(PropertyName, StringValue) V(String, PropertyName)
+#define VB(PropertyName, _) V(v8::String, PropertyName##_string)
 #define V(TypeName, PropertyName)                                              \
   do {                                                                         \
     MaybeLocal<TypeName> maybe_field =                                         \
@@ -107,7 +113,9 @@ void IsolateData::DeserializeProperties(const std::vector<size_t>* indexes) {
   PER_ISOLATE_PRIVATE_SYMBOL_PROPERTIES(VP)
   PER_ISOLATE_SYMBOL_PROPERTIES(VY)
   PER_ISOLATE_STRING_PROPERTIES(VS)
+  SERIALIZABLE_OBJECT_TYPES(VB)
 #undef V
+#undef VB
 #undef VY
 #undef VS
 #undef VP
@@ -172,6 +180,19 @@ void IsolateData::CreateProperties() {
   PER_ISOLATE_STRING_PROPERTIES(V)
 #undef V
 
+  // Add strings of names of serializable object types.
+#define V(PropertyName, NativeTypeName)                                        \
+  PropertyName##_string_.Set(                                                  \
+      isolate_,                                                                \
+      String::NewFromOneByte(                                                  \
+          isolate_,                                                            \
+          reinterpret_cast<const uint8_t*>(NativeTypeName::type_name.c_str()), \
+          v8::NewStringType::kInternalized,                                    \
+          -1)                                                                  \
+          .ToLocalChecked());
+  SERIALIZABLE_OBJECT_TYPES(V)
+#undef V
+
   // Create all the provider strings that will be passed to JS. Place them in
   // an array so the array index matches the PROVIDER id offset. This way the
   // strings can be retrieved quickly.
@@ -213,6 +234,11 @@ void IsolateData::MemoryInfo(MemoryTracker* tracker) const {
   PER_ISOLATE_SYMBOL_PROPERTIES(V)
 
   PER_ISOLATE_STRING_PROPERTIES(V)
+#undef V
+
+#define V(PropertyName, _)                                                     \
+  tracker->TrackField(#PropertyName, PropertyName##_string());
+  SERIALIZABLE_OBJECT_TYPES(V)
 #undef V
 
   tracker->TrackField("async_wrap_providers", async_wrap_providers_);
@@ -513,7 +539,7 @@ Environment::~Environment() {
 
   context()->SetAlignedPointerInEmbedderData(ContextEmbedderIndex::kEnvironment,
                                              nullptr);
-
+ 
   if (trace_state_observer_) {
     tracing::AgentWriterHandle* writer = GetTracingAgentWriter();
     CHECK_NOT_NULL(writer);
@@ -1258,6 +1284,7 @@ EnvSerializeInfo Environment::Serialize(SnapshotCreator* creator) {
   EnvSerializeInfo info;
   Local<Context> ctx = context();
 
+  SerializeBindingData(this, creator, &info);
   // Currently all modules are compiled without cache in builtin snapshot
   // builder.
   info.native_modules = std::vector<std::string>(
@@ -1324,6 +1351,9 @@ std::ostream& operator<<(std::ostream& output,
 
 std::ostream& operator<<(std::ostream& output, const EnvSerializeInfo& i) {
   output << "{\n"
+         << "// -- bindings begins --\n"
+         << i.bindings << ",\n"
+         << "// -- bindings ends --\n"
          << "// -- native_modules begins --\n"
          << i.native_modules << ",\n"
          << "// -- native_modules ends --\n"
@@ -1349,8 +1379,28 @@ std::ostream& operator<<(std::ostream& output, const EnvSerializeInfo& i) {
   return output;
 }
 
+void Environment::EnqueueDeserializeRequest(DeserializeRequest request) {
+  deserialize_requests_.push_back(std::move(request));
+}
+
+void Environment::RunDeserializeRequests() {
+  HandleScope scope(isolate());
+  Local<Context> ctx = context();
+  Isolate* is = isolate();
+  while (!deserialize_requests_.empty()) {
+    DeserializeRequest request(std::move(deserialize_requests_.front()));
+    deserialize_requests_.pop_front();
+    Local<Object> holder = request.holder.Get(is);
+    request.cb(ctx, holder, request.info);
+    request.holder.Reset();  // unnecessary?
+    request.info->Delete();
+  }
+}
+
 void Environment::DeserializeProperties(const EnvSerializeInfo* info) {
   Local<Context> ctx = context();
+
+  RunDeserializeRequests();
 
   native_modules_in_snapshot = info->native_modules;
   async_hooks_.Deserialize(ctx);

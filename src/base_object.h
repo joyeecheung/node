@@ -29,7 +29,6 @@
 #include "v8.h"
 
 namespace node {
-
 class Environment;
 template <typename T, bool kIsWeak>
 class BaseObjectPtrImpl;

@@ -363,7 +363,6 @@ BaseObjectPtr<T> MakeDetachedBaseObject(Args&&... args) {
   target->Detach();
   return target;
 }
-
 }  // namespace node
 
 #endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS

@@ -37,6 +37,7 @@
 #include "node_main_instance.h"
 #include "node_options.h"
 #include "node_perf_common.h"
+#include "node_serializable.h"
 #include "req_wrap.h"
 #include "util.h"
 #include "uv.h"
@@ -595,13 +596,16 @@ class IsolateData : public MemoryRetainer {
 #define VP(PropertyName, StringValue) V(v8::Private, PropertyName)
 #define VY(PropertyName, StringValue) V(v8::Symbol, PropertyName)
 #define VS(PropertyName, StringValue) V(v8::String, PropertyName)
+#define VB(PropertyName, _) V(v8::String, PropertyName##_string)
 #define V(TypeName, PropertyName)                                             \
   inline v8::Local<TypeName> PropertyName() const;
   PER_ISOLATE_PRIVATE_SYMBOL_PROPERTIES(VP)
   PER_ISOLATE_SYMBOL_PROPERTIES(VY)
   PER_ISOLATE_STRING_PROPERTIES(VS)
+  SERIALIZABLE_OBJECT_TYPES(VB)
 #undef V
 #undef VY
+#undef VB
 #undef VS
 #undef VP
   inline v8::Local<v8::String> async_wrap_provider(int index) const;
@@ -622,13 +626,16 @@ class IsolateData : public MemoryRetainer {
 #define VP(PropertyName, StringValue) V(v8::Private, PropertyName)
 #define VY(PropertyName, StringValue) V(v8::Symbol, PropertyName)
 #define VS(PropertyName, StringValue) V(v8::String, PropertyName)
+#define VB(PropertyName, _) V(v8::String, PropertyName##_string)
 #define V(TypeName, PropertyName)                                             \
   v8::Eternal<TypeName> PropertyName ## _;
   PER_ISOLATE_PRIVATE_SYMBOL_PROPERTIES(VP)
   PER_ISOLATE_SYMBOL_PROPERTIES(VY)
   PER_ISOLATE_STRING_PROPERTIES(VS)
+  SERIALIZABLE_OBJECT_TYPES(VB)
 #undef V
 #undef VY
+#undef VB
 #undef VS
 #undef VP
   // Keep a list of all Persistent strings used for AsyncWrap Provider types.
@@ -936,8 +943,22 @@ struct PropInfo {
   SnapshotIndex index;  // In the snapshot
 };
 
+typedef void (*DeserializeRequestCallback)(v8::Local<v8::Context>,
+                                           v8::Local<v8::Object> holder,
+                                           InternalFieldInfo* info);
+struct DeserializeRequest {
+  DeserializeRequestCallback cb;
+  v8::Global<v8::Object> holder;
+  InternalFieldInfo* info;  // Owned by the request
+
+  // Move constructor
+  DeserializeRequest(DeserializeRequest&& other) = default;
+};
+
 struct EnvSerializeInfo {
+  std::vector<PropInfo> bindings;
   std::vector<std::string> native_modules;
+
   AsyncHooks::SerializeInfo async_hooks;
   TickInfo::SerializeInfo tick_info;
   ImmediateInfo::SerializeInfo immediate_info;
@@ -971,6 +992,8 @@ class Environment : public MemoryRetainer {
 
   void PrintAllBaseObjects();
   void VerifyNoStrongBaseObjects();
+  void EnqueueDeserializeRequest(DeserializeRequest request);
+  void RunDeserializeRequests();
   // Should be called before InitializeInspector()
   void InitializeDiagnostics();
 
@@ -1260,12 +1283,15 @@ class Environment : public MemoryRetainer {
 #define VP(PropertyName, StringValue) V(v8::Private, PropertyName)
 #define VY(PropertyName, StringValue) V(v8::Symbol, PropertyName)
 #define VS(PropertyName, StringValue) V(v8::String, PropertyName)
+#define VB(PropertyName, _) V(v8::String, PropertyName##_string)
 #define V(TypeName, PropertyName)                                             \
   inline v8::Local<TypeName> PropertyName() const;
   PER_ISOLATE_PRIVATE_SYMBOL_PROPERTIES(VP)
   PER_ISOLATE_SYMBOL_PROPERTIES(VY)
   PER_ISOLATE_STRING_PROPERTIES(VS)
+  SERIALIZABLE_OBJECT_TYPES(VB)
 #undef V
+#undef VB
 #undef VS
 #undef VY
 #undef VP
@@ -1407,6 +1433,9 @@ class Environment : public MemoryRetainer {
   void AddUnmanagedFd(int fd);
   void RemoveUnmanagedFd(int fd);
 
+  template <typename T>
+  void ForEachBindingData(T&& iterator);
+
  private:
   inline void ThrowError(v8::Local<v8::Value> (*fun)(v8::Local<v8::String>),
                          const char* errmsg);
@@ -1494,6 +1523,8 @@ class Environment : public MemoryRetainer {
   std::unique_ptr<inspector::Agent> inspector_agent_;
   bool is_in_inspector_console_call_ = false;
 #endif
+
+  std::list<DeserializeRequest> deserialize_requests_;
 
   // handle_wrap_queue_ and req_wrap_queue_ needs to be at a fixed offset from
   // the start of the class because it is used by
