@@ -64,43 +64,6 @@ inline MultiIsolatePlatform* IsolateData::platform() const {
   return platform_;
 }
 
-inline AsyncHooks::AsyncHooks()
-    : async_ids_stack_(env()->isolate(), 16 * 2),
-      fields_(env()->isolate(), kFieldsCount),
-      async_id_fields_(env()->isolate(), kUidFieldsCount) {
-  clear_async_id_stack();
-
-  // Always perform async_hooks checks, not just when async_hooks is enabled.
-  // TODO(AndreasMadsen): Consider removing this for LTS releases.
-  // See discussion in https://github.com/nodejs/node/pull/15454
-  // When removing this, do it by reverting the commit. Otherwise the test
-  // and flag changes won't be included.
-  fields_[kCheck] = 1;
-
-  // kDefaultTriggerAsyncId should be -1, this indicates that there is no
-  // specified default value and it should fallback to the executionAsyncId.
-  // 0 is not used as the magic value, because that indicates a missing context
-  // which is different from a default context.
-  async_id_fields_[AsyncHooks::kDefaultTriggerAsyncId] = -1;
-
-  // kAsyncIdCounter should start at 1 because that'll be the id the execution
-  // context during bootstrap (code that runs before entering uv_run()).
-  async_id_fields_[AsyncHooks::kAsyncIdCounter] = 1;
-
-  // Create all the provider strings that will be passed to JS. Place them in
-  // an array so the array index matches the PROVIDER id offset. This way the
-  // strings can be retrieved quickly.
-#define V(Provider)                                                           \
-  providers_[AsyncWrap::PROVIDER_ ## Provider].Set(                           \
-      env()->isolate(),                                                       \
-      v8::String::NewFromOneByte(                                             \
-        env()->isolate(),                                                     \
-        reinterpret_cast<const uint8_t*>(#Provider),                          \
-        v8::NewStringType::kInternalized,                                     \
-        sizeof(#Provider) - 1).ToLocalChecked());
-  NODE_ASYNC_PROVIDER_TYPES(V)
-#undef V
-}
 inline AliasedUint32Array& AsyncHooks::fields() {
   return fields_;
 }

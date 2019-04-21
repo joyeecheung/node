@@ -1,10 +1,12 @@
 #include <memory>
 
 #include "node_main_instance.h"
+#include <iostream>
 #include "node_errors.h"
 #include "node_external_reference.h"
 #include "node_internals.h"
 #include "node_options-inl.h"
+#include "node_process.h"
 #include "node_v8_platform-inl.h"
 #include "util-inl.h"
 #if defined(LEAK_SANITIZER)
@@ -52,6 +54,7 @@ const std::vector<intptr_t>& NodeMainInstance::CollectExternalReferences() {
   CHECK_NULL(registry_);
   registry_.reset(new ExternalReferenceRegistry());
 
+  registry_->Register(node::RawDebug);
   // TODO(joyeecheung): collect more external references here.
   return registry_->external_references();
 }
@@ -123,13 +126,14 @@ NodeMainInstance::~NodeMainInstance() {
   platform_->UnregisterIsolate(isolate_);
 }
 
-int NodeMainInstance::Run() {
+int NodeMainInstance::Run(const EnvSerializeInfo* env_info) {
   Locker locker(isolate_);
   Isolate::Scope isolate_scope(isolate_);
   HandleScope handle_scope(isolate_);
 
   int exit_code = 0;
-  std::unique_ptr<Environment> env = CreateMainEnvironment(&exit_code);
+  std::unique_ptr<Environment> env =
+      CreateMainEnvironment(&exit_code, env_info);
 
   CHECK_NOT_NULL(env);
   Context::Scope context_scope(env->context());
@@ -197,10 +201,32 @@ int NodeMainInstance::Run() {
   return exit_code;
 }
 
+void DeserializeNodeInternalFields(Local<Object> holder,
+                                   int index,
+                                   v8::StartupData payload,
+                                   void* env) {
+  if (payload.raw_size == 0) {
+    holder->SetAlignedPointerInInternalField(index, nullptr);
+    return;
+  }
+  const InternalFieldInfo* info =
+      reinterpret_cast<const InternalFieldInfo*>(payload.data);
+  switch (info->type) {
+    case InternalFieldType::kIsEnvironment: {
+      holder->SetAlignedPointerInInternalField(index, env);
+      break;
+    }
+    default: {
+      holder->SetAlignedPointerInInternalField(index, 0);
+      break;
+    }
+  }
+}
+
 // TODO(joyeecheung): align this with the CreateEnvironment exposed in node.h
 // and the environment creation routine in workers somehow.
 std::unique_ptr<Environment> NodeMainInstance::CreateMainEnvironment(
-    int* exit_code) {
+    int* exit_code, const EnvSerializeInfo* env_info) {
   *exit_code = 0;  // Reset the exit code to 0
 
   HandleScope handle_scope(isolate_);
@@ -211,10 +237,16 @@ std::unique_ptr<Environment> NodeMainInstance::CreateMainEnvironment(
     isolate_->GetHeapProfiler()->StartTrackingHeapObjects(true);
   }
 
+  // Allocate the memory first so that we have an Environment address to
+  // deserialize in Embedder fields.
+  std::unique_ptr<Environment> env(
+      reinterpret_cast<Environment*>(new uint8_t[sizeof(Environment)]));
   Local<Context> context;
   if (deserialize_mode_) {
-    context =
-        Context::FromSnapshot(isolate_, kNodeContextIndex).ToLocalChecked();
+    context = Context::FromSnapshot(isolate_,
+                                    kNodeContextIndex,
+                                    {DeserializeNodeInternalFields, env.get()})
+                  .ToLocalChecked();
     InitializeContextRuntime(context);
     IsolateSettings s;
     SetIsolateErrorHandlers(isolate_, s);
@@ -225,11 +257,13 @@ std::unique_ptr<Environment> NodeMainInstance::CreateMainEnvironment(
   CHECK(!context.IsEmpty());
   Context::Scope context_scope(context);
 
-  std::unique_ptr<Environment> env = std::make_unique<Environment>(
+  // Do the actual instantiation.
+  new (env.get()) Environment(
       isolate_data_.get(),
       context,
       args_,
       exec_args_,
+      env_info,
       static_cast<Environment::Flags>(Environment::kIsMainThread |
                                       Environment::kOwnsProcessState |
                                       Environment::kOwnsInspector));

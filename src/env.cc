@@ -290,14 +290,42 @@ std::string GetExecPath(const std::vector<std::string>& argv) {
   return exec_path;
 }
 
+void Environment::DeserializeProperties(const EnvSerializeInfo* info) {
+  Local<Context> ctx = context();
+  const std::vector<PropInfo>& indexes = info->strong_props_indexes;
+  size_t id = 0;
+  size_t i = 0;
+#define V(PropertyName, TypeName)                                              \
+  do {                                                                         \
+    if (indexes[i].id == id) {                                                 \
+      DCHECK_EQ(indexes[i].name, #PropertyName);                               \
+      MaybeLocal<TypeName> field =                                             \
+          ctx->GetDataFromSnapshotOnce<TypeName>(indexes[i++].index);          \
+      if (field.IsEmpty()) {                                                   \
+        fprintf(stderr,                                                        \
+                "Failed to deserialize environment property " #PropertyName    \
+                "\n");                                                         \
+      }                                                                        \
+      set_##PropertyName(field.ToLocalChecked());                              \
+      DCHECK_LT(i, indexes.size());                                            \
+    }                                                                          \
+    id++;                                                                      \
+  } while (0);
+  ENVIRONMENT_STRONG_PERSISTENT_TEMPLATES(V)
+  ENVIRONMENT_STRONG_PERSISTENT_VALUES(V)
+#undef V
+}
+
 Environment::Environment(IsolateData* isolate_data,
                          Local<Context> context,
                          const std::vector<std::string>& args,
                          const std::vector<std::string>& exec_args,
+                         const EnvSerializeInfo* env_info,
                          Flags flags,
                          uint64_t thread_id)
     : isolate_(context->GetIsolate()),
       isolate_data_(isolate_data),
+      async_hooks_(env_info),
       immediate_info_(context->GetIsolate()),
       tick_info_(context->GetIsolate()),
       timer_base_(uv_now(isolate_data->event_loop())),
@@ -348,6 +376,8 @@ Environment::Environment(IsolateData* isolate_data,
       },
       this);
 
+  // Recreate these from scrach - the ones in the snapshot will be discarded
+  // because these values depend on run time states.
   performance_state_ =
       std::make_unique<performance::performance_state>(isolate());
   performance_state_->Mark(
@@ -381,9 +411,11 @@ Environment::Environment(IsolateData* isolate_data,
     async_hooks_.no_force_checks();
   }
 
-  // TODO(joyeecheung): deserialize when the snapshot covers the environment
-  // properties.
-  CreateProperties();
+  if (env_info != nullptr) {
+    DeserializeProperties(env_info);
+  } else {
+    CreateProperties();
+  }
 }
 
 Environment::~Environment() {
@@ -930,6 +962,73 @@ void TickInfo::MemoryInfo(MemoryTracker* tracker) const {
   tracker->TrackField("fields", fields_);
 }
 
+AsyncHooks::AsyncHooks(const EnvSerializeInfo* info)
+    : async_ids_stack_(env()->isolate(), 16 * 2),
+      fields_(env()->isolate(), kFieldsCount),
+      async_id_fields_(env()->isolate(), kUidFieldsCount) {
+  v8::HandleScope handle_scope(env()->isolate());
+  clear_async_id_stack();
+
+  // Always perform async_hooks checks, not just when async_hooks is enabled.
+  // TODO(AndreasMadsen): Consider removing this for LTS releases.
+  // See discussion in https://github.com/nodejs/node/pull/15454
+  // When removing this, do it by reverting the commit. Otherwise the test
+  // and flag changes won't be included.
+  fields_[kCheck] = 1;
+
+  // kDefaultTriggerAsyncId should be -1, this indicates that there is no
+  // specified default value and it should fallback to the executionAsyncId.
+  // 0 is not used as the magic value, because that indicates a missing context
+  // which is different from a default context.
+  async_id_fields_[AsyncHooks::kDefaultTriggerAsyncId] = -1;
+
+  // kAsyncIdCounter should start at 1 because that'll be the id the execution
+  // context during bootstrap (code that runs before entering uv_run()).
+  async_id_fields_[AsyncHooks::kAsyncIdCounter] = 1;
+
+  if (info != nullptr) {
+    DeserializeProviderStrings(info->async_hooks_indexes);
+  } else {
+    CreateProviderStrings();
+  }
+}
+
+void AsyncHooks::CreateProviderStrings() {
+  // Create all the provider strings that will be passed to JS. Place them in
+  // an array so the array index matches the PROVIDER id offset. This way the
+  // strings can be retrieved quickly.
+#define V(Provider)                                                            \
+  providers_[AsyncWrap::PROVIDER_##Provider].Set(                              \
+      env()->isolate(),                                                        \
+      v8::String::NewFromOneByte(env()->isolate(),                             \
+                                 reinterpret_cast<const uint8_t*>(#Provider),  \
+                                 v8::NewStringType::kInternalized,             \
+                                 sizeof(#Provider) - 1)                        \
+          .ToLocalChecked());
+  NODE_ASYNC_PROVIDER_TYPES(V)
+#undef V
+}
+
+void AsyncHooks::DeserializeProviderStrings(
+    const std::vector<size_t>& indexes) {
+  size_t i = 0;
+  Isolate* isolate = env()->isolate();
+#define V(Provider)                                                            \
+  do {                                                                         \
+    MaybeLocal<String> str =                                                   \
+        isolate->GetDataFromSnapshotOnce<String>(indexes[i++]);                \
+    if (str.IsEmpty()) {                                                       \
+      fprintf(stderr,                                                          \
+              "Failed to deserialize provider string " #Provider "\n");        \
+    }                                                                          \
+    providers_[AsyncWrap::PROVIDER_##Provider].Set(isolate,                    \
+                                                   str.ToLocalChecked());      \
+  } while (0);
+  NODE_ASYNC_PROVIDER_TYPES(V)
+#undef V
+  CHECK_EQ(i, indexes.size());
+}
+
 void AsyncHooks::MemoryInfo(MemoryTracker* tracker) const {
   tracker->TrackField("providers", providers_);
   tracker->TrackField("async_ids_stack", async_ids_stack_);
@@ -987,6 +1086,31 @@ Environment* Environment::worker_parent_env() const {
   if (worker_context_ == nullptr) return nullptr;
   return worker_context_->env();
 }
+
+EnvSerializeInfo Environment::Serialize(SnapshotCreator* creator) {
+  EnvSerializeInfo info;
+  info.async_hooks_indexes.reserve(async_hooks_.providers_.size());
+  for (v8::Eternal<String> str : async_hooks_.providers_) {
+    info.async_hooks_indexes.push_back(creator->AddData(str.Get(isolate_)));
+  }
+
+  Local<Context> ctx = context();
+  size_t id = 0;
+#define V(PropertyName, TypeName)                                              \
+  do {                                                                         \
+    Local<TypeName> field = PropertyName();                                    \
+    if (!field.IsEmpty()) {                                                    \
+      size_t index = creator->AddData(ctx, field);                             \
+      info.strong_props_indexes.push_back({#PropertyName, id, index});         \
+    }                                                                          \
+    id++;                                                                      \
+  } while (0);
+  ENVIRONMENT_STRONG_PERSISTENT_TEMPLATES(V)
+  ENVIRONMENT_STRONG_PERSISTENT_VALUES(V)
+#undef V
+
+  return info;
+}  // namespace node
 
 void MemoryTracker::TrackField(const char* edge_name,
                                const CleanupHookCallback& value,
