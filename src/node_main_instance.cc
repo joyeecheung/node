@@ -247,29 +247,9 @@ std::unique_ptr<Environment> NodeMainInstance::CreateMainEnvironment(
                                       Environment::kOwnsProcessState |
                                       Environment::kOwnsInspector));
   SetIsolateUpForNode(isolate_, IsolateSettingCategories::kErrorHandlers);
+  *exit_code = env->PrepareDiagnostics(nullptr);
 
-#if HAVE_INSPECTOR && NODE_USE_V8_PLATFORM
-  CHECK(!env->inspector_agent()->IsListening());
-  // Inspector agent can't fail to start, but if it was configured to listen
-  // right away on the websocket port and fails to bind/etc, this will return
-  // false.
-  env->inspector_agent()->Start(args_.size() > 1 ? args_[1].c_str() : "",
-                                env->options()->debug_options(),
-                                env->inspector_host_port(),
-                                true);
-  if (env->options()->debug_options().inspector_enabled &&
-      !env->inspector_agent()->IsListening()) {
-    *exit_code = 12;  // Signal internal error.
-    return env;
-  }
-#else
-  // inspector_enabled can't be true if !HAVE_INSPECTOR or
-  // !NODE_USE_V8_PLATFORM
-  // - the option parser should not allow that.
-  CHECK(!env->options()->debug_options().inspector_enabled);
-#endif  // HAVE_INSPECTOR && NODE_USE_V8_PLATFORM
-
-  if (env->RunBootstrapping().IsEmpty()) {
+  if (*exit_code == 0 && env->RunBootstrapping().IsEmpty()) {
     *exit_code = 1;
   }
 

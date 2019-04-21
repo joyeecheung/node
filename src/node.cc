@@ -45,6 +45,7 @@
 #endif
 
 #if HAVE_INSPECTOR
+#include "inspector_agent.h"
 #include "inspector_io.h"
 #endif
 
@@ -56,6 +57,10 @@
 #include "libplatform/libplatform.h"
 #endif  // NODE_USE_V8_PLATFORM
 #include "v8-profiler.h"
+
+#if NODE_USE_V8_PLATFORM && HAVE_INSPECTOR
+#include "inspector/worker_inspector.h"  // ParentInspectorHandle
+#endif
 
 #ifdef NODE_ENABLE_VTUNE_PROFILING
 #include "../deps/v8/src/third_party/vtune/v8-vtune.h"
@@ -112,7 +117,6 @@ using options_parser::kAllowedInEnvironment;
 using options_parser::kDisallowedInEnvironment;
 
 using v8::Boolean;
-using v8::Context;
 using v8::EscapableHandleScope;
 using v8::Exception;
 using v8::Function;
@@ -219,139 +223,157 @@ MaybeLocal<Value> ExecuteBootstrapper(Environment* env,
   return scope.EscapeMaybe(result);
 }
 
-void PrepareDiagnostics(Environment* env) {
-  Isolate* isolate = env->isolate();
-  HandleScope scope(isolate);
+int Environment::PrepareDiagnostics(WorkerInspectorInfo* worker_info) {
+  HandleScope scope(isolate_);
 
-  isolate->GetHeapProfiler()->AddBuildEmbedderGraphCallback(
-      Environment::BuildEmbedderGraph, env);
+#if HAVE_INSPECTOR && NODE_USE_V8_PLATFORM
+  // The worker start this at a different time.
+  // TODO(joyeecheung): move that logic here.
+  std::string inspector_path;
+  if (!is_main_thread()) {
+    CHECK_NOT_NULL(worker_info);
+    inspector_agent_->SetParentHandle(std::move(worker_info->handle));
+    inspector_path = worker_info->url;
+  } else {
+    inspector_path = argv_.size() > 1 ? argv_[1].c_str() : "";
+  }
+  CHECK(!inspector_agent_->IsListening());
+  // Inspector agent can't fail to start, but if it was configured to listen
+  // right away on the websocket port and fails to bind/etc, this will return
+  // false.
+  inspector_agent_->Start(inspector_path,
+                          options_->debug_options(),
+                          inspector_host_port(),
+                          is_main_thread());
+  if (options_->debug_options().inspector_enabled &&
+      !inspector_agent_->IsListening()) {
+    return 12;  // Signal internal error
+  }
+#endif
 
-  Local<String> coverage_str = env->env_vars()->Get(
-      isolate, FIXED_ONE_BYTE_STRING(isolate, "NODE_V8_COVERAGE"));
+  isolate_->GetHeapProfiler()->AddBuildEmbedderGraphCallback(
+      Environment::BuildEmbedderGraph, this);
+
+  Local<String> coverage_str = env_vars()->Get(
+      isolate_, FIXED_ONE_BYTE_STRING(isolate_, "NODE_V8_COVERAGE"));
   if (!coverage_str.IsEmpty() && coverage_str->Length() > 0) {
 #if HAVE_INSPECTOR
-    profiler::StartCoverageCollection(env);
+    profiler::StartCoverageCollection(this);
 #else
     fprintf(stderr, "NODE_V8_COVERAGE cannot be used without inspector\n");
 #endif  // HAVE_INSPECTOR
   }
 
 #if HAVE_INSPECTOR
-  if (env->options()->cpu_prof) {
-    profiler::StartCpuProfiling(env, env->options()->cpu_prof_path);
+  if (options_->cpu_prof) {
+    profiler::StartCpuProfiling(this, options_->cpu_prof_path);
   }
 #endif  // HAVE_INSPECTOR
 
 #if defined HAVE_DTRACE || defined HAVE_ETW
-  InitDTrace(env);
+  InitDTrace(this);
 #endif
 
 #if HAVE_INSPECTOR
-  if (env->options()->debug_options().break_node_first_line) {
-    env->inspector_agent()->PauseOnNextJavascriptStatement(
-        "Break at bootstrap");
+  if (options_->debug_options().break_node_first_line) {
+    inspector_agent_->PauseOnNextJavascriptStatement("Break at bootstrap");
   }
 #endif  // HAVE_INSPECTOR
+
+  return 0;
 }
 
-MaybeLocal<Value> BootstrapInternalLoaders(Environment* env) {
-  Isolate* isolate = env->isolate();
-  EscapableHandleScope scope(isolate);
-  Local<Context> context = env->context();
+MaybeLocal<Value> Environment::BootstrapInternalLoaders() {
+  EscapableHandleScope scope(isolate_);
 
-  Local<Object> process = env->process_object();
   // Create binding loaders
   std::vector<Local<String>> loaders_params = {
-      env->process_string(),
-      FIXED_ONE_BYTE_STRING(isolate, "getLinkedBinding"),
-      FIXED_ONE_BYTE_STRING(isolate, "getInternalBinding"),
-      env->primordials_string()};
+      process_string(),
+      FIXED_ONE_BYTE_STRING(isolate_, "getLinkedBinding"),
+      FIXED_ONE_BYTE_STRING(isolate_, "getInternalBinding"),
+      primordials_string()};
   std::vector<Local<Value>> loaders_args = {
-      process,
-      env->NewFunctionTemplate(binding::GetLinkedBinding)
-          ->GetFunction(context)
+      process_object(),
+      NewFunctionTemplate(binding::GetLinkedBinding)
+          ->GetFunction(context())
           .ToLocalChecked(),
-      env->NewFunctionTemplate(binding::GetInternalBinding)
-          ->GetFunction(context)
+      NewFunctionTemplate(binding::GetInternalBinding)
+          ->GetFunction(context())
           .ToLocalChecked(),
-      env->primordials()};
+      primordials()};
 
   // Bootstrap internal loaders
-  MaybeLocal<Value> loader_exports = ExecuteBootstrapper(
-      env, "internal/bootstrap/loaders", &loaders_params, &loaders_args);
-  return scope.EscapeMaybe(loader_exports);
-}
-
-MaybeLocal<Value> BootstrapNode(Environment* env, Local<Value> loader_exports) {
-  Isolate* isolate = env->isolate();
-  EscapableHandleScope scope(isolate);
-  Local<Context> context = env->context();
-
+  Local<Value> loader_exports;
+  if (!ExecuteBootstrapper(
+           this, "internal/bootstrap/loaders", &loaders_params, &loaders_args)
+           .ToLocal(&loader_exports)) {
+    return MaybeLocal<Value>();
+  }
   CHECK(loader_exports->IsObject());
   Local<Object> loader_exports_obj = loader_exports.As<Object>();
   Local<Value> internal_binding_loader =
-      loader_exports_obj->Get(context, env->internal_binding_string())
+      loader_exports_obj->Get(context(), internal_binding_string())
           .ToLocalChecked();
-  env->set_internal_binding_loader(internal_binding_loader.As<Function>());
+  CHECK(internal_binding_loader->IsFunction());
+  set_internal_binding_loader(internal_binding_loader.As<Function>());
   Local<Value> require =
-      loader_exports_obj->Get(context, env->require_string()).ToLocalChecked();
-  env->set_native_module_require(require.As<Function>());
+      loader_exports_obj->Get(context(), require_string()).ToLocalChecked();
+  CHECK(require->IsFunction());
+  set_native_module_require(require.As<Function>());
 
-  Local<Object> global = context->Global();
+  return scope.Escape(loader_exports);
+}
+
+MaybeLocal<Value> Environment::BootstrapNode() {
+  EscapableHandleScope scope(isolate_);
+
+  Local<Object> global = context()->Global();
   // TODO(joyeecheung): this can be done in JS land now.
-  global->Set(context, FIXED_ONE_BYTE_STRING(env->isolate(), "global"), global)
+  global->Set(context(), FIXED_ONE_BYTE_STRING(isolate_, "global"), global)
       .Check();
 
-  Local<Object> process = env->process_object();
   // process, require, internalBinding, isMainThread,
   // ownsProcessState, primordials
   std::vector<Local<String>> node_params = {
-      env->process_string(),
-      env->require_string(),
-      env->internal_binding_string(),
-      FIXED_ONE_BYTE_STRING(isolate, "isMainThread"),
-      FIXED_ONE_BYTE_STRING(isolate, "ownsProcessState"),
-      env->primordials_string()};
+      process_string(),
+      require_string(),
+      internal_binding_string(),
+      FIXED_ONE_BYTE_STRING(isolate_, "isMainThread"),
+      FIXED_ONE_BYTE_STRING(isolate_, "ownsProcessState"),
+      primordials_string()};
   std::vector<Local<Value>> node_args = {
-      process,
-      require,
-      internal_binding_loader,
-      Boolean::New(isolate, env->is_main_thread()),
-      Boolean::New(isolate, env->owns_process_state()),
-      env->primordials()};
+      process_object(),
+      native_module_require(),
+      internal_binding_loader(),
+      Boolean::New(isolate_, is_main_thread()),
+      Boolean::New(isolate_, owns_process_state()),
+      primordials()};
 
   MaybeLocal<Value> result = ExecuteBootstrapper(
-      env, "internal/bootstrap/node", &node_params, &node_args);
+      this, "internal/bootstrap/node", &node_params, &node_args);
   return scope.EscapeMaybe(result);
 }
 
-MaybeLocal<Value> RunBootstrapping(Environment* env) {
-  CHECK(!env->has_run_bootstrapping_code());
+MaybeLocal<Value> Environment::RunBootstrapping() {
+  CHECK(!has_run_bootstrapping_code());
 
-  PrepareDiagnostics(env);
+  EscapableHandleScope scope(isolate_);
 
-  Isolate* isolate = env->isolate();
-  EscapableHandleScope scope(isolate);
-
-  Local<Value> loader_exports;
-  if (!BootstrapInternalLoaders(env).ToLocal(&loader_exports)) {
+  if (BootstrapInternalLoaders().IsEmpty()) {
     return MaybeLocal<Value>();
   }
 
   Local<Value> result;
-  if (!BootstrapNode(env, loader_exports).ToLocal(&result)) {
+  if (!BootstrapNode().ToLocal(&result)) {
     return MaybeLocal<Value>();
   }
 
-  Local<Context> context = env->context();
-  Local<Object> process = env->process_object();
   Local<Object> env_var_proxy;
-  if (!CreateEnvVarProxy(context, isolate, env->as_callback_data())
+  if (!CreateEnvVarProxy(context(), isolate_, as_callback_data())
            .ToLocal(&env_var_proxy) ||
-      process
-          ->Set(env->context(),
-                FIXED_ONE_BYTE_STRING(env->isolate(), "env"),
-                env_var_proxy)
+      process_object()
+          ->Set(
+              context(), FIXED_ONE_BYTE_STRING(isolate_, "env"), env_var_proxy)
           .IsNothing()) {
     return MaybeLocal<Value>();
   }
@@ -359,10 +381,10 @@ MaybeLocal<Value> RunBootstrapping(Environment* env) {
   // Make sure that no request or handle is created during bootstrap -
   // if necessary those should be done in pre-exeuction.
   // TODO(joyeecheung): print handles/requests before aborting
-  CHECK(env->req_wrap_queue()->IsEmpty());
-  CHECK(env->handle_wrap_queue()->IsEmpty());
+  CHECK(req_wrap_queue()->IsEmpty());
+  CHECK(handle_wrap_queue()->IsEmpty());
 
-  env->set_has_run_bootstrapping_code(true);
+  set_has_run_bootstrapping_code(true);
 
   return scope.Escape(result);
 }

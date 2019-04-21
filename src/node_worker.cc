@@ -38,17 +38,6 @@ namespace worker {
 namespace {
 
 #if NODE_USE_V8_PLATFORM && HAVE_INSPECTOR
-void StartWorkerInspector(
-    Environment* child,
-    std::unique_ptr<inspector::ParentInspectorHandle> parent_handle,
-    const std::string& url) {
-  child->inspector_agent()->SetParentHandle(std::move(parent_handle));
-  child->inspector_agent()->Start(url,
-                                  child->options()->debug_options(),
-                                  child->inspector_host_port(),
-                                  false);
-}
-
 void WaitForWorkerInspectorToStop(Environment* child) {
   child->inspector_agent()->WaitForDisconnect();
   child->inspector_agent()->Stop();
@@ -272,16 +261,20 @@ void Worker::Run() {
       if (is_stopped()) return;
       {
 #if NODE_USE_V8_PLATFORM && HAVE_INSPECTOR
-        StartWorkerInspector(env_.get(),
-                             std::move(inspector_parent_handle_),
-                             url_);
+        WorkerInspectorInfo worker_info{std::move(inspector_parent_handle_),
+                                        url_};
+        exit_code_ = env_->PrepareDiagnostics(&worker_info);
+#else
+        exit_code_ = env_->PrepareDiagnostics(nullptr);
 #endif
+      }
+      if (is_stopped()) return;
+      {
         inspector_started = true;
-
         HandleScope handle_scope(isolate_);
         AsyncCallbackScope callback_scope(env_.get());
         env_->async_hooks()->push_async_ids(1, 0);
-        if (!RunBootstrapping(env_.get()).IsEmpty()) {
+        if (!env_->RunBootstrapping().IsEmpty()) {
           CreateEnvMessagePort(env_.get());
           if (is_stopped()) return;
           Debug(this, "Created message port for worker %llu", thread_id_);

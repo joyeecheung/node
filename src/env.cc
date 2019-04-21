@@ -297,8 +297,8 @@ Environment::Environment(IsolateData* isolate_data,
       immediate_info_(context->GetIsolate()),
       tick_info_(context->GetIsolate()),
       timer_base_(uv_now(isolate_data->event_loop())),
-      argv_(args),
       exec_argv_(exec_args),
+      argv_(args),
       should_abort_on_uncaught_toggle_(isolate_, 1),
       stream_base_state_(isolate_, StreamBase::kNumStreamBaseStateFields),
       flags_(flags),
@@ -382,11 +382,13 @@ Environment::Environment(IsolateData* isolate_data,
 
   if (env_info != nullptr) {
     DeserializeProperties(env_info);
-  } else {
-    CreateProperties();
   }
 
   InitializeLibuv(start_profiler_idle_notifier);
+
+  if (env_info == nullptr) {
+    CreateProperties();
+  }
 }
 
 CompileFnEntry::CompileFnEntry(Environment* env, uint32_t id)

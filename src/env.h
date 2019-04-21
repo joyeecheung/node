@@ -70,6 +70,10 @@ namespace tracing {
 class AgentWriterHandle;
 }
 
+namespace inspector {
+class ParentInspectorHandle;
+}
+
 #if HAVE_INSPECTOR
 namespace profiler {
 class V8CoverageConnection;
@@ -797,6 +801,11 @@ struct InternalFieldInfo {
   void* data;
 };
 
+struct WorkerInspectorInfo {
+  std::unique_ptr<inspector::ParentInspectorHandle> handle;
+  std::string url;
+};
+
 class Environment : public MemoryRetainer {
  public:
   Environment(const Environment&) = delete;
@@ -812,6 +821,11 @@ class Environment : public MemoryRetainer {
   // EnvSerializeInfo
   EnvSerializeInfo Serialize(v8::SnapshotCreator* creator);
   void CreateProperties();
+  int PrepareDiagnostics(WorkerInspectorInfo* worker_info);
+  v8::MaybeLocal<v8::Value> BootstrapInternalLoaders();
+  v8::MaybeLocal<v8::Value> BootstrapNode();
+  v8::MaybeLocal<v8::Value> RunBootstrapping();
+
   void DeserializeProperties(const EnvSerializeInfo* info);
   typedef void (*BaseObjectIterator)(size_t, BaseObject*);
   void ForEachBaseObject(BaseObjectIterator iterator);

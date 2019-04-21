@@ -1223,6 +1223,15 @@
             }],
           ],
         }],
+        ['v8_enable_inspector==1', {
+          'defines': [
+            'HAVE_INSPECTOR=1',
+          ],
+        }, {
+           'defines': [
+             'HAVE_INSPECTOR=0',
+           ]
+        }],
       ],
     }, # node_mksnapshot
   ], # end targets

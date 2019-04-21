@@ -251,7 +251,7 @@ Environment* CreateEnvironment(IsolateData* isolate_data,
       static_cast<Environment::Flags>(Environment::kIsMainThread |
                                       Environment::kOwnsProcessState |
                                       Environment::kOwnsInspector));
-  if (RunBootstrapping(env).IsEmpty()) {
+  if (env->RunBootstrapping().IsEmpty()) {
     return nullptr;
   }
 
