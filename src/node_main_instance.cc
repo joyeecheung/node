@@ -1,5 +1,6 @@
 #include "node_main_instance.h"
 #include <iostream>
+#include "node_process.h"
 #include "node_errors.h"
 #include "node_external_reference.h"
 #include "node_internals.h"
@@ -43,6 +44,7 @@ const std::vector<intptr_t>& NodeMainInstance::CollectExternalReferences() {
   registry_.reset(new ExternalReferenceRegistry());
 
   // TODO(joyeecheung): collect more external references here.
+  registry_->Register(RawDebug);
   return registry_->external_references();
 }
 
@@ -226,7 +228,6 @@ std::unique_ptr<Environment> NodeMainInstance::CreateMainEnvironment(
                                     kNodeContextIndex,
                                     {DeserializeNodeInternalFields, env.get()})
                   .ToLocalChecked();
-    SetIsolateUpForNode(isolate_, IsolateSettingCategories::kErrorHandlers);
   } else {
     context = NewContext(isolate_);
   }
@@ -238,12 +239,14 @@ std::unique_ptr<Environment> NodeMainInstance::CreateMainEnvironment(
   new (env.get()) Environment(
       isolate_data_.get(),
       context,
+      per_process::v8_is_profiling,
+      args_,
+      exec_args_,
       env_info,
       static_cast<Environment::Flags>(Environment::kIsMainThread |
                                       Environment::kOwnsProcessState |
                                       Environment::kOwnsInspector));
-  env->InitializeLibuv(per_process::v8_is_profiling);
-  env->ProcessCliArgs(args_, exec_args_);
+  SetIsolateUpForNode(isolate_, IsolateSettingCategories::kErrorHandlers);
 
 #if HAVE_INSPECTOR && NODE_USE_V8_PLATFORM
   CHECK(!env->inspector_agent()->IsListening());
@@ -266,7 +269,7 @@ std::unique_ptr<Environment> NodeMainInstance::CreateMainEnvironment(
   CHECK(!env->options()->debug_options().inspector_enabled);
 #endif  // HAVE_INSPECTOR && NODE_USE_V8_PLATFORM
 
-  if (RunBootstrapping(env.get()).IsEmpty()) {
+  if (env->RunBootstrapping().IsEmpty()) {
     *exit_code = 1;
   }
 

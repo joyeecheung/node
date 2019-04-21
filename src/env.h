@@ -845,15 +845,14 @@ class Environment : public MemoryRetainer {
 
   Environment(IsolateData* isolate_data,
               v8::Local<v8::Context> context,
+              bool start_profiler_idle_notifier,
+              const std::vector<std::string>& args,
+              const std::vector<std::string>& exec_args,
               const EnvSerializeInfo* serialize_info = nullptr,
               Flags flags = Flags(),
               uint64_t thread_id = kNoThreadId);
   ~Environment();
 
-  void InitializeLibuv(bool start_profiler_idle_notifier);
-  v8::MaybeLocal<v8::Object> ProcessCliArgs(
-      const std::vector<std::string>& args,
-      const std::vector<std::string>& exec_args);
   inline const std::vector<std::string>& exec_argv();
   inline const std::vector<std::string>& argv();
 
@@ -1172,6 +1171,7 @@ class Environment : public MemoryRetainer {
 #endif  // HAVE_INSPECTOR
 
  private:
+  void InitializeLibuv(bool start_profiler_idle_notifier);
   inline void CreateImmediate(native_immediate_callback cb,
                               void* data,
                               v8::Local<v8::Object> obj,

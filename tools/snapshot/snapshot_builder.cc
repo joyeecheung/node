@@ -158,12 +158,13 @@ std::string SnapshotBuilder::Generate(
       std::unique_ptr<Environment> env = std::make_unique<Environment>(
           main_instance->isolate_data(),
           context,
+          false,
+          args,
+          exec_args,
           nullptr,
           static_cast<Environment::Flags>(Environment::kIsMainThread |
                                           Environment::kOwnsProcessState |
                                           Environment::kOwnsInspector));
-      // env->InitializeLibuv(per_process::v8_is_profiling);
-      // env->ProcessCliArgs(args, exec_args);
       if (log_debug) {
         env->PrintAllBuffers();
         env->PrintAllBaseObjects();
@@ -172,9 +173,18 @@ std::string SnapshotBuilder::Generate(
       size_t index = creator.AddContext(
           context, {SerializeNodeContextInternalFields, env.get()});
       CHECK_EQ(index, NodeMainInstance::kNodeContextIndex);
+      env->RunCleanup();
     }
 
-    // Must be out of HandleScope
+    // Must be out of HandleScope.
+
+    // When this crashes with "Unknown external reference <addr>",
+    // In LLDB, do: `image lookup --address <addr>`
+    // In GDB, do: `info symbol <addr>`
+    // to symbolicate of the external reference, and add it in
+    // NodeMainInstance::CollectExternalReferences().
+    // XXX(joyeecheung): references needs to be registered in the same
+    // order they are added to the heap.
     StartupData blob =
         creator.CreateBlob(SnapshotCreator::FunctionCodeHandling::kClear);
     // Must be done while the snapshot creator isolate is entered i.e. the

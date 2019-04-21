@@ -252,6 +252,9 @@ void Worker::Run() {
         // public API.
         env_.reset(new Environment(data.isolate_data_.get(),
                                    context,
+                                   profiler_idle_notifier_started_,
+                                   std::move(argv_),
+                                   std::move(exec_argv_),
                                    nullptr,
                                    Environment::kNoFlags,
                                    thread_id_));
@@ -259,9 +262,6 @@ void Worker::Run() {
         env_->set_env_vars(std::move(env_vars_));
         env_->set_abort_on_uncaught_exception(false);
         env_->set_worker_context(this);
-
-        env_->InitializeLibuv(profiler_idle_notifier_started_);
-        env_->ProcessCliArgs(std::move(argv_), std::move(exec_argv_));
       }
       {
         Mutex::ScopedLock lock(mutex_);
