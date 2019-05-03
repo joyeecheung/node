@@ -138,6 +138,7 @@ std::string SnapshotBuilder::Generate(
     std::vector<size_t> isolate_data_indexes;
     EnvSerializeInfo env_info;
     SnapshotCreator creator(isolate, external_references.data());
+    Environment* env = nullptr;
     {
       main_instance =
           NodeMainInstance::Create(isolate,
@@ -152,7 +153,7 @@ std::string SnapshotBuilder::Generate(
       Local<Context> context = NewContext(isolate);
       Context::Scope context_scope(context);
 
-      std::unique_ptr<Environment> env = std::make_unique<Environment>(
+      env = new Environment(
           main_instance->isolate_data(),
           context,
           args,
@@ -168,7 +169,7 @@ std::string SnapshotBuilder::Generate(
       }
       env_info = env->Serialize(&creator);
       size_t index = creator.AddContext(
-          context, {SerializeNodeContextInternalFields, env.get()});
+          context, {SerializeNodeContextInternalFields, env});
       CHECK_EQ(index, NodeMainInstance::kNodeContextIndex);
       // env->RunCleanup();  // will be necessary when we initiliaze libuv
     }
@@ -179,7 +180,9 @@ std::string SnapshotBuilder::Generate(
     CHECK(blob.CanBeRehashed());
     // Must be done while the snapshot creator isolate is entered i.e. the
     // creator is still alive.
+    delete env;
     main_instance->Dispose();
+
     result = FormatBlob(&blob, isolate_data_indexes, env_info);
     delete[] blob.data;
   }
