@@ -835,8 +835,10 @@ struct PropInfo {
 };
 
 struct EnvSerializeInfo {
+  size_t context_index;
   std::vector<size_t> async_hooks_indexes;
   std::vector<PropInfo> strong_props_indexes;
+  std::vector<PropInfo> aliased_buffer_indexes;
 };
 
 enum class InternalFieldType { kDefault = 0, kIsEnvironment };

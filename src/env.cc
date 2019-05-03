@@ -1186,14 +1186,41 @@ void Environment::PrintAllBuffers() {
 #undef V
 }
 
+struct BufferInfo {
+  const std::map<const void*, std::string>* names;
+  EnvSerializeInfo* env_info;
+  SnapshotCreator* creator;
+  size_t id;
+};
+
+template <typename AliasedBufferBase>
+static void SerializeBuffer(AliasedBufferBase* buf, void* data) {
+  BufferInfo* buf_info = static_cast<BufferInfo*>(data);
+  auto it = buf_info->names->find(buf);
+  if (it == buf_info->names->end()) {
+    std::cout << " Unkonwn " << buf;
+    // Require the Environment to register all known AliasedBuffers.
+    UNREACHABLE();
+  }
+
+  auto field = buf->GetJSArray();
+  DCHECK(!field.IsEmpty());
+  size_t index = buf_info->creator->AddData(field);
+  buf_info->env_info->aliased_buffer_indexes.push_back(
+      {it->second, buf_info->id++, index});
+}
+
 EnvSerializeInfo Environment::Serialize(SnapshotCreator* creator) {
   EnvSerializeInfo info;
+  Local<Context> ctx = context();
+
+  info.context_index = creator->AddData(ctx);
+
   info.async_hooks_indexes.reserve(async_hooks_.providers_.size());
   for (v8::Eternal<String> str : async_hooks_.providers_) {
     info.async_hooks_indexes.push_back(creator->AddData(str.Get(isolate_)));
   }
 
-  Local<Context> ctx = context();
   size_t id = 0;
 #define V(PropertyName, TypeName)                                              \
   do {                                                                         \
@@ -1206,6 +1233,14 @@ EnvSerializeInfo Environment::Serialize(SnapshotCreator* creator) {
   } while (0);
   ENVIRONMENT_STRONG_PERSISTENT_TEMPLATES(V)
   ENVIRONMENT_STRONG_PERSISTENT_VALUES(V)
+#undef V
+
+  std::map<const void*, std::string> names = GetKnownBufferNames();
+  BufferInfo buf_info{&names, &info, creator, 0};
+
+#define V(NativeT, V8T)                                                        \
+  Aliased##V8T::ForEachBuffer(SerializeBuffer<Aliased##V8T>, &buf_info);
+  ALIASED_BUFFER_TYPES(V)
 #undef V
 
   return info;

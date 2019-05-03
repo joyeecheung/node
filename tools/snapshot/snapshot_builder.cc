@@ -27,6 +27,20 @@ void WriteVector(std::stringstream* ss, const T* vec, size_t size) {
   }
 }
 
+void WritePropInfoVector(std::stringstream* ss,
+                         const std::string& name,
+                         const std::vector<PropInfo>& vec) {
+  *ss << "static const std::vector<PropInfo> " << name << " {";
+  size_t i = 0;
+  size_t size = vec.size();
+  for (const auto& info : vec) {
+    *ss << R"({ ")" << info.name << R"(", )" << std::to_string(info.id)
+        << R"(, )" << std::to_string(info.index) << " }"
+        << (i++ == size - 1 ? "\n" : ",\n");
+  }
+  *ss << "(};\n";
+}
+
 std::string FormatBlob(v8::StartupData* blob,
                        const std::vector<size_t>& isolate_data_indexes,
                        const EnvSerializeInfo& env_info) {
@@ -69,22 +83,19 @@ static const std::vector<size_t> async_hooks_indexes {
   WriteVector(&ss,
               env_info.async_hooks_indexes.data(),
               env_info.async_hooks_indexes.size());
-  ss << R"(};
+  ss << "};\n";
 
-static const std::vector<PropInfo> strong_props_indexes {
-)";
-  size_t i = 0;
-  size_t size = env_info.strong_props_indexes.size();
-  for (const auto& info : env_info.strong_props_indexes) {
-    ss << R"({ ")" << info.name << R"(", )" << std::to_string(info.id)
-       << R"(, )" << std::to_string(info.index) << " }"
-       << (i++ == size - 1 ? "\n" : ",\n");
-  }
-  ss << R"(};
-
+  WritePropInfoVector(
+      &ss, "strong_props_indexes", env_info.strong_props_indexes);
+  WritePropInfoVector(
+      &ss, "aliased_buffer_indexes", env_info.aliased_buffer_indexes);
+  ss << R"(
 static const EnvSerializeInfo env_info {
+  )" << env_info.context_index;
+  ss << R"(,
   std::move(async_hooks_indexes),
-  std::move(strong_props_indexes)
+  std::move(strong_props_indexes),
+  std::move(aliased_buffer_indexes)
 };
 
 const EnvSerializeInfo* NodeMainInstance::GetEnvSerializeInfo() {
