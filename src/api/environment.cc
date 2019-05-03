@@ -348,8 +348,7 @@ Environment* CreateEnvironment(IsolateData* isolate_data,
                                       Environment::kOwnsProcessState |
                                       Environment::kOwnsInspector));
   env->InitializeLibuv(per_process::v8_is_profiling);
-  if (env->RunBootstrapping().IsEmpty())
-    return nullptr;
+  if (env->RunBootstrapping(false).IsEmpty()) return nullptr;
   return env;
 }
 

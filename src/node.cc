@@ -343,13 +343,15 @@ MaybeLocal<Value> Environment::BootstrapNode() {
   return scope.EscapeMaybe(result);
 }
 
-MaybeLocal<Value> Environment::RunBootstrapping() {
+MaybeLocal<Value> Environment::RunBootstrapping(bool deserialize_mode) {
   EscapableHandleScope scope(isolate_);
 
   CHECK(!has_run_bootstrapping_code());
 
-  if (BootstrapInternalLoaders().IsEmpty()) {
-    return MaybeLocal<Value>();
+  if (!deserialize_mode) {
+    if (BootstrapInternalLoaders().IsEmpty()) {
+      return MaybeLocal<Value>();
+    }
   }
 
   Local<Value> result;
@@ -1027,7 +1029,6 @@ int Start(int argc, char** argv) {
         // TODO(joyeecheung): collect external references and set it in
         // params.external_references.
         external_references = NodeMainInstance::CollectExternalReferences();
-        external_references.push_back(reinterpret_cast<intptr_t>(nullptr));
         params.external_references = external_references.data();
         params.snapshot_blob = blob;
         indexes = NodeMainInstance::GetIsolateDataIndexes();

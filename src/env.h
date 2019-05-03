@@ -878,7 +878,7 @@ class Environment : public MemoryRetainer {
 
   v8::MaybeLocal<v8::Value> BootstrapInternalLoaders();
   v8::MaybeLocal<v8::Value> BootstrapNode();
-  v8::MaybeLocal<v8::Value> RunBootstrapping();
+  v8::MaybeLocal<v8::Value> RunBootstrapping(bool deserialize_mode);
 
   inline size_t async_callback_scope_depth() const;
   inline void PushAsyncCallbackScope();
@@ -1297,7 +1297,7 @@ class Environment : public MemoryRetainer {
  private:
   template <typename Fn>
   inline void CreateImmediate(Fn&& cb, bool ref);
-  
+
   std::map<const void*, std::string> GetKnownBufferNames() const;
   inline void ThrowError(v8::Local<v8::Value> (*fun)(v8::Local<v8::String>),
                          const char* errmsg);

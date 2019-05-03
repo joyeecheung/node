@@ -119,7 +119,6 @@ std::string SnapshotBuilder::Generate(
     const std::vector<std::string> exec_args) {
   const std::vector<intptr_t>& external_references =
       NodeMainInstance::CollectExternalReferences();
-  external_references.push_back(reinterpret_cast<intptr_t>(nullptr));
   Isolate* isolate = Isolate::Allocate();
   per_process::v8_platform.Platform()->RegisterIsolate(isolate,
                                                        uv_default_loop());
@@ -129,7 +128,7 @@ std::string SnapshotBuilder::Generate(
   {
     char env_buf[32];
     size_t env_size = sizeof(env_buf);
-    int ret = uv_os_getenv("NODE_DEBUG", env_buf, &env_size);
+    int ret = uv_os_getenv("NODE_DEBUG_NATIVE", env_buf, &env_size);
     if (ret == 0 && strcmp(env_buf, "mksnapshot") == 0) {
       log_debug = true;
     }
@@ -162,6 +161,7 @@ std::string SnapshotBuilder::Generate(
           static_cast<Environment::Flags>(Environment::kIsMainThread |
                                           Environment::kOwnsProcessState |
                                           Environment::kOwnsInspector));
+      env->BootstrapInternalLoaders().ToLocalChecked();
       if (log_debug) {
         env->PrintAllBuffers();
         env->PrintAllBaseObjects();

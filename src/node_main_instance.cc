@@ -1,10 +1,11 @@
 #include <memory>
 
-#include "node_main_instance.h"
 #include <iostream>
 #include "node_errors.h"
 #include "node_external_reference.h"
 #include "node_internals.h"
+#include "node_main_instance.h"
+#include "node_native_module_env.h"
 #include "node_options-inl.h"
 #include "node_process.h"
 #include "node_v8_platform-inl.h"
@@ -19,6 +20,7 @@
 
 namespace node {
 
+using native_module::NativeModuleEnv;
 using v8::Context;
 using v8::HandleScope;
 using v8::Isolate;
@@ -54,8 +56,18 @@ const std::vector<intptr_t>& NodeMainInstance::CollectExternalReferences() {
   CHECK_NULL(registry_);
   registry_.reset(new ExternalReferenceRegistry());
 
-  registry_->Register(node::RawDebug);
   // TODO(joyeecheung): collect more external references here.
+  // CreateProcessObject()
+  registry_->Register(RawDebug);
+  // BootstrapInternalLoader()
+  registry_->Register(binding::GetLinkedBinding);
+  registry_->Register(binding::GetInternalBinding);
+  // native_module internalBinding
+  registry_->Register(NativeModuleEnv::GetCacheUsage);
+  registry_->Register(NativeModuleEnv::CompileFunction);
+  registry_->Register(NativeModuleEnv::ConfigStringGetter);
+  registry_->Register(NativeModuleEnv::ModuleIdsGetter);
+  registry_->Register(NativeModuleEnv::GetModuleCategories);
   return registry_->external_references();
 }
 
@@ -267,21 +279,29 @@ std::unique_ptr<Environment> NodeMainInstance::CreateMainEnvironment(
       static_cast<Environment::Flags>(Environment::kIsMainThread |
                                       Environment::kOwnsProcessState |
                                       Environment::kOwnsInspector));
+
+  if (env->RunBootstrapping(deserialize_mode_).IsEmpty()) {
+    *exit_code = 1;
+    return env;
+  }
+  CHECK(!env->has_run_bootstrapping_code());
+
   env->InitializeLibuv(per_process::v8_is_profiling);
   env->InitializeDiagnostics();
-
-  // TODO(joyeecheung): when we snapshot the bootstrapped context,
-  // the inspector and diagnostics setup should after after deserialization.
-#if HAVE_INSPECTOR
-  *exit_code = env->InitializeInspector({});
+#if HAVE_INSPECTOR && NODE_USE_V8_PLATFORM
+  *exit_code = env->InitializeInspector(nullptr);
 #endif
   if (*exit_code != 0) {
     return env;
   }
 
-  if (env->RunBootstrapping().IsEmpty()) {
-    *exit_code = 1;
-  }
+  // Make sure that no request or handle is created during bootstrap -
+  // if necessary those should be done in pre-exeuction.
+  // TODO(joyeecheung): print handles/requests before aborting
+  CHECK(env->req_wrap_queue()->IsEmpty());
+  CHECK(env->handle_wrap_queue()->IsEmpty());
+
+  env->set_has_run_bootstrapping_code(true);
 
   return env;
 }

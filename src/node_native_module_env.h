@@ -36,10 +36,6 @@ class NativeModuleEnv {
   // in node_code_cache_stub.cc
   static void InitializeCodeCache();
 
- private:
-  static void RecordResult(const char* id,
-                           NativeModuleLoader::Result result,
-                           Environment* env);
   static void GetModuleCategories(
       v8::Local<v8::Name> property,
       const v8::PropertyCallbackInfo<v8::Value>& info);
@@ -54,6 +50,11 @@ class NativeModuleEnv {
       const v8::PropertyCallbackInfo<v8::Value>& info);
   // Compile a specific native module as a function
   static void CompileFunction(const v8::FunctionCallbackInfo<v8::Value>& args);
+
+ private:
+  static void RecordResult(const char* id,
+                           NativeModuleLoader::Result result,
+                           Environment* env);
 };
 
 }  // namespace native_module

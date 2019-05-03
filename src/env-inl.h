@@ -25,13 +25,14 @@
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
 #include "aliased_buffer.h"
+#include "debug_utils-inl.h"
 #include "env.h"
 #include "node.h"
+#include "node_context_data.h"
+#include "node_perf_common.h"
 #include "util-inl.h"
 #include "uv.h"
 #include "v8.h"
-#include "node_perf_common.h"
-#include "node_context_data.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -1082,6 +1083,10 @@ inline v8::Local<v8::FunctionTemplate>
                                      v8::Local<v8::Signature> signature,
                                      v8::ConstructorBehavior behavior,
                                      v8::SideEffectType side_effect_type) {
+  Debug(this,
+        DebugCategory::MKSNAPSHOT,
+        "Environment::NewFunctionTemplate %p\n",
+        callback);
   v8::Local<v8::Object> external = as_callback_data();
   return v8::FunctionTemplate::New(isolate(), callback, external,
                                    signature, 0, behavior, side_effect_type);

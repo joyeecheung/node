@@ -344,7 +344,7 @@ void Worker::Run() {
 #endif
         HandleScope handle_scope(isolate_);
 
-        if (!env_->RunBootstrapping().IsEmpty()) {
+        if (!env_->RunBootstrapping(false).IsEmpty()) {
           CreateEnvMessagePort(env_.get());
           if (is_stopped()) return;
           Debug(this, "Created message port for worker %llu", thread_id_);
