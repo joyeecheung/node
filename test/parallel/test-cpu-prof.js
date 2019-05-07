@@ -20,18 +20,18 @@ function getCpuProfiles(dir) {
     .map((file) => path.join(dir, file));
 }
 
-function getFrames(output, file, suffix) {
+function getFrames(file, func) {
   const data = fs.readFileSync(file, 'utf8');
   const profile = JSON.parse(data);
   const frames = profile.nodes.filter((i) => {
     const frame = i.callFrame;
-    return frame.url.endsWith(suffix);
+    return frame.functionName === func;
   });
   return { frames, nodes: profile.nodes };
 }
 
-function verifyFrames(output, file, suffix) {
-  const { frames, nodes } = getFrames(output, file, suffix);
+function verifyFrames(output, file, func) {
+  const { frames, nodes } = getFrames(file, func);
   if (frames.length === 0) {
     // Show native debug output and the profile for debugging.
     console.log(output.stderr.toString());
@@ -40,36 +40,37 @@ function verifyFrames(output, file, suffix) {
   assert.notDeepStrictEqual(frames, []);
 }
 
-let FIB = 30;
-// This is based on emperial values - in the CI, on Windows the program
-// tend to finish too fast then we won't be able to see the profiled script
-// in the samples, so we need to bump the values a bit. On slower platforms
-// like the Pis it could take more time to complete, we need to use a
-// smaller value so the test would not time out.
-if (common.isWindows) {
-  FIB = 40;
-}
 
 // We need to set --cpu-interval to a smaller value to make sure we can
-// find our workload in the samples. 50us should be a small enough sampling
-// interval for this.
-const kCpuProfInterval = 50;
+// find our workload in the samples. Make sure that
+// TEST_DURATION > kCpuProfInterval.
+const kCpuProfInterval = 100;  // us
+const kFactor = 1000;
+const TEST_DURATION = kCpuProfInterval * kFactor * 1000;  // ns
+const TEST_REPEAT = 10;
+
 const env = {
   ...process.env,
-  FIB,
-  NODE_DEBUG_NATIVE: 'INSPECTOR_PROFILER'
+  NODE_DEBUG_NATIVE: 'INSPECTOR_PROFILER',
+  TEST_DURATION,
+  TEST_REPEAT
 };
 
-// Test --cpu-prof without --cpu-prof-interval. Here we just verify that
-// we manage to generate a profile.
+const workload = fixtures.path('workload', 'run-duration');
+
+// Test --cpu-prof without --cpu-prof-interval.
 {
   tmpdir.refresh();
   const output = spawnSync(process.execPath, [
     '--cpu-prof',
-    fixtures.path('workload', 'fibonacci.js'),
+    path.join(workload, 'run-duration.js'),
   ], {
     cwd: tmpdir.path,
-    env
+    env: {
+      ...env,
+      // default CPU profile sampling rate is 1000
+      TEST_DURATION: 1000 * kFactor * 1000
+    }
   });
   if (output.status !== 0) {
     console.log(output.stderr.toString());
@@ -79,7 +80,7 @@ const env = {
   assert.strictEqual(profiles.length, 1);
 }
 
-// Outputs CPU profile when event loop is drained.
+// Outputs CPU profile when event run-duration is drained.
 // TODO(joyeecheung): share the fixutres with v8 coverage tests
 {
   tmpdir.refresh();
@@ -87,7 +88,7 @@ const env = {
     '--cpu-prof',
     '--cpu-prof-interval',
     kCpuProfInterval,
-    fixtures.path('workload', 'fibonacci.js'),
+    path.join(workload, 'run-duration.js'),
   ], {
     cwd: tmpdir.path,
     env
@@ -98,7 +99,7 @@ const env = {
   assert.strictEqual(output.status, 0);
   const profiles = getCpuProfiles(tmpdir.path);
   assert.strictEqual(profiles.length, 1);
-  verifyFrames(output, profiles[0], 'fibonacci.js');
+  verifyFrames(output, profiles[0], 'runDuration');
 }
 
 // Outputs CPU profile when process.exit(55) exits process.
@@ -108,7 +109,7 @@ const env = {
     '--cpu-prof',
     '--cpu-prof-interval',
     kCpuProfInterval,
-    fixtures.path('workload', 'fibonacci-exit.js'),
+    path.join(workload, 'run-duration-exit.js'),
   ], {
     cwd: tmpdir.path,
     env
@@ -119,7 +120,7 @@ const env = {
   assert.strictEqual(output.status, 55);
   const profiles = getCpuProfiles(tmpdir.path);
   assert.strictEqual(profiles.length, 1);
-  verifyFrames(output, profiles[0], 'fibonacci-exit.js');
+  verifyFrames(output, profiles[0], 'runDuration');
 }
 
 // Outputs CPU profile when process.kill(process.pid, "SIGINT"); exits process.
@@ -129,7 +130,7 @@ const env = {
     '--cpu-prof',
     '--cpu-prof-interval',
     kCpuProfInterval,
-    fixtures.path('workload', 'fibonacci-sigint.js'),
+    path.join(workload, 'run-duration-sigint.js'),
   ], {
     cwd: tmpdir.path,
     env
@@ -142,14 +143,14 @@ const env = {
   }
   const profiles = getCpuProfiles(tmpdir.path);
   assert.strictEqual(profiles.length, 1);
-  verifyFrames(output, profiles[0], 'fibonacci-sigint.js');
+  verifyFrames(output, profiles[0], 'runDuration');
 }
 
 // Outputs CPU profile from worker when execArgv is set.
 {
   tmpdir.refresh();
   const output = spawnSync(process.execPath, [
-    fixtures.path('workload', 'fibonacci-worker-argv.js'),
+    path.join(workload, 'run-duration-worker-argv.js'),
   ], {
     cwd: tmpdir.path,
     env: {
@@ -163,7 +164,7 @@ const env = {
   assert.strictEqual(output.status, 0);
   const profiles = getCpuProfiles(tmpdir.path);
   assert.strictEqual(profiles.length, 1);
-  verifyFrames(output, profiles[0], 'fibonacci.js');
+  verifyFrames(output, profiles[0], 'runDuration');
 }
 
 // --cpu-prof-name without --cpu-prof
@@ -172,7 +173,7 @@ const env = {
   const output = spawnSync(process.execPath, [
     '--cpu-prof-name',
     'test.cpuprofile',
-    fixtures.path('workload', 'fibonacci.js'),
+    path.join(workload, 'run-duration.js'),
   ], {
     cwd: tmpdir.path,
     env
@@ -193,7 +194,7 @@ const env = {
   const output = spawnSync(process.execPath, [
     '--cpu-prof-dir',
     'prof',
-    fixtures.path('workload', 'fibonacci.js'),
+    path.join(workload, 'run-duration.js'),
   ], {
     cwd: tmpdir.path,
     env
@@ -213,8 +214,8 @@ const env = {
   tmpdir.refresh();
   const output = spawnSync(process.execPath, [
     '--cpu-prof-interval',
-    kCpuProfInterval,
-    fixtures.path('workload', 'fibonacci.js'),
+    100,
+    path.join(workload, 'run-duration.js'),
   ], {
     cwd: tmpdir.path,
     env
@@ -239,7 +240,7 @@ const env = {
     kCpuProfInterval,
     '--cpu-prof-name',
     'test.cpuprofile',
-    fixtures.path('workload', 'fibonacci.js'),
+    path.join(workload, 'run-duration.js'),
   ], {
     cwd: tmpdir.path,
     env
@@ -250,7 +251,7 @@ const env = {
   assert.strictEqual(output.status, 0);
   const profiles = getCpuProfiles(tmpdir.path);
   assert.deepStrictEqual(profiles, [file]);
-  verifyFrames(output, file, 'fibonacci.js');
+  verifyFrames(output, file, 'runDuration');
 }
 
 // relative --cpu-prof-dir
@@ -262,7 +263,7 @@ const env = {
     kCpuProfInterval,
     '--cpu-prof-dir',
     'prof',
-    fixtures.path('workload', 'fibonacci.js'),
+    path.join(workload, 'run-duration.js'),
   ], {
     cwd: tmpdir.path,
     env
@@ -275,7 +276,7 @@ const env = {
   assert(fs.existsSync(dir));
   const profiles = getCpuProfiles(dir);
   assert.strictEqual(profiles.length, 1);
-  verifyFrames(output, profiles[0], 'fibonacci.js');
+  verifyFrames(output, profiles[0], 'runDuration');
 }
 
 // absolute --cpu-prof-dir
@@ -288,7 +289,7 @@ const env = {
     kCpuProfInterval,
     '--cpu-prof-dir',
     dir,
-    fixtures.path('workload', 'fibonacci.js'),
+    path.join(workload, 'run-duration.js'),
   ], {
     cwd: tmpdir.path,
     env
@@ -300,7 +301,7 @@ const env = {
   assert(fs.existsSync(dir));
   const profiles = getCpuProfiles(dir);
   assert.strictEqual(profiles.length, 1);
-  verifyFrames(output, profiles[0], 'fibonacci.js');
+  verifyFrames(output, profiles[0], 'runDuration');
 }
 
 // --cpu-prof-dir and --cpu-prof-name
@@ -316,7 +317,7 @@ const env = {
     'test.cpuprofile',
     '--cpu-prof-dir',
     dir,
-    fixtures.path('workload', 'fibonacci.js'),
+    path.join(workload, 'run-duration.js'),
   ], {
     cwd: tmpdir.path,
     env
@@ -328,7 +329,7 @@ const env = {
   assert(fs.existsSync(dir));
   const profiles = getCpuProfiles(dir);
   assert.deepStrictEqual(profiles, [file]);
-  verifyFrames(output, file, 'fibonacci.js');
+  verifyFrames(output, file, 'runDuration');
 }
 
 // --cpu-prof-dir with worker
@@ -340,7 +341,7 @@ const env = {
     '--cpu-prof-dir',
     'prof',
     '--cpu-prof',
-    fixtures.path('workload', 'fibonacci-worker.js'),
+    path.join(workload, 'run-duration-worker.js'),
   ], {
     cwd: tmpdir.path,
     env
@@ -353,8 +354,8 @@ const env = {
   assert(fs.existsSync(dir));
   const profiles = getCpuProfiles(dir);
   assert.strictEqual(profiles.length, 2);
-  const profile1 = getFrames(output, profiles[0], 'fibonacci.js');
-  const profile2 = getFrames(output, profiles[1], 'fibonacci.js');
+  const profile1 = getFrames(profiles[0], 'runDuration');
+  const profile2 = getFrames(profiles[1], 'runDuration');
   if (profile1.frames.length === 0 && profile2.frames.length === 0) {
     // Show native debug output and the profile for debugging.
     console.log(output.stderr.toString());
