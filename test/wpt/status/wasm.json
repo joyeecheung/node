@@ -1,0 +1,11 @@
+{
+  "*.worker.js": {
+    "skip": "TODO: support importScripts and the worker scope"
+  },
+  "webapi/*.js": {
+    "skip": "WebAssembly.compileStreaming/instantiateStreaming not implemented"
+  },
+  "serialization/module/serialization-via-idb.any.js": {
+    "skip": "Needs /IndexedDB/support.js"
+  }
+}
