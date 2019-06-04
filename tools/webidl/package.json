@@ -1,0 +1,9 @@
+{
+  "name": "node-webidl",
+  "version": "1.0.0",
+  "description": "Generate JavaScript API from WebIDL for Node.js core",
+  "license": "MIT",
+  "dependencies": {
+    "webidl2js": "^9.2.2"
+  }
+}

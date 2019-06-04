@@ -1368,3 +1368,21 @@ endif
 lint-clean:
 	$(RM) tools/.*lintstamp
 	$(RM) .eslintcache
+
+
+WEBIDL_DIR = idl
+WEBIDL_IMPL_DIR = impls
+WEBIDL_WRAPPERS_DIR = wrappers
+IDL_APIS = url encoding
+run-webidl = index.js $(WEBIDL_DIR) $(WEBIDL_IMPL_DIR) $(WEBIDL_WRAPPERS_DIR)
+.PHONY: webidl
+webidl: tools/webidl/node_modules
+	@mkdir -p tools/webidl/$(WEBIDL_WRAPPERS_DIR)
+	@mkdir -p tools/webidl/$(WEBIDL_DIR)
+	@for api in $(IDL_APIS); do \
+		cp test/fixtures/wpt/interfaces/$$api.idl tools/webidl/$(WEBIDL_DIR)/$$api.webidl; \
+	done
+	@cd tools/webidl && $(call available-node, $(run-webidl))
+
+tools/webidl/node_modules: tools/webidl/package.json
+	@cd tools/webidl && $(call available-node,$(run-npm-ci))
