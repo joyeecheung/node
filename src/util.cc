@@ -171,6 +171,19 @@ double GetCurrentTimeInMicroseconds() {
   return kMicrosecondsPerSecond * tv.tv_sec + tv.tv_usec;
 }
 
+int WriteFileSync(int fd, uv_buf_t buf) {
+  uv_fs_t req;
+  int err = uv_fs_write(nullptr, &req, fd, &buf, 1, 0, nullptr);
+  uv_fs_req_cleanup(&req);
+  if (err < 0) {
+    return err;
+  }
+
+  err = uv_fs_close(nullptr, &req, fd, nullptr);
+  uv_fs_req_cleanup(&req);
+  return err;
+}
+
 int WriteFileSync(const char* path, uv_buf_t buf) {
   uv_fs_t req;
   int fd = uv_fs_open(nullptr,
@@ -183,16 +196,7 @@ int WriteFileSync(const char* path, uv_buf_t buf) {
   if (fd < 0) {
     return fd;
   }
-
-  int err = uv_fs_write(nullptr, &req, fd, &buf, 1, 0, nullptr);
-  uv_fs_req_cleanup(&req);
-  if (err < 0) {
-    return err;
-  }
-
-  err = uv_fs_close(nullptr, &req, fd, nullptr);
-  uv_fs_req_cleanup(&req);
-  return err;
+  return WriteFileSync(fd, buf);
 }
 
 int WriteFileSync(v8::Isolate* isolate,

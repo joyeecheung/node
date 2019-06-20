@@ -1,5 +1,7 @@
 #include <cerrno>
 #include <cstdarg>
+#include <cstring>
+#include <vector>
 
 #include "node_errors.h"
 #include "node_internals.h"
@@ -231,7 +233,7 @@ void AppendExceptionLine(Environment* env,
     env->set_printed_error(true);
 
     ResetStdio();
-    PrintErrorString("\n%s", source.c_str());
+    PrintToStderr(env->event_loop(), "\n%s", source.c_str());
     return;
   }
 
@@ -341,10 +343,10 @@ static void ReportFatalException(Environment* env,
   // range errors have a trace member set to undefined
   if (trace.length() > 0 && !stack_trace->IsUndefined()) {
     if (arrow.IsEmpty() || !arrow->IsString() || decorated) {
-      PrintErrorString("%s\n", *trace);
+      PrintToStderr(env->event_loop(), "%s\n", *trace);
     } else {
       node::Utf8Value arrow_string(env->isolate(), arrow);
-      PrintErrorString("%s\n%s\n", *arrow_string, *trace);
+      PrintToStderr(env->event_loop(), "%s\n%s\n", *arrow_string, *trace);
     }
   } else {
     // this really only happens for RangeErrors, since they're the only
@@ -364,18 +366,23 @@ static void ReportFatalException(Environment* env,
       // Not an error object. Just print as-is.
       String::Utf8Value message(env->isolate(), error);
 
-      PrintErrorString("%s\n",
-                       *message ? *message : "<toString() threw exception>");
+      PrintToStderr(env->event_loop(),
+                    "%s\n",
+                    *message ? *message : "<toString() threw exception>");
     } else {
       node::Utf8Value name_string(env->isolate(), name.ToLocalChecked());
       node::Utf8Value message_string(env->isolate(), message.ToLocalChecked());
 
       if (arrow.IsEmpty() || !arrow->IsString() || decorated) {
-        PrintErrorString("%s: %s\n", *name_string, *message_string);
+        PrintToStderr(
+            env->event_loop(), "%s: %s\n", *name_string, *message_string);
       } else {
         node::Utf8Value arrow_string(env->isolate(), arrow);
-        PrintErrorString(
-            "%s\n%s: %s\n", *arrow_string, *name_string, *message_string);
+        PrintToStderr(env->event_loop(),
+                      "%s\n%s: %s\n",
+                      *arrow_string,
+                      *name_string,
+                      *message_string);
       }
     }
   }
@@ -383,38 +390,62 @@ static void ReportFatalException(Environment* env,
   fflush(stderr);
 }
 
-void PrintErrorString(const char* format, ...) {
-  va_list ap;
-  va_start(ap, format);
-#ifdef _WIN32
-  HANDLE stderr_handle = GetStdHandle(STD_ERROR_HANDLE);
+int PrintToFd(uv_loop_t* loop, int fd, const char* format, va_list ap) {
+  // Format the string to be printed.
+  std::vector<char> buf;
+  size_t len = 1024 - 1;
+  do {
+    // We need extra room for the trailing '\0'.
+    buf = std::vector<char>(len + 1, 0);
+    va_list ap_copy;
+    va_copy(ap_copy, ap);
+    len = vsnprintf(buf.data(), buf.size(), format, ap_copy);
+    va_end(ap_copy);
+  } while (len > buf.size());
 
-  // Check if stderr is something other than a tty/console
-  if (stderr_handle == INVALID_HANDLE_VALUE || stderr_handle == nullptr ||
-      uv_guess_handle(_fileno(stderr)) != UV_TTY) {
-    vfprintf(stderr, format, ap);
-    va_end(ap);
-    return;
+#define RETURN_IF_ERROR(call)                                                  \
+  do {                                                                         \
+    int err = call;                                                            \
+    if (err < 0) return err;                                                   \
+  } while (0);
+
+  switch (uv_guess_handle(fd)) {
+    // Use uv_try_write for TTY to translate the color codes for
+    // Windows.
+    case UV_TTY: {
+      uv_buf_t wrbuf = uv_buf_init(buf.data(), strlen(buf.data()));
+      uv_tty_t handle;
+      uv_tty_init(loop, &handle, fd, false);
+      uv_stream_t* stream = reinterpret_cast<uv_stream_t*>(&handle);
+      RETURN_IF_ERROR(uv_stream_set_blocking(stream, true));
+      RETURN_IF_ERROR(uv_try_write(stream, &wrbuf, 1));
+      uv_close(reinterpret_cast<uv_handle_t*>(&handle), nullptr);
+      RETURN_IF_ERROR(uv_run(loop, UV_RUN_DEFAULT));
+      break;
+    }
+    default: {
+      dprintf(fd, "%s", buf.data());
+      break;
+    }
   }
 
-  // Fill in any placeholders
-  int n = _vscprintf(format, ap);
-  std::vector<char> out(n + 1);
-  vsprintf(out.data(), format, ap);
+  return 0;
+}
 
-  // Get required wide buffer size
-  n = MultiByteToWideChar(CP_UTF8, 0, out.data(), -1, nullptr, 0);
-
-  std::vector<wchar_t> wbuf(n);
-  MultiByteToWideChar(CP_UTF8, 0, out.data(), -1, wbuf.data(), n);
-
-  // Don't include the null character in the output
-  CHECK_GT(n, 0);
-  WriteConsoleW(stderr_handle, wbuf.data(), n - 1, nullptr, nullptr);
-#else
-  vfprintf(stderr, format, ap);
-#endif
+int PrintToFd(uv_loop_t* loop, int fd, const char* format, ...) {
+  va_list ap;
+  va_start(ap, format);
+  int err = PrintToFd(loop, fd, format, ap);
   va_end(ap);
+  return err;
+}
+
+int PrintToStderr(uv_loop_t* loop, const char* format, ...) {
+  va_list ap;
+  va_start(ap, format);
+  int err = PrintToFd(loop, STDERR_FILENO, format, ap);
+  va_end(ap);
+  return err;
 }
 
 [[noreturn]] void FatalError(const char* location, const char* message) {
@@ -425,9 +456,9 @@ void PrintErrorString(const char* format, ...) {
 
 void OnFatalError(const char* location, const char* message) {
   if (location) {
-    PrintErrorString("FATAL ERROR: %s %s\n", location, message);
+    PrintToStderr(uv_default_loop(), "FATAL ERROR: %s %s\n", location, message);
   } else {
-    PrintErrorString("FATAL ERROR: %s\n", message);
+    PrintToStderr(uv_default_loop(), "FATAL ERROR: %s\n", message);
   }
 #ifdef NODE_REPORT
   Isolate* isolate = Isolate::GetCurrent();

@@ -312,6 +312,7 @@ typedef struct tm TIME_TYPE;
 #endif
 
 double GetCurrentTimeInMicroseconds();
+int WriteFileSync(int fd, uv_buf_t buf);
 int WriteFileSync(const char* path, uv_buf_t buf);
 int WriteFileSync(v8::Isolate* isolate,
                   const char* path,
@@ -356,6 +357,14 @@ class TraceEventScope {
   const char* name_;
   void* id_;
 };
+
+// Use these instead of the JS land console methods in any of these
+// cases:
+// 1. when it's not safe to call into JavaScript
+// 2. when it's not safe to notify inspector about the console call
+// 3. when it's not safe to handle monkey-patching of console and process
+int PrintToFd(uv_loop_t* loop, int fd, const char* format, ...);
+int PrintToStderr(uv_loop_t* loop, const char* format, ...);
 
 }  // namespace node
 
