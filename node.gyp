@@ -237,6 +237,20 @@
       'deps/acorn-plugins/acorn-private-methods/index.js',
       'deps/acorn-plugins/acorn-static-class-features/index.js',
     ],
+    'library_includes': [
+      'src',
+      'tools/msvs/genfiles',
+      'deps/v8/include',
+      'deps/cares/include',
+      'deps/uv/include',
+      'deps/uvwasi/include',
+    ],
+    'library_defines': [
+      'NODE_PLATFORM="<(OS)"',
+      'NODE_WANT_INTERNALS=1',
+      # Warn when using deprecated V8 APIs.
+      'V8_DEPRECATION_WARNINGS=1',
+    ],
     'node_mksnapshot_exec': '<(PRODUCT_DIR)/<(EXECUTABLE_PREFIX)node_mksnapshot<(EXECUTABLE_SUFFIX)',
     'mkcodecache_exec': '<(PRODUCT_DIR)/<(EXECUTABLE_PREFIX)mkcodecache<(EXECUTABLE_SUFFIX)',
     'conditions': [
@@ -308,7 +322,7 @@
       'type': 'executable',
 
       'defines': [
-        'NODE_WANT_INTERNALS=1',
+        '<@(library_defines)',
       ],
 
       'includes': [
@@ -438,61 +452,122 @@
             },
           },
          }],
-        ['node_use_node_code_cache=="true"', {
-          'dependencies': [
-            'mkcodecache',
-          ],
-          'actions': [
-            {
-              'action_name': 'run_mkcodecache',
-              'process_outputs_as_sources': 1,
-              'inputs': [
-                '<(mkcodecache_exec)',
-              ],
-              'outputs': [
-                '<(SHARED_INTERMEDIATE_DIR)/node_code_cache.cc',
-              ],
-              'action': [
-                '<@(_inputs)',
-                '<@(_outputs)',
-              ],
-            },
-          ],
-        }, {
-          'sources': [
-            'src/node_code_cache_stub.cc'
-          ],
-        }],
-        ['node_use_node_snapshot=="true"', {
-          'dependencies': [
-            'node_mksnapshot',
-          ],
-          'actions': [
-            {
-              'action_name': 'node_mksnapshot',
-              'process_outputs_as_sources': 1,
-              'inputs': [
-                '<(node_mksnapshot_exec)',
-              ],
-              'outputs': [
-                '<(SHARED_INTERMEDIATE_DIR)/node_snapshot.cc',
-              ],
-              'action': [
-                '<@(_inputs)',
-                '<@(_outputs)',
-              ],
-            },
-          ],
-        }, {
-          'sources': [
-            'src/node_snapshot_stub.cc'
-          ],
-        }],
       ],
     }, # node_core_target_name
     {
       'target_name': '<(node_lib_target_name)',
       'type': '<(node_intermediate_lib_type)',
+
+      'dependencies': [
+        'node_lib_base',
+      ],
+      'conditions': [
+        ['node_use_node_code_cache=="true"', {
+          'dependencies': [ 'node_with_code_cache' ]
+        }, {
+          'dependencies': [ 'node_without_code_cache' ]
+        }],
+        ['node_use_node_snapshot=="true"', {
+          'dependencies': [ 'node_with_snapshot' ]
+        }, {
+          'dependencies': [ 'node_without_snapshot' ]
+        }]
+      ]
+    }, # node_lib_target_name
+    {
+      'target_name': 'node_with_code_cache',
+      'type': 'static_library',
+      'dependencies': [
+        'mkcodecache',
+      ],
+      'defines': [
+        '<@(library_defines)',
+      ],
+      'include_dirs': [
+        '<@(library_includes)',
+      ],
+      'actions': [
+        {
+          'action_name': 'run_mkcodecache',
+          'process_outputs_as_sources': 1,
+          'inputs': [
+            '<(mkcodecache_exec)',
+          ],
+          'outputs': [
+            '<(SHARED_INTERMEDIATE_DIR)/node_code_cache.cc',
+          ],
+          'action': [
+            '<@(_inputs)',
+            '<@(_outputs)',
+          ],
+        },
+      ],
+    },  # node_with_code_cache
+    {
+      'target_name': 'node_without_code_cache',
+      'type': 'static_library',
+      'dependencies': [
+        'node_lib_base',
+      ],
+      'defines': [
+        '<@(library_defines)',
+      ],
+      'include_dirs': [
+        '<@(library_includes)',
+      ],
+      'sources': [
+        'src/node_code_cache_stub.cc',
+      ],
+    },  # node_without_code_cache
+    {
+      'target_name': 'node_with_snapshot',
+      'type': 'static_library',
+      'dependencies': [
+        'node_lib_base',
+        'node_mksnapshot',
+      ],
+      'defines': [
+        '<@(library_defines)',
+      ],
+      'include_dirs': [
+        '<@(library_includes)',
+      ],
+      'actions': [
+        {
+          'action_name': 'node_mksnapshot',
+          'process_outputs_as_sources': 1,
+          'inputs': [
+            '<(node_mksnapshot_exec)',
+          ],
+          'outputs': [
+            '<(SHARED_INTERMEDIATE_DIR)/node_snapshot.cc',
+          ],
+          'action': [
+            '<@(_inputs)',
+            '<@(_outputs)',
+          ],
+        },
+      ],
+    },  # node_with_snapshot
+    {
+      'target_name': 'node_without_snapshot',
+      'type': 'static_library',
+      'dependencies': [
+        'node_lib_base',
+      ],
+      'defines': [
+        '<@(library_defines)',
+      ],
+      'include_dirs': [
+        '<@(library_includes)',
+      ],
+      'sources': [
+        'src/node_snapshot_stub.cc',
+      ],
+    },  # node_without_snapshot
+    {
+      'target_name': 'node_lib_base',
+      'type': 'static_library',
       'includes': [
         'node.gypi',
       ],
@@ -690,10 +765,7 @@
 
       'defines': [
         'NODE_ARCH="<(target_arch)"',
-        'NODE_PLATFORM="<(OS)"',
-        'NODE_WANT_INTERNALS=1',
-        # Warn when using deprecated V8 APIs.
-        'V8_DEPRECATION_WARNINGS=1',
+        '<@(library_defines)',
         'NODE_OPENSSL_SYSTEM_CERT_PATH="<(openssl_system_ca_path)"',
       ],
 
@@ -907,7 +979,7 @@
           ],
         },
       ],
-    }, # node_lib_target_name
+    }, # node_lib_base
     {
        # generate ETW header and resource files
       'target_name': 'node_etw',
@@ -1093,7 +1165,9 @@
         'test/cctest',
       ],
 
-      'defines': [ 'NODE_WANT_INTERNALS=1' ],
+      'defines': [
+        '<@(library_defines)',
+      ],
 
       'sources': [
         'src/node_snapshot_stub.cc',
@@ -1171,20 +1245,14 @@
       ],
     }, # cctest
 
-    # TODO(joyeecheung): do not depend on node_lib,
-    # instead create a smaller static library node_lib_base that does
-    # just enough for node_native_module.cc and the cache builder to
-    # compile without compiling the generated code cache C++ file.
-    # So generate_code_cache -> mkcodecache -> node_lib_base,
-    #    node_lib -> node_lib_base & generate_code_cache
     {
       'target_name': 'mkcodecache',
       'type': 'executable',
 
       'dependencies': [
-        '<(node_lib_target_name)',
-        'deps/histogram/histogram.gyp:histogram',
-        'deps/uvwasi/uvwasi.gyp:uvwasi',
+        'node_lib_base',
+        'node_without_code_cache',
+        'node_without_snapshot'
       ],
 
       'includes': [
@@ -1192,20 +1260,13 @@
       ],
 
       'include_dirs': [
-        'src',
-        'tools/msvs/genfiles',
-        'deps/v8/include',
-        'deps/cares/include',
-        'deps/uv/include',
-        'deps/uvwasi/include',
+        '<@(library_includes)',
       ],
 
       'defines': [
-        'NODE_WANT_INTERNALS=1'
+        '<@(library_defines)',
       ],
       'sources': [
-        'src/node_snapshot_stub.cc',
-        'src/node_code_cache_stub.cc',
         'tools/code_cache/mkcodecache.cc',
         'tools/code_cache/cache_builder.cc',
         'tools/code_cache/cache_builder.h',
@@ -1227,9 +1288,9 @@
       'type': 'executable',
 
       'dependencies': [
-        '<(node_lib_target_name)',
-        'deps/histogram/histogram.gyp:histogram',
-        'deps/uvwasi/uvwasi.gyp:uvwasi',
+        'node_lib_base',
+        'node_without_code_cache',
+        'node_without_snapshot'
       ],
 
       'includes': [
@@ -1237,19 +1298,14 @@
       ],
 
       'include_dirs': [
-        'src',
-        'tools/msvs/genfiles',
-        'deps/v8/include',
-        'deps/cares/include',
-        'deps/uv/include',
-        'deps/uvwasi/include',
+        '<@(library_includes)',
       ],
 
-      'defines': [ 'NODE_WANT_INTERNALS=1' ],
+      'defines': [
+        '<@(library_defines)',
+      ],
 
       'sources': [
-        'src/node_snapshot_stub.cc',
-        'src/node_code_cache_stub.cc',
         'tools/snapshot/node_mksnapshot.cc',
         'tools/snapshot/snapshot_builder.cc',
         'tools/snapshot/snapshot_builder.h',
