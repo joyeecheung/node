@@ -1,4 +1,8 @@
 {
+  # This file is necessary for building the final product (either as a
+  # shared lib or an executable). It needs to be paired with
+  # node_flags.gypi (for building libs).
+
   # 'force_load' means to include the static libs into the shared lib or
   # executable. Therefore, it is enabled when building:
   # 1. The executable and it uses static lib (cctest and node)
@@ -26,9 +30,6 @@
   },
 
   'conditions': [
-    [ 'clang==1', {
-      'cflags': [ '-Werror=undefined-inline', ]
-    }],
     [ 'node_shared=="false" and "<(_type)"=="executable"', {
       'msvs_settings': {
         'VCManifestTool': {
@@ -37,33 +38,13 @@
         }
       },
     }],
-    [ 'node_shared=="true"', {
-      'defines': [
-        'NODE_SHARED_MODE',
-      ],
-    }],
     [ 'OS=="win"', {
-      'defines!': [
-        'NODE_PLATFORM="win"',
-      ],
-      'defines': [
-        'FD_SETSIZE=1024',
-        # we need to use node's preferred "win32" rather than gyp's preferred "win"
-        'NODE_PLATFORM="win32"',
-        # Stop <windows.h> from defining macros that conflict with
-        # std::min() and std::max().  We don't use <windows.h> (much)
-        # but we still inherit it from uv.h.
-        'NOMINMAX',
-        '_UNICODE=1',
-      ],
       'msvs_precompiled_header': 'tools/msvs/pch/node_pch.h',
       'msvs_precompiled_source': 'tools/msvs/pch/node_pch.cc',
       'sources': [
         '<(_msvs_precompiled_header)',
         '<(_msvs_precompiled_source)',
       ],
-    }, { # POSIX
-      'defines': [ '__POSIX__' ],
     }],
     [ 'node_enable_d8=="true"', {
       'dependencies': [ 'tools/v8_gypfiles/d8.gyp:d8' ],
@@ -74,47 +55,12 @@
         'tools/v8_gypfiles/v8.gyp:v8_libplatform',
       ],
     }],
-    [ 'node_use_v8_platform=="true"', {
-      'defines': [
-        'NODE_USE_V8_PLATFORM=1',
-      ],
-    }, {
-      'defines': [
-        'NODE_USE_V8_PLATFORM=0',
-      ],
-    }],
-    [ 'node_tag!=""', {
-      'defines': [ 'NODE_TAG="<(node_tag)"' ],
-    }],
-    [ 'node_v8_options!=""', {
-      'defines': [ 'NODE_V8_OPTIONS="<(node_v8_options)"'],
-    }],
-    [ 'node_release_urlbase!=""', {
-      'defines': [
-        'NODE_RELEASE_URLBASE="<(node_release_urlbase)"',
-      ]
-    }],
     [ 'v8_enable_i18n_support==1', {
-      'defines': [ 'NODE_HAVE_I18N_SUPPORT=1' ],
       'dependencies': [
         '<(icu_gyp_path):icui18n',
         '<(icu_gyp_path):icuuc',
       ],
-      'conditions': [
-        [ 'icu_small=="true"', {
-          'defines': [ 'NODE_HAVE_SMALL_ICU=1' ],
-          'conditions': [
-            [ 'icu_default_data!=""', {
-              'defines': [
-                'NODE_ICU_DEFAULT_DATA_DIR="<(icu_default_data)"',
-              ],
-            }],
-          ],
-      }]],
     }],
-    [ 'node_no_browser_globals=="true"', {
-      'defines': [ 'NODE_NO_BROWSER_GLOBALS' ],
-    } ],
     [ 'node_shared_zlib=="false"', {
       'dependencies': [ 'deps/zlib/zlib.gyp:zlib' ],
       'conditions': [
@@ -190,30 +136,7 @@
     [ 'node_shared_brotli=="false"', {
       'dependencies': [ 'deps/brotli/brotli.gyp:brotli' ],
     }],
-
-    [ 'OS=="mac"', {
-      # linking Corefoundation is needed since certain OSX debugging tools
-      # like Instruments require it for some features
-      'libraries': [ '-framework CoreFoundation' ],
-      'defines!': [
-        'NODE_PLATFORM="mac"',
-      ],
-      'defines': [
-        # we need to use node's preferred "darwin" rather than gyp's preferred "mac"
-        'NODE_PLATFORM="darwin"',
-      ],
-    }],
-    [ 'OS=="freebsd"', {
-      'libraries': [
-        '-lutil',
-        '-lkvm',
-      ],
-    }],
     [ 'OS=="aix"', {
-      'defines': [
-        '_LINUX_SOURCE_COMPAT',
-        '__STDC_FORMAT_MACROS',
-      ],
       'conditions': [
         [ 'force_load=="true"', {
           'variables': {
@@ -242,20 +165,6 @@
         }],
       ],
     }],
-    [ 'OS=="solaris"', {
-      'libraries': [
-        '-lkstat',
-        '-lumem',
-      ],
-      'defines!': [
-        'NODE_PLATFORM="solaris"',
-      ],
-      'defines': [
-        # we need to use node's preferred "sunos"
-        # rather than gyp's preferred "solaris"
-        'NODE_PLATFORM="sunos"',
-      ],
-    }],
     [ '(OS=="freebsd" or OS=="linux") and node_shared=="false"'
         ' and force_load=="true"', {
       'ldflags': [
@@ -271,63 +180,11 @@
         ],
       },
     }],
-    [ 'coverage=="true" and node_shared=="false" and OS in "mac freebsd linux"', {
-      'cflags!': [ '-O3' ],
-      'ldflags': [ '--coverage',
-                   '-g',
-                   '-O0' ],
-      'cflags': [ '--coverage',
-                   '-g',
-                   '-O0' ],
-      'xcode_settings': {
-        'OTHER_CFLAGS': [
-          '--coverage',
-          '-g',
-          '-O0'
-        ],
-      },
-      'conditions': [
-        [ '_type=="executable"', {
-          'xcode_settings': {
-            'OTHER_LDFLAGS': [ '--coverage', ],
-          },
-        }],
-      ],
-    }],
     [ 'OS=="sunos"', {
       'ldflags': [ '-Wl,-M,/usr/lib/ld/map.noexstk' ],
     }],
-    [ 'OS=="linux"', {
-      'libraries!': [
-        '-lrt'
-      ],
-    }],
-    [ 'OS in "freebsd linux"', {
-      'ldflags': [ '-Wl,-z,relro',
-                   '-Wl,-z,now' ]
-    }],
-    [ 'OS=="linux" and '
-      'target_arch=="x64" and '
-      'llvm_version=="0.0"', {
-      'ldflags': [
-        '-Wl,-T',
-        '<!(realpath src/large_pages/ld.implicit.script)',
-      ]
-    }],
-    [ 'OS=="linux" and '
-      'target_arch=="x64" and '
-      'llvm_version!="0.0"', {
-      'ldflags': [
-        '-Wl,-T',
-        '<!(realpath src/large_pages/ld.implicit.script.lld)',
-      ]
-    }],
     [ 'node_use_openssl=="true"', {
-      'defines': [ 'HAVE_OPENSSL=1' ],
       'conditions': [
-        ['openssl_fips != "" or openssl_is_fips=="true"', {
-          'defines': [ 'NODE_FIPS_MODE' ],
-        }],
         [ 'node_shared_openssl=="false"', {
           'dependencies': [
             './deps/openssl/openssl.gyp:openssl',
@@ -371,10 +228,6 @@
             }],
           ],
         }]]
-
-    }, {
-      'defines': [ 'HAVE_OPENSSL=0' ]
     }],
-
   ],
 }

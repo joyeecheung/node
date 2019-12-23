@@ -309,11 +309,8 @@
       'target_name': '<(node_core_target_name)',
       'type': 'executable',
 
-      'defines': [
-        'NODE_WANT_INTERNALS=1',
-      ],
-
       'includes': [
+        'node_flags.gypi',
         'node.gypi'
       ],
 
@@ -496,6 +493,7 @@
       'target_name': '<(node_lib_target_name)',
       'type': '<(node_intermediate_lib_type)',
       'includes': [
+        'node_flags.gypi',
         'node.gypi',
       ],
 
@@ -693,7 +691,6 @@
       'defines': [
         'NODE_ARCH="<(target_arch)"',
         'NODE_PLATFORM="<(OS)"',
-        'NODE_WANT_INTERNALS=1',
         # Warn when using deprecated V8 APIs.
         'V8_DEPRECATION_WARNINGS=1',
         'NODE_OPENSSL_SYSTEM_CERT_PATH="<(openssl_system_ca_path)"',
@@ -722,8 +719,6 @@
         }],
         [ 'v8_enable_inspector==1', {
           'includes' : [ 'src/inspector/node_inspector.gypi' ],
-        }, {
-          'defines': [ 'HAVE_INSPECTOR=0' ]
         }],
         [ 'OS=="win"', {
           'conditions': [
@@ -1081,6 +1076,7 @@
       ],
 
       'includes': [
+        'node_flags.gypi',
         'node.gypi'
       ],
 
@@ -1093,8 +1089,6 @@
         'deps/uvwasi/include',
         'test/cctest',
       ],
-
-      'defines': [ 'NODE_WANT_INTERNALS=1' ],
 
       'sources': [
         'src/node_snapshot_stub.cc',
@@ -1127,13 +1121,6 @@
             'test/cctest/test_inspector_socket.cc',
             'test/cctest/test_inspector_socket_server.cc'
           ],
-          'defines': [
-            'HAVE_INSPECTOR=1',
-          ],
-        }, {
-           'defines': [
-             'HAVE_INSPECTOR=0',
-           ]
         }],
         ['OS=="solaris"', {
           'ldflags': [ '-I<(SHARED_INTERMEDIATE_DIR)' ]
@@ -1189,6 +1176,7 @@
       ],
 
       'includes': [
+        'node_flags.gypi',
         'node.gypi'
       ],
 
@@ -1201,9 +1189,6 @@
         'deps/uvwasi/include',
       ],
 
-      'defines': [
-        'NODE_WANT_INTERNALS=1'
-      ],
       'sources': [
         'src/node_snapshot_stub.cc',
         'src/node_code_cache_stub.cc',
@@ -1234,6 +1219,7 @@
       ],
 
       'includes': [
+        'node_flags.gypi',
         'node.gypi'
       ],
 
@@ -1245,8 +1231,6 @@
         'deps/uv/include',
         'deps/uvwasi/include',
       ],
-
-      'defines': [ 'NODE_WANT_INTERNALS=1' ],
 
       'sources': [
         'src/node_snapshot_stub.cc',
@@ -1278,6 +1262,7 @@
           'ldflags': ['--shared'],
           'product_extension': '<(shlib_suffix)',
           'includes': [
+            'node_flags.gypi',
             'node.gypi'
           ],
           'dependencies': ['<(node_lib_target_name)'],
