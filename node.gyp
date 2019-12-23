@@ -323,11 +323,6 @@
         'src/node_main.cc'
       ],
 
-      'dependencies': [
-        'deps/histogram/histogram.gyp:histogram',
-        'deps/uvwasi/uvwasi.gyp:uvwasi',
-      ],
-
       'msvs_settings': {
         'VCLinkerTool': {
           'GenerateMapFile': 'true', # /MAP
@@ -500,10 +495,6 @@
       'include_dirs': [
         'src',
         '<(SHARED_INTERMEDIATE_DIR)' # for node_natives.h
-      ],
-      'dependencies': [
-        'deps/histogram/histogram.gyp:histogram',
-        'deps/uvwasi/uvwasi.gyp:uvwasi',
       ],
 
       'sources': [
@@ -1068,8 +1059,6 @@
 
       'dependencies': [
         '<(node_lib_target_name)',
-        'deps/histogram/histogram.gyp:histogram',
-        'deps/uvwasi/uvwasi.gyp:uvwasi',
         'node_dtrace_header',
         'node_dtrace_ustack',
         'node_dtrace_provider',
@@ -1171,8 +1160,6 @@
 
       'dependencies': [
         '<(node_lib_target_name)',
-        'deps/histogram/histogram.gyp:histogram',
-        'deps/uvwasi/uvwasi.gyp:uvwasi',
       ],
 
       'includes': [
@@ -1214,8 +1201,6 @@
 
       'dependencies': [
         '<(node_lib_target_name)',
-        'deps/histogram/histogram.gyp:histogram',
-        'deps/uvwasi/uvwasi.gyp:uvwasi',
       ],
 
       'includes': [

@@ -29,6 +29,11 @@
     'force_load%': '<(force_load)',
   },
 
+  'dependencies': [
+    'deps/histogram/histogram.gyp:histogram',
+    'deps/uvwasi/uvwasi.gyp:uvwasi',
+  ],
+
   'conditions': [
     [ 'node_shared=="false" and "<(_type)"=="executable"', {
       'msvs_settings': {
