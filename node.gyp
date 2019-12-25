@@ -432,6 +432,74 @@
             },
           },
          }],
+      ],
+    }, # node_core_target_name
+    {
+      'target_name': '<(node_lib_target_name)',
+      'type': '<(node_intermediate_lib_type)',
+      'includes': [
+        'node_flags.gypi',
+      ],
+      'dependencies': [
+        'node_lib_base'
+      ],
+      'include_dirs': [
+        'src',
+        'deps/v8/include',
+        'deps/cares/include',
+        'deps/uv/include',
+        'deps/uvwasi/include',
+      ],
+      'conditions': [
+        [ 'node_shared=="true" and node_module_version!="" and OS!="win"', {
+          'product_extension': '<(shlib_suffix)',
+          'xcode_settings': {
+            'LD_DYLIB_INSTALL_NAME':
+              '@rpath/lib<(node_core_target_name).<(shlib_suffix)'
+          },
+        }],
+        ['node_shared=="true" and OS=="aix"', {
+          'product_name': 'node_base',
+        }],
+        [ 'node_intermediate_lib_type!="static_library"', {
+          'includes': [
+            'node.gypi',
+          ],
+          'xcode_settings': {
+            'OTHER_LDFLAGS': [
+              '-Wl,-force_load,<(PRODUCT_DIR)/<(STATIC_LIB_PREFIX)node_lib_base<(STATIC_LIB_SUFFIX)',
+            ],
+          },
+          'msvs_settings': {
+            'VCLinkerTool': {
+              'AdditionalOptions': [
+                '/WHOLEARCHIVE:<(PRODUCT_DIR)/<(STATIC_LIB_PREFIX)node_lib_base<(STATIC_LIB_SUFFIX)',
+              ],
+            },
+          },
+          'conditions': [
+            ['OS!="aix" and node_shared=="false"', {
+              'ldflags': [
+                '-Wl,--whole-archive',
+                '<(PRODUCT_DIR)/<(STATIC_LIB_PREFIX)node_lib_base<(STATIC_LIB_SUFFIX)',
+                '-Wl,--no-whole-archive',
+              ],
+            }],
+          ],
+        }],
+        [ 'OS=="win"', {
+          'conditions': [
+            [ 'node_intermediate_lib_type!="static_library"', {
+              'sources': [
+                'src/res/node.rc',
+              ],
+            }],
+          ],
+          'libraries': [
+            'Dbghelp',
+            'Psapi',
+          ],
+        }],
         ['node_use_node_code_cache=="true"', {
           'dependencies': [
             'mkcodecache',
@@ -482,21 +550,20 @@
             'src/node_snapshot_stub.cc'
           ],
         }],
-      ],
-    }, # node_core_target_name
+      ]
+    }, # node_lib_target_name
     {
-      'target_name': '<(node_lib_target_name)',
-      'type': '<(node_intermediate_lib_type)',
+      'target_name': 'node_lib_base',
+      'type': 'static_library',
       'includes': [
         'node_flags.gypi',
-        'node.gypi',
       ],
 
       'include_dirs': [
         'src',
-        '<(SHARED_INTERMEDIATE_DIR)' # for node_natives.h
+        'deps/uvwasi/include',
+        'deps/histogram/src',
       ],
-
       'sources': [
         'src/api/async_resource.cc',
         'src/api/callback.cc',
@@ -692,37 +759,38 @@
       'msvs_disabled_warnings!': [4244],
 
       'conditions': [
-        [ 'node_shared=="true"', {
-          'sources': [
-            'src/node_snapshot_stub.cc',
-            'src/node_code_cache_stub.cc',
-          ]
+        [ 'node_shared_http_parser=="false"', {
+          'include_dirs': [ 'deps/llhttp/include', ]
         }],
-        [ 'node_shared=="true" and node_module_version!="" and OS!="win"', {
-          'product_extension': '<(shlib_suffix)',
-          'xcode_settings': {
-            'LD_DYLIB_INSTALL_NAME':
-              '@rpath/lib<(node_core_target_name).<(shlib_suffix)'
-          },
+        [ 'node_shared_openssl=="false"', {
+          'include_dirs': [ 'deps/openssl/openssl/include', ]
         }],
-        ['node_shared=="true" and OS=="aix"', {
-          'product_name': 'node_base',
+        [ 'node_shared_brotli=="false"', {
+          'include_dirs': [ 'deps/brotli/c/include', ]
+        }],
+        [ 'node_shared_nghttp2=="false"', {
+          'include_dirs': [ 'deps/nghttp2/lib/includes' ],
+        }],
+        [ 'node_shared_zlib=="false"', {
+          'include_dirs': [ 'deps/zlib' ],
+        }],
+        [ 'v8_enable_i18n_support==1', {
+          'include_dirs': [
+            '<(icu_path)/source/common',
+            '<(icu_path)/source/i18n',
+          ],
+        }],
+        [ 'node_use_bundled_v8=="true"', {
+          'include_dirs': [ 'deps/v8/include', ],
+        }],
+        [ 'node_shared_cares=="false"', {
+          'include_dirs': [ 'deps/cares/include', ],
+        }],
+        [ 'node_shared_libuv=="false"', {
+          'include_dirs': [ 'deps/uv/include', ],
         }],
         [ 'v8_enable_inspector==1', {
           'includes' : [ 'src/inspector/node_inspector.gypi' ],
-        }],
-        [ 'OS=="win"', {
-          'conditions': [
-            [ 'node_intermediate_lib_type!="static_library"', {
-              'sources': [
-                'src/res/node.rc',
-              ],
-            }],
-          ],
-          'libraries': [
-            'Dbghelp',
-            'Psapi',
-          ],
         }],
         [ 'node_use_etw=="true"', {
           'defines': [ 'HAVE_ETW=1' ],
@@ -894,7 +962,7 @@
           ],
         },
       ],
-    }, # node_lib_target_name
+    }, # node_lib_base
     {
        # generate ETW header and resource files
       'target_name': 'node_etw',
@@ -1080,8 +1148,6 @@
       ],
 
       'sources': [
-        'src/node_snapshot_stub.cc',
-        'src/node_code_cache_stub.cc',
         'test/cctest/gtest/gtest-all.cc',
         'test/cctest/gtest/gtest_main.cc',
         'test/cctest/node_test_fixture.cc',
@@ -1159,7 +1225,7 @@
       'type': 'executable',
 
       'dependencies': [
-        '<(node_lib_target_name)',
+        'node_lib_base',
       ],
 
       'includes': [
@@ -1200,7 +1266,7 @@
       'type': 'executable',
 
       'dependencies': [
-        '<(node_lib_target_name)',
+        'node_lib_base',
       ],
 
       'includes': [
