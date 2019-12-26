@@ -855,9 +855,9 @@
                 'src/node_dtrace_ustack.cc',
                 'src/node_dtrace_provider.cc',
               ]
-            }
-          ] ]
-        } ],
+            }]
+          ]
+        }],
         [ 'node_use_openssl=="true"', {
           'sources': [
             'src/node_crypto.cc',
