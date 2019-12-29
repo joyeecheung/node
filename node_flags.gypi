@@ -5,6 +5,10 @@
   'defines': [
     'NODE_WANT_INTERNALS=1'
   ],
+  'include_dirs': [
+    'deps/uvwasi/include',
+    'deps/histogram/src',
+  ],
   'conditions': [
     [ 'clang==1', {
       'cflags': [ '-Werror=undefined-inline', ]
@@ -13,6 +17,33 @@
       'defines': [
         'NODE_SHARED_MODE',
       ],
+    }],
+    [ 'node_use_etw=="true"', {
+      'include_dirs': [ 'tools/msvs/genfiles', ],
+    }],
+    [ 'node_shared_http_parser=="false"', {
+      'include_dirs': [ 'deps/llhttp/include', ]
+    }],
+    [ 'node_shared_openssl=="false"', {
+      'include_dirs': [ 'deps/openssl/openssl/include', ]
+    }],
+    [ 'node_shared_brotli=="false"', {
+      'include_dirs': [ 'deps/brotli/c/include', ]
+    }],
+    [ 'node_shared_nghttp2=="false"', {
+      'include_dirs': [ 'deps/nghttp2/lib/includes' ],
+    }],
+    [ 'node_shared_zlib=="false"', {
+      'include_dirs': [ 'deps/zlib' ],
+    }],
+    [ 'node_use_bundled_v8=="true"', {
+      'include_dirs': [ 'deps/v8/include', ],
+    }],
+    [ 'node_shared_cares=="false"', {
+      'include_dirs': [ 'deps/cares/include', ],
+    }],
+    [ 'node_shared_libuv=="false"', {
+      'include_dirs': [ 'deps/uv/include', ],
     }],
     [ 'OS=="win"', {
       'defines!': [
@@ -53,6 +84,11 @@
     }],
     [ 'v8_enable_i18n_support==1', {
       'defines': [ 'NODE_HAVE_I18N_SUPPORT=1' ],
+
+      'include_dirs': [
+        '<(icu_path)/source/common',
+        '<(icu_path)/source/i18n',
+      ],
 
       'conditions': [
         [ 'icu_small=="true"', {

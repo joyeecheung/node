@@ -316,7 +316,6 @@
 
       'include_dirs': [
         'src',
-        'deps/v8/include'
       ],
 
       'sources': [
@@ -499,7 +498,6 @@
 
       'include_dirs': [
         'src',
-        '<(SHARED_INTERMEDIATE_DIR)' # for node_natives.h
       ],
       'dependencies': [
         'deps/histogram/histogram.gyp:histogram',
@@ -737,9 +735,7 @@
           'defines': [ 'HAVE_ETW=1' ],
           'dependencies': [ 'node_etw' ],
           'include_dirs': [
-            'src',
-            'tools/msvs/genfiles',
-            '<(SHARED_INTERMEDIATE_DIR)' # for node_natives.h
+            '<(SHARED_INTERMEDIATE_DIR)' # for node_provider.h
           ],
           'sources': [
             'src/node_win32_etw_provider.h',
@@ -763,7 +759,7 @@
             'node_dtrace_header',
             'specialize_node_d',
           ],
-          'include_dirs': [ '<(SHARED_INTERMEDIATE_DIR)' ],
+          'include_dirs': [ '<(SHARED_INTERMEDIATE_DIR)' ],  # for node_provider.h
           #
           # DTrace is supported on linux, solaris, mac, and bsd.  There are
           # three object files associated with DTrace support, but they're
@@ -1082,11 +1078,6 @@
 
       'include_dirs': [
         'src',
-        'tools/msvs/genfiles',
-        'deps/v8/include',
-        'deps/cares/include',
-        'deps/uv/include',
-        'deps/uvwasi/include',
         'test/cctest',
       ],
 
@@ -1182,11 +1173,6 @@
 
       'include_dirs': [
         'src',
-        'tools/msvs/genfiles',
-        'deps/v8/include',
-        'deps/cares/include',
-        'deps/uv/include',
-        'deps/uvwasi/include',
       ],
 
       'sources': [
@@ -1225,11 +1211,6 @@
 
       'include_dirs': [
         'src',
-        'tools/msvs/genfiles',
-        'deps/v8/include',
-        'deps/cares/include',
-        'deps/uv/include',
-        'deps/uvwasi/include',
       ],
 
       'sources': [
@@ -1268,7 +1249,6 @@
           'dependencies': ['<(node_lib_target_name)'],
           'include_dirs': [
             'src',
-            'deps/v8/include',
           ],
           'sources': [
             '<@(library_files)',
