@@ -73,33 +73,18 @@ inline worker::Worker* IsolateData::worker_context() const {
   return worker_context_;
 }
 
+ExternalReferencePreAllocations* IsolateData::pre_allocations() const {
+  return pre_allocations_.get();
+}
+
+SnapshotReadData* IsolateData::snapshot_data() const {
+  return snapshot_data_;
+}
+
 inline v8::Local<v8::String> IsolateData::async_wrap_provider(int index) const {
   return async_wrap_providers_[index].Get(isolate_);
 }
 
-inline AsyncHooks::AsyncHooks()
-    : async_ids_stack_(env()->isolate(), 16 * 2),
-      fields_(env()->isolate(), kFieldsCount),
-      async_id_fields_(env()->isolate(), kUidFieldsCount) {
-  clear_async_id_stack();
-
-  // Always perform async_hooks checks, not just when async_hooks is enabled.
-  // TODO(AndreasMadsen): Consider removing this for LTS releases.
-  // See discussion in https://github.com/nodejs/node/pull/15454
-  // When removing this, do it by reverting the commit. Otherwise the test
-  // and flag changes won't be included.
-  fields_[kCheck] = 1;
-
-  // kDefaultTriggerAsyncId should be -1, this indicates that there is no
-  // specified default value and it should fallback to the executionAsyncId.
-  // 0 is not used as the magic value, because that indicates a missing context
-  // which is different from a default context.
-  async_id_fields_[AsyncHooks::kDefaultTriggerAsyncId] = -1;
-
-  // kAsyncIdCounter should start at 1 because that'll be the id the execution
-  // context during bootstrap (code that runs before entering uv_run()).
-  async_id_fields_[AsyncHooks::kAsyncIdCounter] = 1;
-}
 inline AliasedUint32Array& AsyncHooks::fields() {
   return fields_;
 }
@@ -126,6 +111,10 @@ inline void AsyncHooks::no_force_checks() {
 
 inline Environment* AsyncHooks::env() {
   return Environment::ForAsyncHooks(this);
+}
+
+inline const Environment* AsyncHooks::env() const {
+  return Environment::ForAsyncHooks(const_cast<AsyncHooks*>(this));
 }
 
 // Remember to keep this code aligned with pushAsyncContext() in JS.
@@ -238,9 +227,6 @@ inline void Environment::PopAsyncCallbackScope() {
   async_callback_scope_depth_--;
 }
 
-inline ImmediateInfo::ImmediateInfo(v8::Isolate* isolate)
-    : fields_(isolate, kFieldsCount) {}
-
 inline AliasedUint32Array& ImmediateInfo::fields() {
   return fields_;
 }
@@ -264,9 +250,6 @@ inline void ImmediateInfo::ref_count_inc(uint32_t increment) {
 inline void ImmediateInfo::ref_count_dec(uint32_t decrement) {
   fields_[kRefCount] -= decrement;
 }
-
-inline TickInfo::TickInfo(v8::Isolate* isolate)
-    : fields_(isolate, kFieldsCount) {}
 
 inline AliasedUint8Array& TickInfo::fields() {
   return fields_;
@@ -360,14 +343,16 @@ Environment::BindingScope<T>::~BindingScope() {
 }
 
 template <typename T>
-v8::MaybeLocal<v8::External> Environment::MakeBindingCallbackData() {
+v8::MaybeLocal<v8::External> Environment::MakeBindingCallbackData(
+    void* allocation) {
   v8::Local<v8::Function> ctor;
   v8::Local<v8::Object> obj;
   if (!as_callback_data_template()->GetFunction(context()).ToLocal(&ctor) ||
       !ctor->NewInstance(context()).ToLocal(&obj)) {
     return v8::MaybeLocal<v8::External>();
   }
-  T* data = new T(this, obj);
+  if (allocation == nullptr) allocation = operator new(sizeof(T));
+  T* data = new(allocation) T(this, obj);
   // This won't compile if T is not a BaseObject subclass.
   CHECK_EQ(data, static_cast<BaseObject*>(data));
   return data->as_external();
@@ -467,15 +452,27 @@ inline void Environment::set_is_in_inspector_console_call(bool value) {
 }
 #endif
 
+inline const AsyncHooks* Environment::async_hooks() const {
+  return &async_hooks_;
+}
+
 inline AsyncHooks* Environment::async_hooks() {
   return &async_hooks_;
+}
+
+inline const ImmediateInfo* Environment::immediate_info() const {
+  return &immediate_info_;
 }
 
 inline ImmediateInfo* Environment::immediate_info() {
   return &immediate_info_;
 }
 
-inline TickInfo* Environment::tick_info() {
+inline const TickInfo* Environment::tick_info() const {
+  return &tick_info_;
+}
+
+inline TickInfo* Environment::tick_info()  {
   return &tick_info_;
 }
 
@@ -926,6 +923,10 @@ inline performance::PerformanceState* Environment::performance_state() {
   return performance_state_.get();
 }
 
+const performance::PerformanceState* Environment::performance_state() const {
+  return performance_state_.get();
+}
+
 inline std::unordered_map<std::string, uint64_t>*
     Environment::performance_marks() {
   return &performance_marks_;
@@ -1211,7 +1212,7 @@ BaseObject* CleanupHookCallback::GetBaseObject() const {
 }
 
 template <typename T>
-void Environment::ForEachBaseObject(T&& iterator) {
+void Environment::ForEachBaseObject(T&& iterator) const {
   for (const auto& hook : cleanup_hooks_) {
     BaseObject* obj = hook.GetBaseObject();
     if (obj != nullptr)

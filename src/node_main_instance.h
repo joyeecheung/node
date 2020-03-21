@@ -7,11 +7,14 @@
 #include <memory>
 
 #include "node.h"
+#include "snapshot_support.h"
 #include "util.h"
 #include "uv.h"
 #include "v8.h"
 
 namespace node {
+
+class SnapshotReadData;
 
 // TODO(joyeecheung): align this with the Worker/WorkerThreadData class.
 // We may be able to create an abstract class to reuse some of the routines.
@@ -40,7 +43,8 @@ class NodeMainInstance {
       uv_loop_t* event_loop,
       MultiIsolatePlatform* platform,
       const std::vector<std::string>& args,
-      const std::vector<std::string>& exec_args);
+      const std::vector<std::string>& exec_args,
+      std::unique_ptr<ExternalReferencePreAllocations> allocations);
 
   void Dispose();
 
@@ -51,7 +55,8 @@ class NodeMainInstance {
       MultiIsolatePlatform* platform,
       const std::vector<std::string>& args,
       const std::vector<std::string>& exec_args,
-      const std::vector<size_t>* per_isolate_data_indexes = nullptr);
+      SnapshotReadData* snapshot_data = nullptr,
+      std::unique_ptr<ExternalReferencePreAllocations> allocations = {});
   ~NodeMainInstance();
 
   // Start running the Node.js instances, return the exit code when finished.
@@ -64,7 +69,7 @@ class NodeMainInstance {
 
   // If nullptr is returned, the binary is not built with embedded
   // snapshot.
-  static const std::vector<size_t>* GetIsolateDataIndexes();
+  static SnapshotReadData* GetSnapshotData();
   static v8::StartupData* GetEmbeddedSnapshotBlob();
 
   static const size_t kNodeContextIndex = 0;
@@ -78,7 +83,9 @@ class NodeMainInstance {
                    uv_loop_t* event_loop,
                    MultiIsolatePlatform* platform,
                    const std::vector<std::string>& args,
-                   const std::vector<std::string>& exec_args);
+                   const std::vector<std::string>& exec_args,
+                   std::unique_ptr<ExternalReferencePreAllocations>
+                       allocations);
 
   std::vector<std::string> args_;
   std::vector<std::string> exec_args_;

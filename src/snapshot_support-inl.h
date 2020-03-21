@@ -7,6 +7,88 @@
 
 namespace node {
 
+const std::vector<std::string>& SnapshotDataBase::errors() const {
+  return errors_;
+}
+
+std::vector<uint8_t> SnapshotDataBase::release_storage() {
+  storage_.resize(current_index_);
+  return std::move(storage_);
+}
+
+SnapshotDataBase::SnapshotDataBase(std::vector<uint8_t>&& storage)
+  : storage_(storage) {}
+
+
+template <typename T>
+void SnapshotCreateData::WriteContextIndependentObject(v8::Local<T> data) {
+  WriteIndex(data.IsEmpty() ? kEmptyIndex : creator()->AddData(data));
+}
+
+template <typename T>
+void SnapshotCreateData::WriteObject(
+    v8::Local<v8::Context> context, v8::Local<T> data) {
+  WriteIndex(data.IsEmpty() ? kEmptyIndex : creator()->AddData(context, data));
+}
+
+v8::Isolate* SnapshotCreateData::isolate() {
+  return creator()->GetIsolate();
+}
+
+v8::SnapshotCreator* SnapshotCreateData::creator() {
+  return creator_;
+}
+
+SnapshotCreateData::SnapshotCreateData(v8::SnapshotCreator* creator)
+  : creator_(creator) {}
+
+template <typename T>
+v8::Maybe<v8::Local<T>> SnapshotReadData::ReadContextIndependentObject(
+    EmptyHandleMode mode) {
+  size_t index;
+  if (!ReadIndex().To(&index)) return v8::Nothing<v8::Local<T>>();
+  if (index == kEmptyIndex) {
+    if (mode == kAllowEmpty) return v8::Just(v8::Local<T>());
+    add_error("Unexpected empty handle");
+    return v8::Nothing<v8::Local<T>>();
+  }
+  v8::MaybeLocal<T> ret = isolate()->GetDataFromSnapshotOnce<T>(index);
+  if (ret.IsEmpty()) {
+    add_error("Could not get context-independent object from snapshot");
+    return v8::Nothing<v8::Local<T>>();
+  }
+  return v8::Just(ret.ToLocalChecked());
+}
+
+template <typename T>
+v8::Maybe<v8::Local<T>> SnapshotReadData::ReadObject(
+    v8::Local<v8::Context> context, EmptyHandleMode mode) {
+  size_t index;
+  if (!ReadIndex().To(&index)) return v8::Nothing<v8::Local<T>>();
+  if (index == kEmptyIndex) {
+    if (mode == kAllowEmpty) return v8::Just(v8::Local<T>());
+    add_error("Unexpected empty handle");
+    return v8::Nothing<v8::Local<T>>();
+  }
+  v8::MaybeLocal<T> ret = context->GetDataFromSnapshotOnce<T>(index);
+  if (ret.IsEmpty()) {
+    add_error("Could not get context-dependent object from snapshot");
+    return v8::Nothing<v8::Local<T>>();
+  }
+  return v8::Just(ret.ToLocalChecked());
+}
+
+v8::Isolate* SnapshotReadData::isolate() {
+  return isolate_;
+}
+
+void SnapshotReadData::set_isolate(v8::Isolate* isolate) {
+  isolate_ = isolate;
+}
+
+SnapshotReadData::SnapshotReadData(std::vector<uint8_t>&& storage)
+  : SnapshotDataBase(std::move(storage)) {}
+
 template <typename... Args>
 ExternalReferences::ExternalReferences(const char* id, Args*... args) {
   Register(id, this);
