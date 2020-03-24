@@ -692,8 +692,8 @@ class AsyncHooks : public MemoryRetainer {
  private:
   friend class Environment;  // So we can call the constructor.
   explicit AsyncHooks(const EnvSerializeInfo* info);
-  void CreateProviderStrings();
-  void DeserializeProviderStrings(const std::vector<size_t>& indexes);
+  void CreateProperties();
+  void DeserializeProperties(const std::vector<size_t>& indexes);
 
   // Keep a list of all Persistent strings used for Provider types.
   std::array<v8::Eternal<v8::String>, AsyncWrap::PROVIDERS_LENGTH> providers_;
@@ -830,14 +830,14 @@ class CleanupHookCallback {
 
 struct PropInfo {
   std::string name;  // name for debugging
-  size_t id;         // In the list
+  size_t id;         // In the list - in case there are any empty entires
   size_t index;      // In the snapshot
 };
 
 struct EnvSerializeInfo {
-  size_t context_index;
   std::vector<size_t> async_hooks_indexes;
-  std::vector<PropInfo> strong_props_indexes;
+  std::vector<PropInfo> strong_values_indexes;
+  std::vector<PropInfo> strong_templates_indexes;
   std::vector<PropInfo> aliased_buffer_indexes;
 };
 

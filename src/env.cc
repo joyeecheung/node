@@ -27,6 +27,7 @@
 namespace node {
 
 using errors::TryCatchScope;
+using v8::Array;
 using v8::ArrayBuffer;
 using v8::Boolean;
 using v8::Context;
@@ -42,6 +43,7 @@ using v8::MaybeLocal;
 using v8::NewStringType;
 using v8::Number;
 using v8::Object;
+using v8::ObjectTemplate;
 using v8::Private;
 using v8::SnapshotCreator;
 using v8::StackTrace;
@@ -289,32 +291,6 @@ std::string GetExecPath(const std::vector<std::string>& argv) {
 #endif
 
   return exec_path;
-}
-
-void Environment::DeserializeProperties(const EnvSerializeInfo* info) {
-  Local<Context> ctx = context();
-  const std::vector<PropInfo>& indexes = info->strong_props_indexes;
-  size_t id = 0;
-  size_t i = 0;
-#define V(PropertyName, TypeName)                                              \
-  do {                                                                         \
-    if (indexes[i].id == id) {                                                 \
-      DCHECK_EQ(indexes[i].name, #PropertyName);                               \
-      MaybeLocal<TypeName> field =                                             \
-          ctx->GetDataFromSnapshotOnce<TypeName>(indexes[i++].index);          \
-      if (field.IsEmpty()) {                                                   \
-        fprintf(stderr,                                                        \
-                "Failed to deserialize environment property " #PropertyName    \
-                "\n");                                                         \
-      }                                                                        \
-      set_##PropertyName(field.ToLocalChecked());                              \
-      DCHECK_LT(i, indexes.size());                                            \
-    }                                                                          \
-    id++;                                                                      \
-  } while (0);
-  ENVIRONMENT_STRONG_PERSISTENT_TEMPLATES(V)
-  ENVIRONMENT_STRONG_PERSISTENT_VALUES(V)
-#undef V
 }
 
 Environment::Environment(IsolateData* isolate_data,
@@ -968,7 +944,6 @@ AsyncHooks::AsyncHooks(const EnvSerializeInfo* info)
       fields_(env()->isolate(), kFieldsCount),
       async_id_fields_(env()->isolate(), kUidFieldsCount) {
   v8::HandleScope handle_scope(env()->isolate());
-  clear_async_id_stack();
 
   // Always perform async_hooks checks, not just when async_hooks is enabled.
   // TODO(AndreasMadsen): Consider removing this for LTS releases.
@@ -988,13 +963,15 @@ AsyncHooks::AsyncHooks(const EnvSerializeInfo* info)
   async_id_fields_[AsyncHooks::kAsyncIdCounter] = 1;
 
   if (info != nullptr) {
-    DeserializeProviderStrings(info->async_hooks_indexes);
+    DeserializeProperties(info->async_hooks_indexes);
   } else {
-    CreateProviderStrings();
+    CreateProperties();
   }
 }
 
-void AsyncHooks::CreateProviderStrings() {
+void AsyncHooks::CreateProperties() {
+  clear_async_id_stack();
+
   // Create all the provider strings that will be passed to JS. Place them in
   // an array so the array index matches the PROVIDER id offset. This way the
   // strings can be retrieved quickly.
@@ -1010,8 +987,7 @@ void AsyncHooks::CreateProviderStrings() {
 #undef V
 }
 
-void AsyncHooks::DeserializeProviderStrings(
-    const std::vector<size_t>& indexes) {
+void AsyncHooks::DeserializeProperties(const std::vector<size_t>& indexes) {
   size_t i = 0;
   Isolate* isolate = env()->isolate();
 #define V(Provider)                                                            \
@@ -1027,6 +1003,13 @@ void AsyncHooks::DeserializeProviderStrings(
   } while (0);
   NODE_ASYNC_PROVIDER_TYPES(V)
 #undef V
+
+  MaybeLocal<Array> arr = isolate->GetDataFromSnapshotOnce<Array>(indexes[i++]);
+  if (arr.IsEmpty()) {
+    fprintf(stderr, "Failed to deserialize execution_async_resources \n");
+  }
+  execution_async_resources_.Reset(isolate, arr.ToLocalChecked());
+
   CHECK_EQ(i, indexes.size());
 }
 
@@ -1190,36 +1173,18 @@ struct BufferInfo {
   const std::map<const void*, std::string>* names;
   EnvSerializeInfo* env_info;
   SnapshotCreator* creator;
-  size_t id;
 };
-
-template <typename AliasedBufferBase>
-static void SerializeBuffer(AliasedBufferBase* buf, void* data) {
-  BufferInfo* buf_info = static_cast<BufferInfo*>(data);
-  auto it = buf_info->names->find(buf);
-  if (it == buf_info->names->end()) {
-    std::cout << " Unkonwn " << buf;
-    // Require the Environment to register all known AliasedBuffers.
-    UNREACHABLE();
-  }
-
-  auto field = buf->GetJSArray();
-  DCHECK(!field.IsEmpty());
-  size_t index = buf_info->creator->AddData(field);
-  buf_info->env_info->aliased_buffer_indexes.push_back(
-      {it->second, buf_info->id++, index});
-}
 
 EnvSerializeInfo Environment::Serialize(SnapshotCreator* creator) {
   EnvSerializeInfo info;
   Local<Context> ctx = context();
 
-  info.context_index = creator->AddData(ctx);
-
   info.async_hooks_indexes.reserve(async_hooks_.providers_.size());
   for (v8::Eternal<String> str : async_hooks_.providers_) {
-    info.async_hooks_indexes.push_back(creator->AddData(str.Get(isolate_)));
+    Local<String> local = str.Get(isolate_);
+    info.async_hooks_indexes.push_back(creator->AddData(ctx, local));
   }
+  creator->AddData(ctx, async_hooks_.execution_async_resources_.Get(isolate_));
 
   size_t id = 0;
 #define V(PropertyName, TypeName)                                              \
@@ -1227,24 +1192,110 @@ EnvSerializeInfo Environment::Serialize(SnapshotCreator* creator) {
     Local<TypeName> field = PropertyName();                                    \
     if (!field.IsEmpty()) {                                                    \
       size_t index = creator->AddData(ctx, field);                             \
-      info.strong_props_indexes.push_back({#PropertyName, id, index});         \
+      info.strong_values_indexes.push_back({#PropertyName, id, index});        \
+    }                                                                          \
+    id++;                                                                      \
+  } while (0);
+  ENVIRONMENT_STRONG_PERSISTENT_VALUES(V)
+#undef V
+
+  id = 0;
+#define V(PropertyName, TypeName)                                              \
+  do {                                                                         \
+    Local<TypeName> field = PropertyName();                                    \
+    if (!field.IsEmpty()) {                                                    \
+      size_t index = creator->AddTemplate(field);                              \
+      info.strong_templates_indexes.push_back({#PropertyName, id, index});     \
     }                                                                          \
     id++;                                                                      \
   } while (0);
   ENVIRONMENT_STRONG_PERSISTENT_TEMPLATES(V)
-  ENVIRONMENT_STRONG_PERSISTENT_VALUES(V)
 #undef V
 
-  std::map<const void*, std::string> names = GetKnownBufferNames();
-  BufferInfo buf_info{&names, &info, creator, 0};
-
-#define V(NativeT, V8T)                                                        \
-  Aliased##V8T::ForEachBuffer(SerializeBuffer<Aliased##V8T>, &buf_info);
-  ALIASED_BUFFER_TYPES(V)
+  id = 0;
+#define V(Reference, TypeName)                                                 \
+  do {                                                                         \
+    auto field = Reference.GetJSArray();                                       \
+    DCHECK(!field.IsEmpty());                                                  \
+    size_t index = creator->AddData(ctx, field);                               \
+    info.aliased_buffer_indexes.push_back({#Reference, id, index});            \
+    id++;                                                                      \
+  } while (0);
+  FOR_EACH_KNOWN_BUFFER_IN_ENV(V)
 #undef V
 
+  context_.Reset();  // Release the global handle for the snapshot
   return info;
-}  // namespace node
+}
+
+void Environment::DeserializeProperties(const EnvSerializeInfo* info) {
+  Local<Context> ctx = context();
+  const std::vector<PropInfo>& values = info->strong_values_indexes;
+  size_t i = 0;  // index to the values array
+  size_t id = 0;
+
+#define V(PropertyName, TypeName)                                              \
+  do {                                                                         \
+    if (id == values[i].id) {                                                  \
+      DCHECK_EQ(values[i].name, #PropertyName);                                \
+      MaybeLocal<TypeName> field =                                             \
+          ctx->GetDataFromSnapshotOnce<TypeName>(values[i++].index);           \
+      if (field.IsEmpty()) {                                                   \
+        fprintf(stderr,                                                        \
+                "Failed to deserialize environment property " #PropertyName    \
+                "\n");                                                         \
+      }                                                                        \
+      set_##PropertyName(field.ToLocalChecked());                              \
+      DCHECK_LT(i, values.size());                                             \
+    }                                                                          \
+    id++;                                                                      \
+  } while (0);
+  ENVIRONMENT_STRONG_PERSISTENT_VALUES(V);
+#undef V
+
+  i = 0;
+  id = 0;
+  const std::vector<PropInfo>& templates = info->strong_templates_indexes;
+#define V(PropertyName, TypeName)                                              \
+  do {                                                                         \
+    if (id == templates[i].id) {                                               \
+      DCHECK_EQ(templates[i].name, #PropertyName);                             \
+      MaybeLocal<TypeName> field =                                             \
+          TypeName::FromSnapshot(isolate_, templates[i++].index);              \
+      if (field.IsEmpty()) {                                                   \
+        fprintf(stderr,                                                        \
+                "Failed to deserialize environment property " #PropertyName    \
+                "\n");                                                         \
+      }                                                                        \
+      set_##PropertyName(field.ToLocalChecked());                              \
+      DCHECK_LT(i, templates.size());                                          \
+    }                                                                          \
+    id++;                                                                      \
+  } while (0);
+  ENVIRONMENT_STRONG_PERSISTENT_TEMPLATES(V);
+#undef V
+
+  const std::vector<PropInfo>& buffers = info->aliased_buffer_indexes;
+  i = 0;
+  id = 0;
+#define V(Reference, TypeName)                                                 \
+  do {                                                                         \
+    if (id == buffers[i].id) {                                                 \
+      MaybeLocal<v8::TypeName> field =                                         \
+          ctx->GetDataFromSnapshotOnce<v8::TypeName>(buffers[i++].index);      \
+      if (field.IsEmpty()) {                                                   \
+        fprintf(stderr,                                                        \
+                "Failed to deserialize environment property " #Reference       \
+                "\n");                                                         \
+      }                                                                        \
+      Reference.Deserialize(isolate_, field.ToLocalChecked());                 \
+      DCHECK_LT(i, buffers.size());                                            \
+    }                                                                          \
+    id++;                                                                      \
+  } while (0);
+  FOR_EACH_KNOWN_BUFFER_IN_ENV(V)
+#undef V
+}
 
 void MemoryTracker::TrackField(const char* edge_name,
                                const CleanupHookCallback& value,

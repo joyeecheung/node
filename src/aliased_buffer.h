@@ -28,7 +28,7 @@ namespace node {
  * observed. Any notification APIs will be left as a future exercise.
  */
 
-enum class AliasedBufferType { kNew, kCopy, kShared, kAssigned };
+enum class AliasedBufferType { kNew, kCopy, kShared, kAssigned, kDeserialized };
 
 template <class NativeT,
           class V8T,
@@ -119,6 +119,20 @@ class AliasedBufferBase {
 
     that.buffer_ = nullptr;
     that.js_array_.Reset();
+    return *this;
+  }
+
+  AliasedBufferBase& Deserialize(v8::Isolate* isolate,
+                                 v8::Local<V8T> that) noexcept {
+    this->~AliasedBufferBase();
+    isolate_ = isolate;
+    count_ = that->Length();
+    byte_offset_ = that->ByteOffset();
+    buffer_ = static_cast<NativeT*>(that->Buffer()->GetContents().Data());
+
+    js_array_.Reset(isolate_, that);
+    type_ = AliasedBufferType::kDeserialized;
+
     return *this;
   }
 

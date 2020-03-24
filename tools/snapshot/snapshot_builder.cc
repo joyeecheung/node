@@ -34,11 +34,10 @@ void WritePropInfoVector(std::stringstream* ss,
   size_t i = 0;
   size_t size = vec.size();
   for (const auto& info : vec) {
-    *ss << R"({ ")" << info.name << R"(", )" << std::to_string(info.id)
-        << R"(, )" << std::to_string(info.index) << " }"
+    *ss << "{ \"" << info.name << "\", " << std::to_string(info.index) << " }"
         << (i++ == size - 1 ? "\n" : ",\n");
   }
-  *ss << "(};\n";
+  *ss << "};\n";
 }
 
 std::string FormatBlob(v8::StartupData* blob,
@@ -86,15 +85,16 @@ static const std::vector<size_t> async_hooks_indexes {
   ss << "};\n";
 
   WritePropInfoVector(
-      &ss, "strong_props_indexes", env_info.strong_props_indexes);
+      &ss, "strong_values_indexes", env_info.strong_values_indexes);
+  WritePropInfoVector(
+      &ss, "strong_templates_indexes", env_info.strong_templates_indexes);
   WritePropInfoVector(
       &ss, "aliased_buffer_indexes", env_info.aliased_buffer_indexes);
   ss << R"(
 static const EnvSerializeInfo env_info {
-  )" << env_info.context_index;
-  ss << R"(,
   std::move(async_hooks_indexes),
-  std::move(strong_props_indexes),
+  std::move(strong_values_indexes),
+  std::move(strong_templates_indexes),
   std::move(aliased_buffer_indexes)
 };
 
@@ -128,7 +128,7 @@ static v8::StartupData SerializeNodeContextInternalFields(Local<Object> holder,
 std::string SnapshotBuilder::Generate(
     const std::vector<std::string> args,
     const std::vector<std::string> exec_args) {
-  const std::vector<intptr_t>& external_references =
+  std::vector<intptr_t> external_references =
       NodeMainInstance::CollectExternalReferences();
   Isolate* isolate = Isolate::Allocate();
   per_process::v8_platform.Platform()->RegisterIsolate(isolate,
@@ -149,7 +149,8 @@ std::string SnapshotBuilder::Generate(
     std::vector<size_t> isolate_data_indexes;
     EnvSerializeInfo env_info;
     SnapshotCreator creator(isolate, external_references.data());
-    Environment* env = nullptr;
+    Environment* env =
+        reinterpret_cast<Environment*>(new uint8_t[sizeof(Environment)]);
     {
       main_instance =
           NodeMainInstance::Create(isolate,
@@ -164,7 +165,8 @@ std::string SnapshotBuilder::Generate(
       Local<Context> context = NewContext(isolate);
       Context::Scope context_scope(context);
 
-      env = new Environment(
+      // Do the actual instantiation.
+      new (env) Environment(
           main_instance->isolate_data(),
           context,
           args,
@@ -182,7 +184,7 @@ std::string SnapshotBuilder::Generate(
       size_t index = creator.AddContext(
           context, {SerializeNodeContextInternalFields, env});
       CHECK_EQ(index, NodeMainInstance::kNodeContextIndex);
-      // env->RunCleanup();  // will be necessary when we initiliaze libuv
+      env->RunCleanup();  // will be necessary when we initiliaze libuv
     }
 
     // Must be out of HandleScope
@@ -191,7 +193,7 @@ std::string SnapshotBuilder::Generate(
     CHECK(blob.CanBeRehashed());
     // Must be done while the snapshot creator isolate is entered i.e. the
     // creator is still alive.
-    delete env;
+    // delete env;
     main_instance->Dispose();
 
     result = FormatBlob(&blob, isolate_data_indexes, env_info);
