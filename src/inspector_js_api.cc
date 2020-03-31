@@ -2,6 +2,7 @@
 #include "inspector_agent.h"
 #include "inspector_io.h"
 #include "memory_tracker-inl.h"
+#include "snapshot_support-inl.h"
 #include "util-inl.h"
 #include "v8.h"
 #include "v8-inspector.h"
@@ -344,6 +345,28 @@ void Initialize(Local<Object> target, Local<Value> unused,
   JSBindingsConnection<LocalConnection>::Bind(env, target);
   JSBindingsConnection<MainThreadConnection>::Bind(env, target);
 }
+
+static ExternalReferences external_references {
+  __FILE__,
+  InspectorConsoleCall,
+  SetConsoleExtensionInstaller,
+  CallAndPauseOnStart,
+  Open,
+  Url,
+  WaitForDebugger,
+  AsyncTaskScheduledWrapper,
+  InvokeAsyncTaskFnWithId<&Agent::AsyncTaskCanceled>,
+  InvokeAsyncTaskFnWithId<&Agent::AsyncTaskStarted>,
+  InvokeAsyncTaskFnWithId<&Agent::AsyncTaskFinished>,
+  RegisterAsyncHookWrapper,
+  IsEnabled,
+  JSBindingsConnection<LocalConnection>::New,
+  JSBindingsConnection<LocalConnection>::Dispatch,
+  JSBindingsConnection<LocalConnection>::Disconnect,
+  JSBindingsConnection<MainThreadConnection>::New,
+  JSBindingsConnection<MainThreadConnection>::Dispatch,
+  JSBindingsConnection<MainThreadConnection>::Disconnect,
+};
 
 }  // namespace
 }  // namespace inspector
