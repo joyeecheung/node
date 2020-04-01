@@ -13,10 +13,10 @@ namespace fs {
 
 class FileHandleReadWrap;
 
-class BindingData : public BaseObject {
+class BindingData : public BindingDataBase {
  public:
   explicit BindingData(Environment* env, v8::Local<v8::Object> wrap)
-    : BaseObject(env, wrap),
+    : BindingDataBase(env, wrap),
       stats_field_array(env->isolate(), kFsStatsBufferLength),
       stats_field_bigint_array(env->isolate(), kFsStatsBufferLength) {}
 

@@ -80,10 +80,10 @@ namespace http2 {
     IDX_SESSION_STATS_COUNT
   };
 
-class Http2State : public BaseObject {
+class Http2State : public BindingDataBase {
  public:
   Http2State(Environment* env, v8::Local<v8::Object> obj)
-    : BaseObject(env, obj),
+    : BindingDataBase(env, obj),
       root_buffer(
         env->isolate(),
         sizeof(http2_state_internal)),

@@ -421,7 +421,7 @@ constexpr size_t kFsStatsBufferLength =
   V(worker_heap_snapshot_taker_template, v8::ObjectTemplate)
 
 #define ENVIRONMENT_STRONG_PERSISTENT_VALUES(V)                                \
-  V(as_callback_data, v8::Object)                                              \
+  V(as_callback_data, v8::External)                                            \
   V(async_hooks_after_function, v8::Function)                                  \
   V(async_hooks_before_function, v8::Function)                                 \
   V(async_hooks_binding, v8::Object)                                           \
@@ -430,7 +430,7 @@ constexpr size_t kFsStatsBufferLength =
   V(async_hooks_promise_resolve_function, v8::Function)                        \
   V(buffer_prototype_object, v8::Object)                                       \
   V(crypto_key_object_constructor, v8::Function)                               \
-  V(current_callback_data, v8::Object)                                         \
+  V(current_callback_data, v8::External)                                       \
   V(domain_callback, v8::Function)                                             \
   V(domexception_function, v8::Function)                                       \
   V(enhance_fatal_stack_after_inspector, v8::Function)                         \
@@ -825,6 +825,16 @@ class CleanupHookCallback {
   uint64_t insertion_order_counter_;
 };
 
+class BindingDataBase : public BaseObject {
+ public:
+  BindingDataBase(Environment* env, v8::Local<v8::Object> obj);
+
+  v8::Local<v8::External> as_external();
+
+ private:
+  v8::Global<v8::External> external_;
+};
+
 class Environment : public MemoryRetainer {
  public:
   Environment(const Environment&) = delete;
@@ -866,10 +876,12 @@ class Environment : public MemoryRetainer {
       const v8::PropertyCallbackInfo<T>& info);
 
   static inline Environment* GetFromCallbackData(v8::Local<v8::Value> val);
+  template <typename T>
+  static inline T* GetBindingData(v8::Local<v8::Value> val);
 
   // Methods created using SetMethod(), SetPrototypeMethod(), etc. inside
   // this scope can access the created T* object using
-  // Unwrap<T>(args.Data()) later.
+  // Environment::GetBindingData<T>(args.Data()) later.
   template <typename T>
   struct BindingScope {
     explicit inline BindingScope(Environment* env);
@@ -883,7 +895,7 @@ class Environment : public MemoryRetainer {
   };
 
   template <typename T>
-  inline v8::MaybeLocal<v8::Object> MakeBindingCallbackData();
+  inline v8::MaybeLocal<v8::External> MakeBindingCallbackData();
 
   static uv_key_t thread_local_env;
   static inline Environment* GetThreadLocalEnv();

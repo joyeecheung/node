@@ -2329,7 +2329,7 @@ void HttpErrorString(const FunctionCallbackInfo<Value>& args) {
 // would be suitable, for instance, for creating the Base64
 // output for an HTTP2-Settings header field.
 void PackSettings(const FunctionCallbackInfo<Value>& args) {
-  Http2State* state = Unwrap<Http2State>(args.Data());
+  Http2State* state = Environment::GetBindingData<Http2State>(args.Data());
   Environment* env = state->env();
   // TODO(addaleax): We should not be creating a full AsyncWrap for this.
   Local<Object> obj;
@@ -2346,7 +2346,7 @@ void PackSettings(const FunctionCallbackInfo<Value>& args) {
 // default SETTINGS. RefreshDefaultSettings updates that TypedArray with the
 // default values.
 void RefreshDefaultSettings(const FunctionCallbackInfo<Value>& args) {
-  Http2State* state = Unwrap<Http2State>(args.Data());
+  Http2State* state = Environment::GetBindingData<Http2State>(args.Data());
   Http2Session::Http2Settings::RefreshDefaults(state);
 }
 
@@ -2410,7 +2410,7 @@ void Http2Session::RefreshState(const FunctionCallbackInfo<Value>& args) {
 
 // Constructor for new Http2Session instances.
 void Http2Session::New(const FunctionCallbackInfo<Value>& args) {
-  Http2State* state = Unwrap<Http2State>(args.Data());
+  Http2State* state = Environment::GetBindingData<Http2State>(args.Data());
   Environment* env = state->env();
   CHECK(args.IsConstructCall());
   int32_t val = args[0]->Int32Value(env->context()).ToChecked();

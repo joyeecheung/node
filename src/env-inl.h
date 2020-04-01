@@ -328,21 +328,26 @@ inline Environment* Environment::GetCurrent(
 }
 
 Environment* Environment::GetFromCallbackData(v8::Local<v8::Value> val) {
-  DCHECK(val->IsObject());
-  v8::Local<v8::Object> obj = val.As<v8::Object>();
-  DCHECK_GE(obj->InternalFieldCount(),
-            BaseObject::kInternalFieldCount);
-  Environment* env = Unwrap<BaseObject>(obj)->env();
-  DCHECK(env->as_callback_data_template()->HasInstance(obj));
+  BindingDataBase* binding_data = GetBindingData<BindingDataBase>(val);
+  Environment* env = binding_data->env();
+  DCHECK(env->as_callback_data_template()->HasInstance(binding_data->object()));
   return env;
 }
 
 template <typename T>
+T* Environment::GetBindingData(v8::Local<v8::Value> val) {
+  DCHECK(val->IsExternal());
+  v8::Local<v8::External> external = val.As<v8::External>();
+  T* obj = static_cast<T*>(static_cast<BaseObject*>(external->Value()));
+  return obj;
+}
+
+template <typename T>
 Environment::BindingScope<T>::BindingScope(Environment* env) : env(env) {
-  v8::Local<v8::Object> callback_data;
+  v8::Local<v8::External> callback_data;
   if (!env->MakeBindingCallbackData<T>().ToLocal(&callback_data))
     return;
-  data = Unwrap<T>(callback_data);
+  data = GetBindingData<T>(callback_data);
 
   // No nesting allowed currently.
   CHECK_EQ(env->current_callback_data(), env->as_callback_data());
@@ -355,18 +360,17 @@ Environment::BindingScope<T>::~BindingScope() {
 }
 
 template <typename T>
-v8::MaybeLocal<v8::Object> Environment::MakeBindingCallbackData() {
+v8::MaybeLocal<v8::External> Environment::MakeBindingCallbackData() {
   v8::Local<v8::Function> ctor;
   v8::Local<v8::Object> obj;
   if (!as_callback_data_template()->GetFunction(context()).ToLocal(&ctor) ||
       !ctor->NewInstance(context()).ToLocal(&obj)) {
-    return v8::MaybeLocal<v8::Object>();
+    return v8::MaybeLocal<v8::External>();
   }
   T* data = new T(this, obj);
   // This won't compile if T is not a BaseObject subclass.
   CHECK_EQ(data, static_cast<BaseObject*>(data));
-  data->MakeWeak();
-  return obj;
+  return data->as_external();
 }
 
 inline Environment* Environment::GetThreadLocalEnv() {
@@ -1082,7 +1086,7 @@ inline v8::Local<v8::FunctionTemplate>
                                      v8::Local<v8::Signature> signature,
                                      v8::ConstructorBehavior behavior,
                                      v8::SideEffectType side_effect_type) {
-  v8::Local<v8::Object> external = current_callback_data();
+  v8::Local<v8::External> external = current_callback_data();
   return v8::FunctionTemplate::New(isolate(), callback, external,
                                    signature, 0, behavior, side_effect_type);
 }

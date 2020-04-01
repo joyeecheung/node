@@ -31,6 +31,7 @@ using v8::ArrayBuffer;
 using v8::Boolean;
 using v8::Context;
 using v8::EmbedderGraph;
+using v8::External;
 using v8::FinalizationGroup;
 using v8::Function;
 using v8::FunctionTemplate;
@@ -261,9 +262,26 @@ void TrackingTraceStateObserver::UpdateTraceCategoryState() {
   USE(cb->Call(env_->context(), Undefined(isolate), arraysize(args), args));
 }
 
-class NoBindingData : public BaseObject {
+BindingDataBase::BindingDataBase(Environment* env, Local<Object> obj)
+  : BaseObject(env, obj),
+    external_(env->isolate(),
+              External::New(env->isolate(),
+                            static_cast<BaseObject*>(this))) {
+  external_.SetWeak(
+      this,
+      [](const v8::WeakCallbackInfo<BindingDataBase>& data) {
+        data.GetParameter()->MakeWeak();
+      }, v8::WeakCallbackType::kParameter);
+}
+
+v8::Local<v8::External> BindingDataBase::as_external() {
+  return external_.Get(env()->isolate());
+}
+
+class NoBindingData : public BindingDataBase {
  public:
-  NoBindingData(Environment* env, Local<Object> obj) : BaseObject(env, obj) {}
+  NoBindingData(Environment* env, Local<Object> obj)
+    : BindingDataBase(env, obj) {}
 
   SET_NO_MEMORY_INFO()
   SET_MEMORY_INFO_NAME(NoBindingData)
@@ -281,10 +299,10 @@ void Environment::CreateProperties() {
     templ->Inherit(BaseObject::GetConstructorTemplate(this));
     set_as_callback_data_template(templ);
 
-    Local<Object> obj = MakeBindingCallbackData<NoBindingData>()
+    Local<External> external = MakeBindingCallbackData<NoBindingData>()
         .ToLocalChecked();
-    set_as_callback_data(obj);
-    set_current_callback_data(obj);
+    set_as_callback_data(external);
+    set_current_callback_data(external);
   }
 
   // Store primordials setup by the per-context script in the environment.

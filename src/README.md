@@ -418,7 +418,8 @@ class BindingData : public BaseObject {
 
 // Available for binding functions, e.g. the HTTP Parser constructor:
 static void New(const FunctionCallbackInfo<Value>& args) {
-  BindingData* binding_data = Unwrap<BindingData>(args.Data());
+  BindingData* binding_data =
+      Environment::GetBindingData<BindingData>(args.Data());
   new Parser(binding_data, args.This());
 }
 
