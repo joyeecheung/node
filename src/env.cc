@@ -32,6 +32,7 @@ using v8::ArrayBuffer;
 using v8::Boolean;
 using v8::Context;
 using v8::EmbedderGraph;
+using v8::External;
 using v8::FinalizationGroup;
 using v8::Function;
 using v8::FunctionTemplate;
@@ -244,15 +245,8 @@ uint64_t Environment::AllocateThreadId() {
 void Environment::CreateProperties() {
   HandleScope handle_scope(isolate_);
   Local<Context> ctx = context();
-  Local<FunctionTemplate> templ = FunctionTemplate::New(isolate());
-  templ->InstanceTemplate()->SetInternalFieldCount(1);
-  Local<Object> obj = templ->GetFunction(ctx)
-                          .ToLocalChecked()
-                          ->NewInstance(ctx)
-                          .ToLocalChecked();
-  obj->SetAlignedPointerInInternalField(0, this);
-  set_as_callback_data(obj);
-  set_as_callback_data_template(templ);
+
+  set_as_callback_data(External::New(isolate(), this));
 
   // Store primordials setup by the per-context script in the environment.
   Local<Object> per_context_bindings =

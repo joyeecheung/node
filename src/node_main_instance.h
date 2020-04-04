@@ -64,7 +64,7 @@ class NodeMainInstance {
 
   // TODO(joyeecheung): align this with the CreateEnvironment exposed in node.h
   // and the environment creation routine in workers somehow.
-  std::unique_ptr<Environment> CreateMainEnvironment(
+  void CreateMainEnvironment(
       int* exit_code, const EnvSerializeInfo* env_info);
 
   // If nullptr is returned, the binary is not built with embedded
@@ -72,7 +72,7 @@ class NodeMainInstance {
   static const std::vector<size_t>* GetIsolateDataIndexes();
   static v8::StartupData* GetEmbeddedSnapshotBlob();
   static const EnvSerializeInfo* GetEnvSerializeInfo();
-  static const std::vector<intptr_t>& CollectExternalReferences();
+  static const std::vector<intptr_t>& CollectExternalReferences(Environment* env);
 
   static const size_t kNodeContextIndex = 0;
   NodeMainInstance(const NodeMainInstance&) = delete;
@@ -96,6 +96,7 @@ class NodeMainInstance {
   std::unique_ptr<IsolateData> isolate_data_;
   bool owns_isolate_ = false;
   bool deserialize_mode_ = false;
+  std::unique_ptr<Environment> env_;
 };
 
 }  // namespace node

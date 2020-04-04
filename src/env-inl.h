@@ -293,12 +293,8 @@ inline Environment* Environment::GetCurrent(
 }
 
 inline Environment* Environment::GetFromCallbackData(v8::Local<v8::Value> val) {
-  DCHECK(val->IsObject());
-  v8::Local<v8::Object> obj = val.As<v8::Object>();
-  DCHECK_GE(obj->InternalFieldCount(), 1);
-  Environment* env =
-      static_cast<Environment*>(obj->GetAlignedPointerFromInternalField(0));
-  DCHECK(env->as_callback_data_template()->HasInstance(obj));
+  CHECK(val->IsExternal());
+  Environment* env = static_cast<Environment*>(val.As<v8::External>()->Value());
   return env;
 }
 
@@ -1087,7 +1083,7 @@ inline v8::Local<v8::FunctionTemplate>
         DebugCategory::MKSNAPSHOT,
         "Environment::NewFunctionTemplate %p\n",
         callback);
-  v8::Local<v8::Object> external = as_callback_data();
+  v8::Local<v8::Value> external = as_callback_data();
   return v8::FunctionTemplate::New(isolate(), callback, external,
                                    signature, 0, behavior, side_effect_type);
 }

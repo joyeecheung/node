@@ -1026,10 +1026,6 @@ int Start(int argc, char** argv) {
     if (!force_no_snapshot) {
       v8::StartupData* blob = NodeMainInstance::GetEmbeddedSnapshotBlob();
       if (blob != nullptr) {
-        // TODO(joyeecheung): collect external references and set it in
-        // params.external_references.
-        external_references = NodeMainInstance::CollectExternalReferences();
-        params.external_references = external_references.data();
         params.snapshot_blob = blob;
         indexes = NodeMainInstance::GetIsolateDataIndexes();
         env_info = NodeMainInstance::GetEnvSerializeInfo();

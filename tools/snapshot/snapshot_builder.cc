@@ -128,8 +128,6 @@ static v8::StartupData SerializeNodeContextInternalFields(Local<Object> holder,
 std::string SnapshotBuilder::Generate(
     const std::vector<std::string> args,
     const std::vector<std::string> exec_args) {
-  std::vector<intptr_t> external_references =
-      NodeMainInstance::CollectExternalReferences();
   Isolate* isolate = Isolate::Allocate();
   per_process::v8_platform.Platform()->RegisterIsolate(isolate,
                                                        uv_default_loop());
@@ -148,9 +146,10 @@ std::string SnapshotBuilder::Generate(
   {
     std::vector<size_t> isolate_data_indexes;
     EnvSerializeInfo env_info;
-    SnapshotCreator creator(isolate, external_references.data());
     Environment* env =
         reinterpret_cast<Environment*>(new uint8_t[sizeof(Environment)]);
+    const std::vector<intptr_t>& external_references = NodeMainInstance::CollectExternalReferences(env);
+    SnapshotCreator creator(isolate, external_references.data());
     {
       main_instance =
           NodeMainInstance::Create(isolate,
@@ -180,7 +179,7 @@ std::string SnapshotBuilder::Generate(
         env->PrintAllBuffers();
         env->PrintAllBaseObjects();
       }
-      env_info = env->Serialize(&creator);
+      // env_info = env->Serialize(&creator);
       size_t index = creator.AddContext(
           context, {SerializeNodeContextInternalFields, env});
       CHECK_EQ(index, NodeMainInstance::kNodeContextIndex);
@@ -193,7 +192,7 @@ std::string SnapshotBuilder::Generate(
     CHECK(blob.CanBeRehashed());
     // Must be done while the snapshot creator isolate is entered i.e. the
     // creator is still alive.
-    // delete env;
+    delete env;
     main_instance->Dispose();
 
     result = FormatBlob(&blob, isolate_data_indexes, env_info);

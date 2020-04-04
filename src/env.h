@@ -400,7 +400,6 @@ constexpr size_t kFsStatsBufferLength =
   V(zero_return_string, "ZERO_RETURN")
 
 #define ENVIRONMENT_STRONG_PERSISTENT_TEMPLATES(V)                             \
-  V(as_callback_data_template, v8::FunctionTemplate)                           \
   V(async_wrap_ctor_template, v8::FunctionTemplate)                            \
   V(async_wrap_object_ctor_template, v8::FunctionTemplate)                     \
   V(compiled_fn_entry_template, v8::ObjectTemplate)                            \
@@ -429,7 +428,7 @@ constexpr size_t kFsStatsBufferLength =
   V(worker_heap_snapshot_taker_template, v8::ObjectTemplate)
 
 #define ENVIRONMENT_STRONG_PERSISTENT_VALUES(V)                                \
-  V(as_callback_data, v8::Object)                                              \
+  V(as_callback_data, v8::Value)                                              \
   V(async_hooks_after_function, v8::Function)                                  \
   V(async_hooks_before_function, v8::Function)                                 \
   V(async_hooks_binding, v8::Object)                                           \
