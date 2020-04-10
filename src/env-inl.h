@@ -329,12 +329,8 @@ inline Environment* Environment::GetCurrent(
 }
 
 inline Environment* Environment::GetFromCallbackData(v8::Local<v8::Value> val) {
-  DCHECK(val->IsObject());
-  v8::Local<v8::Object> obj = val.As<v8::Object>();
-  DCHECK_GE(obj->InternalFieldCount(), 1);
-  Environment* env =
-      static_cast<Environment*>(obj->GetAlignedPointerFromInternalField(0));
-  DCHECK(env->as_callback_data_template()->HasInstance(obj));
+  CHECK(val->IsExternal());
+  Environment* env = static_cast<Environment*>(val.As<v8::External>()->Value());
   return env;
 }
 
@@ -1119,7 +1115,7 @@ inline v8::Local<v8::FunctionTemplate>
                                      v8::Local<v8::Signature> signature,
                                      v8::ConstructorBehavior behavior,
                                      v8::SideEffectType side_effect_type) {
-  v8::Local<v8::Object> external = as_callback_data();
+  v8::Local<v8::Value> external = as_callback_data();
   return v8::FunctionTemplate::New(isolate(), callback, external,
                                    signature, 0, behavior, side_effect_type);
 }
@@ -1293,6 +1289,12 @@ int64_t Environment::base_object_count() const {
   ENVIRONMENT_STRONG_PERSISTENT_VALUES(V)
 #undef V
 
+  inline v8::Local<v8::Value> Environment::as_callback_data() const {              \
+    return PersistentToLocal::Strong(as_callback_data_);                      \
+  }                                                                           \
+  inline void Environment::set_as_callback_data(v8::Local<v8::Value> value) {  \
+    as_callback_data_.Reset(isolate(), value);                                \
+  }
   inline v8::Local<v8::Context> Environment::context() const {
     return PersistentToLocal::Strong(context_);
   }

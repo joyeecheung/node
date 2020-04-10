@@ -27,10 +27,12 @@
 namespace node {
 
 using errors::TryCatchScope;
+using v8::Array;
 using v8::ArrayBuffer;
 using v8::Boolean;
 using v8::Context;
 using v8::EmbedderGraph;
+using v8::External;
 using v8::FinalizationGroup;
 using v8::Function;
 using v8::FunctionTemplate;
@@ -42,6 +44,7 @@ using v8::MaybeLocal;
 using v8::NewStringType;
 using v8::Number;
 using v8::Object;
+using v8::ObjectTemplate;
 using v8::Private;
 using v8::SnapshotCreator;
 using v8::StackTrace;
@@ -242,15 +245,8 @@ uint64_t Environment::AllocateThreadId() {
 void Environment::CreateProperties() {
   HandleScope handle_scope(isolate_);
   Local<Context> ctx = context();
-  Local<FunctionTemplate> templ = FunctionTemplate::New(isolate());
-  templ->InstanceTemplate()->SetInternalFieldCount(1);
-  Local<Object> obj = templ->GetFunction(ctx)
-                          .ToLocalChecked()
-                          ->NewInstance(ctx)
-                          .ToLocalChecked();
-  obj->SetAlignedPointerInInternalField(0, this);
-  set_as_callback_data(obj);
-  set_as_callback_data_template(templ);
+
+  set_as_callback_data(External::New(isolate(), this));
 
   // Store primordials setup by the per-context script in the environment.
   Local<Object> per_context_bindings =
@@ -1148,6 +1144,7 @@ void Environment::MemoryInfo(MemoryTracker* tracker) const {
   tracker->TrackField("immediate_info", immediate_info_);
   tracker->TrackField("tick_info", tick_info_);
 
+  tracker->TrackField("as_callback_data", as_callback_data());
 #define V(PropertyName, TypeName)                                              \
   tracker->TrackField(#PropertyName, PropertyName());
   ENVIRONMENT_STRONG_PERSISTENT_VALUES(V)
