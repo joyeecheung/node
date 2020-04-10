@@ -362,10 +362,13 @@ static ExternalReferences external_references {
   IsEnabled,
   JSBindingsConnection<LocalConnection>::New,
   JSBindingsConnection<LocalConnection>::Dispatch,
-  JSBindingsConnection<LocalConnection>::Disconnect,
+  // Disconnect is overloaded, pick the right one
+  static_cast<void(*)(const FunctionCallbackInfo<Value>& args)>(
+      JSBindingsConnection<LocalConnection>::Disconnect),
   JSBindingsConnection<MainThreadConnection>::New,
   JSBindingsConnection<MainThreadConnection>::Dispatch,
-  JSBindingsConnection<MainThreadConnection>::Disconnect,
+  static_cast<void(*)(const FunctionCallbackInfo<Value>& args)>(
+      JSBindingsConnection<MainThreadConnection>::Disconnect),
 };
 
 }  // namespace
