@@ -70,7 +70,7 @@ void Deserializer::Initialize(Isolate* isolate) {
 void Deserializer::Rehash() {
   DCHECK(can_rehash() || deserializing_user_code());
   for (HeapObject item : to_rehash_) {
-    item.RehashBasedOnMap(ReadOnlyRoots(isolate_));
+    item.RehashBasedOnMap(isolate_, ReadOnlyRoots(isolate_));
   }
 }
 
