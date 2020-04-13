@@ -22,12 +22,14 @@ SnapshotDataBase::SnapshotDataBase(std::vector<uint8_t>&& storage)
 
 template <typename T>
 void SnapshotCreateData::WriteContextIndependentObject(v8::Local<T> data) {
+  WriteTag(kContextIndependentObjectTag);
   WriteIndex(data.IsEmpty() ? kEmptyIndex : creator()->AddData(data));
 }
 
 template <typename T>
 void SnapshotCreateData::WriteObject(
     v8::Local<v8::Context> context, v8::Local<T> data) {
+  WriteTag(kObjectTag);
   WriteIndex(data.IsEmpty() ? kEmptyIndex : creator()->AddData(context, data));
 }
 
@@ -45,6 +47,8 @@ SnapshotCreateData::SnapshotCreateData(v8::SnapshotCreator* creator)
 template <typename T>
 v8::Maybe<v8::Local<T>> SnapshotReadData::ReadContextIndependentObject(
     EmptyHandleMode mode) {
+  if (!ReadTag(kContextIndependentObjectTag))
+    return v8::Nothing<v8::Local<T>>();
   size_t index;
   if (!ReadIndex().To(&index)) return v8::Nothing<v8::Local<T>>();
   if (index == kEmptyIndex) {
@@ -63,6 +67,7 @@ v8::Maybe<v8::Local<T>> SnapshotReadData::ReadContextIndependentObject(
 template <typename T>
 v8::Maybe<v8::Local<T>> SnapshotReadData::ReadObject(
     v8::Local<v8::Context> context, EmptyHandleMode mode) {
+  if (!ReadTag(kObjectTag)) return v8::Nothing<v8::Local<T>>();
   size_t index;
   if (!ReadIndex().To(&index)) return v8::Nothing<v8::Local<T>>();
   if (index == kEmptyIndex) {

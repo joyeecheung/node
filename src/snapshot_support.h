@@ -33,6 +33,9 @@ class SnapshotDataBase {
   size_t current_index_ = 0;
   std::vector<std::string> errors_;
   std::vector<std::string> entry_stack_;
+
+  static const uint8_t kContextIndependentObjectTag;
+  static const uint8_t kObjectTag;
 };
 
 class SnapshotCreateData final : public SnapshotDataBase {

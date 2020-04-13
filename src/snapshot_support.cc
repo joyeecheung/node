@@ -15,16 +15,18 @@ void Snapshottable::Serialize(SnapshotCreateData* snapshot_data) const {
   snapshot_data->add_error("Unserializable object encountered");
 }
 
-#define SNAPSHOT_TAGS(V)   \
-  V(kEntryStart)           \
-  V(kEntryEnd)             \
-  V(kBool)                 \
-  V(kInt32)                \
-  V(kInt64)                \
-  V(kUint32)               \
-  V(kUint64)               \
-  V(kIndex)                \
-  V(kString)               \
+#define SNAPSHOT_TAGS(V)                     \
+  V(kEntryStart)                             \
+  V(kEntryEnd)                               \
+  V(kBool)                                   \
+  V(kInt32)                                  \
+  V(kInt64)                                  \
+  V(kUint32)                                 \
+  V(kUint64)                                 \
+  V(kIndex)                                  \
+  V(kString)                                 \
+  V(kContextIndependentObject)               \
+  V(kObject)                                 \
 
 enum Tag {
 #define V(name) name,
@@ -38,6 +40,10 @@ static std::string TagName(int tag) {
 #undef V
   return SPrintF("(unknown tag %d)", tag);
 }
+
+const uint8_t SnapshotDataBase::kContextIndependentObjectTag =
+  kContextIndependentObject;
+const uint8_t SnapshotDataBase::kObjectTag = kObject;
 
 bool SnapshotDataBase::HasSpace(size_t addition) const {
   return storage_.size() - current_index_ >= addition;
