@@ -373,8 +373,11 @@ void Environment::CreateProperties() {
 }
 
 void Environment::DeserializeProperties() {
+  // If we have not run the bootstrapping code yet, serialization will fail,
+  // therefore this will always be true when deserializing.
+  set_has_run_bootstrapping_code(true);
+
   SnapshotReadData* snapshot_data = isolate_data()->snapshot_data();
-  if (!snapshot_data->ReadBool().To(&has_run_bootstrapping_code_)) return;
   bool can_call_into_js;
   if (!snapshot_data->ReadBool().To(&can_call_into_js)) return;
   can_call_into_js_ = can_call_into_js;
@@ -452,6 +455,12 @@ void Environment::DeserializeProperties() {
 }
 
 void Environment::Serialize(SnapshotCreateData* snapshot_data) const {
+  // This method should only be called after CreateEnvironment() finished.
+  if (!has_run_bootstrapping_code()) {
+    snapshot_data->add_error("Environment has not been bootstrapped yet");
+    return;
+  }
+
   snapshot_data->StartWriteEntry("Environment");
   async_hooks()->Serialize(snapshot_data);
   immediate_info()->Serialize(snapshot_data);
@@ -460,7 +469,6 @@ void Environment::Serialize(SnapshotCreateData* snapshot_data) const {
   should_abort_on_uncaught_toggle_.Serialize(snapshot_data);
   performance_state()->Serialize(snapshot_data);
 
-  snapshot_data->WriteBool(has_run_bootstrapping_code());
   snapshot_data->WriteBool(can_call_into_js());
 
   snapshot_data->WriteUint32(module_id_counter_);
