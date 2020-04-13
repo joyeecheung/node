@@ -116,8 +116,7 @@ std::string SnapshotBuilder::Generate(
     StartupData blob =
         creator.CreateBlob(SnapshotCreator::FunctionCodeHandling::kClear);
     snapshot_data.PrintErrorsAndAbortIfAny();
-    // XXX(addaleax) disabling this check is not good
-    // CHECK(blob.CanBeRehashed());
+    CHECK(blob.CanBeRehashed());
     // Must be done while the snapshot creator isolate is entered i.e. the
     // creator is still alive.
     env.reset();
