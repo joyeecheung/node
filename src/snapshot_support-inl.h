@@ -8,11 +8,11 @@
 namespace node {
 
 const std::vector<std::string>& SnapshotDataBase::errors() const {
-  return errors_;
+  return state_.errors;
 }
 
 std::vector<uint8_t> SnapshotDataBase::release_storage() {
-  storage_.resize(current_index_);
+  storage_.resize(state_.current_index);
   return std::move(storage_);
 }
 

@@ -117,6 +117,7 @@
 
 #include <string>
 #include <vector>
+#include <iostream>
 
 namespace node {
 
@@ -982,6 +983,19 @@ InitializationResult InitializeOncePerProcess(int argc, char** argv) {
     // Doesn't return.
     V8::SetFlagsFromString("--help", static_cast<size_t>(6));
     UNREACHABLE();
+  }
+
+  if (per_process::cli_options->dump_snapshot) {
+    SnapshotReadData* snapshot_data = NodeMainInstance::GetSnapshotData();
+    if (snapshot_data == nullptr) {
+      fprintf(stderr, "No snapshot data provided\n");
+    } else {
+      snapshot_data->Dump(std::cerr);
+      fflush(stderr);
+    }
+    result.exit_code = 0;
+    result.early_return = true;
+    return result;
   }
 
 #if HAVE_OPENSSL

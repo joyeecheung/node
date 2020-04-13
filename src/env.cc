@@ -390,6 +390,8 @@ void Environment::DeserializeProperties() {
   HandleScope handle_scope(isolate);
   Local<Context> context = this->context();
 
+  if (snapshot_data->StartReadEntry("StrongPersistentTemplates").IsNothing())
+    return;
 #define V(PropertyName, TypeName)                                             \
   do {                                                                        \
     Local<TypeName> field;                                                    \
@@ -401,7 +403,10 @@ void Environment::DeserializeProperties() {
   } while (0);
   ENVIRONMENT_STRONG_PERSISTENT_TEMPLATES(V)
 #undef V
+  if (snapshot_data->EndReadEntry().IsNothing()) return;
 
+  if (snapshot_data->StartReadEntry("StrongPersistentValues").IsNothing())
+    return;
 #define V(PropertyName, TypeName)                                             \
   do {                                                                        \
     Local<TypeName> field;                                                    \
@@ -413,7 +418,9 @@ void Environment::DeserializeProperties() {
   } while (0);
   ENVIRONMENT_STRONG_PERSISTENT_VALUES(V)
 #undef V
+  if (snapshot_data->EndReadEntry().IsNothing()) return;
 
+  if (snapshot_data->StartReadEntry("NativeModules").IsNothing()) return;
   uint64_t expected_native_module_count;
   if (!snapshot_data->ReadUint64().To(&expected_native_module_count)) return;
   for (uint64_t i = 0; i < expected_native_module_count; i++) {
@@ -421,7 +428,9 @@ void Environment::DeserializeProperties() {
     if (!snapshot_data->ReadString().To(&str)) return;
     native_modules_in_snapshot.insert(str);
   }
+  if (snapshot_data->EndReadEntry().IsNothing()) return;
 
+  if (snapshot_data->StartReadEntry("BaseObjects").IsNothing()) return;
   uint64_t expected_base_object_count;
   if (!snapshot_data->ReadUint64().To(&expected_base_object_count)) return;
 
@@ -446,6 +455,7 @@ void Environment::DeserializeProperties() {
   });
   CHECK(deserialized_objects.empty());
 #endif
+  if (snapshot_data->EndReadEntry().IsNothing()) return;
 
   Local<Context> ctx;
   if (!snapshot_data->ReadObject<Context>(context).To(&ctx)) return;
@@ -479,16 +489,21 @@ void Environment::Serialize(SnapshotCreateData* snapshot_data) const {
   HandleScope handle_scope(isolate);
   Local<Context> context = this->context();
 
+  snapshot_data->StartWriteEntry("StrongPersistentTemplates");
 #define V(PropertyName, TypeName)                                             \
   snapshot_data->WriteContextIndependentObject(PropertyName());
   ENVIRONMENT_STRONG_PERSISTENT_TEMPLATES(V)
 #undef V
+  snapshot_data->EndWriteEntry();
 
+  snapshot_data->StartWriteEntry("StrongPersistentValues");
 #define V(PropertyName, TypeName)                                             \
   snapshot_data->WriteObject(context, PropertyName());
   ENVIRONMENT_STRONG_PERSISTENT_VALUES(V)
 #undef V
+  snapshot_data->EndWriteEntry();
 
+  snapshot_data->StartWriteEntry("NativeModules");
   std::vector<std::string> native_modules;
   native_modules.insert(native_modules.end(),
                         native_modules_with_cache.begin(),
@@ -503,7 +518,9 @@ void Environment::Serialize(SnapshotCreateData* snapshot_data) const {
   snapshot_data->WriteUint64(native_modules.size());
   for (const std::string& str : native_modules)
     snapshot_data->WriteString(str);
+  snapshot_data->EndWriteEntry();
 
+  snapshot_data->StartWriteEntry("BaseObjects");
   size_t expected_base_object_count =
       initial_base_object_count_ + base_object_count();
   snapshot_data->WriteUint64(expected_base_object_count);
@@ -514,6 +531,7 @@ void Environment::Serialize(SnapshotCreateData* snapshot_data) const {
     obj->Serialize(snapshot_data);
   });
   CHECK_EQ(observed_base_object_count, expected_base_object_count);
+  snapshot_data->EndWriteEntry();
 
   snapshot_data->WriteObject(context, context);
   snapshot_data->EndWriteEntry();

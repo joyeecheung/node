@@ -5,6 +5,7 @@
 
 #include "v8.h"
 #include <map>
+#include <ostream>
 #include <unordered_map>
 
 namespace node {
@@ -30,12 +31,26 @@ class SnapshotDataBase {
   bool HasSpace(size_t addition) const;
 
   std::vector<uint8_t> storage_;
-  size_t current_index_ = 0;
-  std::vector<std::string> errors_;
-  std::vector<std::string> entry_stack_;
+
+  struct State {
+    size_t current_index = 0;
+    std::vector<std::string> errors;
+    std::vector<std::string> entry_stack;
+  };
+  State state_;
 
   static const uint8_t kContextIndependentObjectTag;
   static const uint8_t kObjectTag;
+
+  class SaveStateScope {
+   public:
+    explicit SaveStateScope(SnapshotDataBase* snapshot_data);
+    ~SaveStateScope();
+
+   private:
+    SnapshotDataBase* snapshot_data_;
+    State state_;
+  };
 };
 
 class SnapshotCreateData final : public SnapshotDataBase {
@@ -96,6 +111,7 @@ class SnapshotReadData final : public SnapshotDataBase {
       v8::Local<v8::Context> context, EmptyHandleMode mode = kRejectEmpty);
 
   v8::Maybe<bool> Finish();
+  void Dump(std::ostream& out);
 
   inline v8::Isolate* isolate();
   inline void set_isolate(v8::Isolate*);
@@ -104,6 +120,7 @@ class SnapshotReadData final : public SnapshotDataBase {
 
  private:
   bool ReadTag(uint8_t tag);
+  v8::Maybe<uint8_t> PeekTag();
   bool ReadRawData(uint8_t* data, size_t length);
 
   v8::Isolate* isolate_;
