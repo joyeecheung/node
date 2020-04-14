@@ -3,6 +3,7 @@
 #include "node_main_instance.h"
 #include <iostream>
 #include "node_errors.h"
+#include "node_native_module_env.h"
 #include "node_external_reference.h"
 #include "node_internals.h"
 #include "node_options-inl.h"
@@ -56,6 +57,9 @@ const std::vector<intptr_t>& NodeMainInstance::CollectExternalReferences(Environ
 
   registry_->Register(env);
   registry_->Register(node::RawDebug);
+  registry_->Register(node::binding::GetLinkedBinding);
+  registry_->Register(node::binding::GetInternalBinding);
+  node::native_module::NativeModuleEnv::CollectExternalReferences(registry_.get());
   // TODO(joyeecheung): collect more external references here.
   return registry_->external_references();
 }
@@ -280,7 +284,12 @@ void NodeMainInstance::CreateMainEnvironment(
                                       Environment::kOwnsProcessState |
                                       Environment::kOwnsInspector));
 
-  if (env_->RunBootstrapping().IsEmpty()) {
+  if (!deserialize_mode_ && env_->RunBootstrapping().IsEmpty()) {
+    *exit_code = 1;
+    return;
+  }
+
+  if (deserialize_mode_ && env_->BootstrapNode().IsEmpty()) {
     *exit_code = 1;
     return;
   }

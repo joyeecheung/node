@@ -1,4 +1,5 @@
 #include "node_native_module_env.h"
+#include "node_external_reference.h"
 #include "env-inl.h"
 
 namespace node {
@@ -149,6 +150,14 @@ MaybeLocal<Function> NativeModuleEnv::LookupAndCompile(
     RecordResult(id, result, optional_env);
   }
   return maybe;
+}
+
+void NativeModuleEnv::CollectExternalReferences(ExternalReferenceRegistry* registry) {
+  registry->Register(ConfigStringGetter);
+  registry->Register(ModuleIdsGetter);
+  registry->Register(GetModuleCategories);
+  registry->Register(GetCacheUsage);
+  registry->Register(CompileFunction);
 }
 
 // TODO(joyeecheung): It is somewhat confusing that Class::Initialize
