@@ -249,10 +249,12 @@ class AliasedBufferBase final : public Snapshottable {
 
   void Serialize(SnapshotCreateData* snapshot_data) const override {
     v8::HandleScope handle_scope(isolate_);
-    snapshot_data->WriteUint64(count_);
-    snapshot_data->WriteUint64(byte_offset_);
+    snapshot_data->StartWriteEntry("AliasedBuffer");
+    snapshot_data->WriteUint64(count_, "count");
+    snapshot_data->WriteUint64(byte_offset_, "byte_offset");
     v8::Local<V8T> arr = GetJSArray();
-    snapshot_data->WriteObject(arr->CreationContext(), arr);
+    snapshot_data->WriteObject(arr->CreationContext(), arr, "js_array");
+    snapshot_data->EndWriteEntry();
   }
 
   AliasedBufferBase(v8::Local<v8::Context> context,
@@ -260,8 +262,12 @@ class AliasedBufferBase final : public Snapshottable {
       : isolate_(context->GetIsolate()) {
     v8::HandleScope handle_scope(isolate_);
     uint64_t count, byte_offset;
-    if (!snapshot_data->ReadUint64().To(&count) ||
-        !snapshot_data->ReadUint64().To(&byte_offset)) return;
+    if (snapshot_data->StartReadEntry("AliasedBuffer").IsNothing() ||
+        !snapshot_data->ReadUint64().To(&count) ||
+        !snapshot_data->ReadUint64().To(&byte_offset)) {
+      return;
+    }
+
     count_ = count;
     byte_offset_ = byte_offset;
 
@@ -271,6 +277,8 @@ class AliasedBufferBase final : public Snapshottable {
     buffer_ = reinterpret_cast<NativeT*>(static_cast<char*>(
         field->Buffer()->GetBackingStore()->Data()) +
         byte_offset_);
+
+    snapshot_data->EndReadEntry();
   }
 
  private:
