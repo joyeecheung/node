@@ -220,7 +220,8 @@ NodeMainInstance::CreateMainEnvironment(int* exit_code) {
   if (deserialize_mode_) {
     SnapshotReadData* snapshot_data = isolate_data_->snapshot_data();
     CHECK_NOT_NULL(snapshot_data);
-    snapshot_data->Finish();
+    if (snapshot_data->errors().empty())
+      snapshot_data->Finish();
 
     snapshot_data->PrintErrorsAndAbortIfAny();
   }

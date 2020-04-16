@@ -1,6 +1,5 @@
 #include "snapshot_support-inl.h"
 #include "gtest/gtest.h"
-#include <sstream>
 
 TEST(SnapshotSupportTest, DumpWithoutErrors) {
   node::SnapshotCreateData data_w(nullptr);
@@ -12,18 +11,28 @@ TEST(SnapshotSupportTest, DumpWithoutErrors) {
   data_w.EndWriteEntry();
   data_w.EndWriteEntry();
 
-  node::SnapshotReadData data_r(data_w.release_storage());
-  std::ostringstream os;
-  data_r.Dump(os);
+  node::SnapshotReadData data_r(data_w.storage());
 
-  // The indices in this test can be updated at any time.
-  EXPECT_EQ(os.str(),
-      " 0 StartEntry: [Outer]\n"
-      "16   Uint32: 10\n"
-      "21   StartEntry: [Inner]\n"
-      "37     String: \"Hello!\"\n"
-      "53     EndEntry\n"
-      "54   EndEntry\n");
+  std::vector<node::SnapshotReadData::DumpLine> lines;
+  std::vector<node::SnapshotDataBase::Error> errors;
+  std::tie(lines, errors) = data_r.Dump();
+
+  EXPECT_TRUE(errors.empty());
+  EXPECT_EQ(lines.size(), 6u);
+  while (lines.size() < 6) lines.emplace_back();  // Avoid OOB test crahes.
+  EXPECT_EQ(lines[0].index, 0u);
+  EXPECT_EQ(lines[0].depth, 0u);
+  EXPECT_EQ(lines[0].description, "StartEntry: [Outer]");
+  EXPECT_EQ(lines[1].depth, 1u);
+  EXPECT_EQ(lines[1].description, "Uint32: 10");
+  EXPECT_EQ(lines[2].depth, 1u);
+  EXPECT_EQ(lines[2].description, "StartEntry: [Inner]");
+  EXPECT_EQ(lines[3].depth, 2u);
+  EXPECT_EQ(lines[3].description, "String: 'Hello!'");
+  EXPECT_EQ(lines[4].depth, 2u);
+  EXPECT_EQ(lines[4].description, "EndEntry");
+  EXPECT_EQ(lines[5].depth, 1u);
+  EXPECT_EQ(lines[5].description, "EndEntry");
 }
 
 TEST(SnapshotSupportTest, DumpWithErrors) {
@@ -36,20 +45,34 @@ TEST(SnapshotSupportTest, DumpWithErrors) {
   data_w.EndWriteEntry();
   data_w.EndWriteEntry();
 
-  std::vector<uint8_t> storage = data_w.release_storage();
-  storage[21]++;  // Invalidate storage data in some way.
+  std::vector<uint8_t> storage = data_w.storage();
+  storage.at(21)++;  // Invalidate storage data in some way.
   node::SnapshotReadData data_r(std::move(storage));
-  std::ostringstream os;
-  data_r.Dump(os);
 
-  // The indices in this test can be updated at any time.
-  EXPECT_EQ(os.str(),
-      " 0 StartEntry: [Outer]\n"
-      "16   Uint32: 10\n"
-      "21   EndEntry\n"
-      "22 String: \"Inner\"\n"
-      "37 String: \"Hello!\"\n"
-      "53 \n"
-      "1 errors found:\n"
-      "- At [54]  Attempting to end entry on empty stack\n");
+  data_r.DumpToStderr();
+  std::vector<node::SnapshotReadData::DumpLine> lines;
+  std::vector<node::SnapshotDataBase::Error> errors;
+  std::tie(lines, errors) = data_r.Dump();
+
+  // The expectations here may need to be updated if the snapshot format
+  // changes.
+  EXPECT_EQ(lines.size(), 5u);
+  while (lines.size() < 5) lines.emplace_back();  // Avoid OOB test crahes.
+  EXPECT_EQ(lines[0].index, 0u);
+  EXPECT_EQ(lines[0].depth, 0u);
+  EXPECT_EQ(lines[0].description, "StartEntry: [Outer]");
+  EXPECT_EQ(lines[1].depth, 1u);
+  EXPECT_EQ(lines[1].description, "Uint32: 10");
+  EXPECT_EQ(lines[2].depth, 1u);
+  EXPECT_EQ(lines[2].description, "EndEntry");
+  EXPECT_EQ(lines[3].depth, 0u);
+  EXPECT_EQ(lines[3].description, "String: 'Inner'");
+  EXPECT_EQ(lines[4].depth, 0u);
+  EXPECT_EQ(lines[4].description, "String: 'Hello!'");
+
+  EXPECT_EQ(errors.size(), 1u);
+  while (errors.size() < 1) errors.emplace_back();  // Avoid OOB test crashes.
+  EXPECT_EQ(errors[0].message,
+      "At [54]  Attempting to end entry on empty stack, more EndReadEntry() "
+      "than StartReadEntry() calls");
 }

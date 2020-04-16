@@ -459,8 +459,10 @@ void Environment::DeserializeProperties() {
 
   Local<Context> ctx;
   if (!snapshot_data->ReadObject<Context>(context).To(&ctx)) return;
-  if (ctx != context)
-    snapshot_data->add_error("Context mismatch");
+  if (ctx != context) {
+    snapshot_data->add_error(
+        "Context from snapshot does not match context provided to Environment");
+  }
   snapshot_data->EndReadEntry();
 }
 
@@ -1526,7 +1528,8 @@ StartupData BaseObject::SerializeInternalFields(
     return {};
   }
   snapshot_data->add_error(
-      SPrintF("Cannot serialize internal fields of %s", MemoryInfoName()));
+      SPrintF("Missing override of SerializeInternalFields() for BaseObject of "
+              "type %s for internal field %d", MemoryInfoName(), index));
   return {};
 }
 

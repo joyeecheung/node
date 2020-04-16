@@ -5,7 +5,6 @@
 
 #include "v8.h"
 #include <map>
-#include <ostream>
 #include <unordered_map>
 
 namespace node {
@@ -18,11 +17,17 @@ class SnapshotDataBase {
   virtual ~SnapshotDataBase() = default;
   static constexpr size_t kEmptyIndex = static_cast<size_t>(-1);
 
+  struct Error {
+    size_t index;
+    std::string message;
+  };
+
   void add_error(const std::string& error);
-  inline const std::vector<std::string>& errors() const;
-  inline std::vector<uint8_t> release_storage();
+  inline const std::vector<Error>& errors() const;
+  inline std::vector<uint8_t> storage();
 
   void PrintErrorsAndAbortIfAny();
+  void DumpToStderr();
 
  protected:
   explicit inline SnapshotDataBase(std::vector<uint8_t>&& storage);
@@ -34,7 +39,7 @@ class SnapshotDataBase {
 
   struct State {
     size_t current_index = 0;
-    std::vector<std::string> errors;
+    std::vector<Error> errors;
     std::vector<std::string> entry_stack;
   };
   State state_;
@@ -80,7 +85,6 @@ class SnapshotCreateData final : public SnapshotDataBase {
  private:
   void WriteTag(uint8_t tag);
   void WriteRawData(const uint8_t* data, size_t length);
-  void EnsureSpace(size_t addition);
 
   v8::SnapshotCreator* creator_;
 };
@@ -111,7 +115,15 @@ class SnapshotReadData final : public SnapshotDataBase {
       v8::Local<v8::Context> context, EmptyHandleMode mode = kRejectEmpty);
 
   v8::Maybe<bool> Finish();
-  void Dump(std::ostream& out);
+
+  struct DumpLine {
+    size_t index;
+    size_t depth;
+    std::string description;
+
+    std::string ToString() const;
+  };
+  std::pair<std::vector<DumpLine>, std::vector<Error>> Dump();
 
   inline v8::Isolate* isolate();
   inline void set_isolate(v8::Isolate*);

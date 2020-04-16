@@ -51,7 +51,7 @@ static v8::StartupData blob = { blob_data, blob_size };
 static SnapshotReadData snapshot_data {
   {
 )";
-  std::vector<uint8_t> raw_data = snapshot_data->release_storage();
+  std::vector<uint8_t> raw_data = snapshot_data->storage();
   WriteVector(&ss, raw_data.data(), raw_data.size());
   ss << R"(
   }

@@ -3,7 +3,7 @@
 #include "debug_utils-inl.h"
 #include "json_utils.h"  // EscapeJsonChars
 #include "util.h"
-#include <cmath>  // std::log10
+#include <sstream>
 #include <iomanip>  // std::setw
 
 using v8::Just;
@@ -62,21 +62,16 @@ bool SnapshotDataBase::HasSpace(size_t addition) const {
   return storage_.size() - state_.current_index >= addition;
 }
 
-void SnapshotCreateData::EnsureSpace(size_t addition) {
-  if (LIKELY(HasSpace(addition))) return;  // Enough space.
-  addition = std::max<size_t>(addition, 4096);
-  storage_.resize(storage_.size() + addition);
-}
-
 void SnapshotCreateData::WriteRawData(const uint8_t* data, size_t length) {
-  EnsureSpace(length);
+  storage_.resize(storage_.size() + length);
   memcpy(storage_.data() + state_.current_index, data, length);
   state_.current_index += length;
+  CHECK_EQ(state_.current_index, storage_.size());
 }
 
 bool SnapshotReadData::ReadRawData(uint8_t* data, size_t length) {
   if (UNLIKELY(!HasSpace(length))) {
-    add_error("Unexpected end of input");
+    add_error("Unexpected end of snapshot data input");
     return false;
   }
   memcpy(data, storage_.data() + state_.current_index, length);
@@ -92,8 +87,8 @@ bool SnapshotReadData::ReadTag(uint8_t expected) {
   uint8_t actual;
   if (!ReadRawData(&actual, 1)) return false;
   if (actual != expected) {
-    add_error(SPrintF("Unexpected tag %s (expected %s)",
-                      TagName(actual), TagName(expected)));
+    add_error(SPrintF("Tried to read object of type %s, found type %s instead",
+                      TagName(expected), TagName(actual)));
     return false;
   }
   return true;
@@ -114,7 +109,8 @@ void SnapshotCreateData::StartWriteEntry(const char* name) {
 
 void SnapshotCreateData::EndWriteEntry() {
   if (state_.entry_stack.empty()) {
-    add_error("Attempting to end entry on empty stack");
+    add_error("Attempting to end entry on empty stack, "
+              "more EndWriteEntry() than StartWriteEntry() calls");
     return;
   }
 
@@ -169,7 +165,8 @@ v8::Maybe<std::string> SnapshotReadData::StartReadEntry(const char* expected) {
   std::string actual;
   if (!ReadString().To(&actual)) return Nothing<std::string>();
   if (expected != nullptr && actual != expected) {
-    add_error(SPrintF("Unexpected entry %s (expected %s)", actual, expected));
+    add_error(SPrintF("Tried to read start of entry %s, found entry %s",
+                      expected, actual));
     return Nothing<std::string>();
   }
   state_.entry_stack.push_back(actual);
@@ -179,7 +176,8 @@ v8::Maybe<std::string> SnapshotReadData::StartReadEntry(const char* expected) {
 v8::Maybe<bool> SnapshotReadData::EndReadEntry() {
   if (!ReadTag(kEntryEnd)) return Nothing<bool>();
   if (state_.entry_stack.empty()) {
-    add_error("Attempting to end entry on empty stack");
+    add_error("Attempting to end entry on empty stack, "
+              "more EndReadEntry() than StartReadEntry() calls");
     return Nothing<bool>();
   }
   state_.entry_stack.pop_back();
@@ -245,12 +243,12 @@ v8::Maybe<std::string> SnapshotReadData::ReadString() {
 
 v8::Maybe<bool> SnapshotReadData::Finish() {
   if (!state_.entry_stack.empty()) {
-    add_error("Entries left on snapshot stack");
+    add_error("Entries left on snapshot stack, EndReadEntry() missing");
     return Nothing<bool>();
   }
 
   if (state_.current_index != storage_.size()) {
-    add_error("Unexpected data at end of snapshot");
+    add_error("Unexpected data past the end of the snapshot data");
     return Nothing<bool>();
   }
 
@@ -261,31 +259,77 @@ v8::Maybe<bool> SnapshotReadData::Finish() {
 }
 
 void SnapshotDataBase::add_error(const std::string& error) {
-  std::string location = "At [";
-  location += std::to_string(state_.current_index);
-  location += "] ";
+  std::string message = "At [";
+  message += std::to_string(state_.current_index);
+  message += "] ";
   for (const std::string& entry : state_.entry_stack) {
-    location += entry;
-    location += ':';
+    message += entry;
+    message += ':';
   }
-  location += " ";
-  location += error;
-  state_.errors.emplace_back(std::move(location));
+  message += " ";
+  message += error;
+  state_.errors.emplace_back(
+      Error { state_.current_index, std::move(message) });
+}
+
+std::string SnapshotReadData::DumpLine::ToString() const {
+  std::ostringstream os;
+  os << std::setw(6) << index << ' ';
+  for (size_t i = 0; i < depth; i++) os << "  ";
+  os << description;
+  return os.str();
+}
+
+void SnapshotDataBase::DumpToStderr() {
+  std::vector<SnapshotReadData::DumpLine> lines;
+  std::vector<Error> errors;
+  std::tie(lines, errors) = SnapshotReadData(storage()).Dump();
+
+  for (const SnapshotReadData::DumpLine& line : lines)
+    fprintf(stderr, "%s\n", line.ToString().c_str());
+  if (!errors.empty()) {
+    fprintf(stderr, "Encountered %zu snapshot errors:\n", errors.size());
+    for (const Error& error : errors)
+      fprintf(stderr, "%s\n", error.message.c_str());
+  }
 }
 
 void SnapshotDataBase::PrintErrorsAndAbortIfAny() {
   if (errors().empty()) return;
-  for (const std::string& error : errors())
-    fprintf(stderr, "Snapshot error: %s\n", error.c_str());
+
+  std::vector<SnapshotReadData::DumpLine> lines;
+  std::tie(lines, std::ignore) = SnapshotReadData(storage()).Dump();
+
+  fprintf(stderr, "Encountered %zu snapshot errors:\n", errors().size());
+  for (const Error& error : errors()) {
+    fprintf(stderr, "%s\nAround:\n", error.message.c_str());
+    size_t i;
+    for (i = 0; i < lines.size(); i++) {
+      if (lines[i].index >= error.index) break;
+    }
+    size_t start_print_range = std::max<int64_t>(i - 5, 0);
+    size_t end_print_range = std::min<int64_t>(i + 5, lines.size() - 1);
+    for (size_t j = start_print_range; j <= end_print_range; j++) {
+      fprintf(stderr,
+              "%c %s\n",
+              i == j + 1 ? '*' : ' ',  // Mark the line presumed to be at fault.
+              lines[j].ToString().c_str());
+    }
+  }
+  fprintf(stderr,
+          "(`node --dump-snapshot` dumps the full snapshot data contained "
+          "in a node binary)\n");
   fflush(stderr);
   Abort();
 }
 
-void SnapshotReadData::Dump(std::ostream& out) {
+std::pair<std::vector<SnapshotReadData::DumpLine>,
+          std::vector<SnapshotDataBase::Error>> SnapshotReadData::Dump() {
   SaveStateScope state_scope(this);
   state_ = State{};
 
-  const int index_width = std::log10(storage_.size()) + 1;
+  std::vector<DumpLine> ret;
+
   while (state_.current_index < storage_.size() && errors().empty()) {
     uint8_t tag;
     if (!PeekTag().To(&tag)) {
@@ -293,54 +337,60 @@ void SnapshotReadData::Dump(std::ostream& out) {
       break;
     }
 
-    out << std::setw(index_width) << state_.current_index << ' ';
-    for (size_t i = 0; i < state_.entry_stack.size(); i++) out << "  ";
+    DumpLine line = { state_.current_index, state_.entry_stack.size(), "" };
+
     switch (tag) {
       case kEntryStart: {
         std::string str;
         if (!StartReadEntry(nullptr).To(&str)) break;
-        out << "StartEntry: [" << str << "]\n";
+        line.description = SPrintF("StartEntry: [%s]", str);
         break;
       }
       case kEntryEnd: {
         if (EndReadEntry().IsNothing()) break;
-        out << "EndEntry\n";
+        line.description = "EndEntry";
         break;
       }
       case kBool: {
         bool value;
         if (!ReadBool().To(&value)) break;
-        out << "Bool: " << value << "\n";
+        line.description = SPrintF("Bool: %s", value);
         break;
       }
       case kInt32: {
         int32_t value;
         if (!ReadInt32().To(&value)) break;
-        out << "Int32: " << value << "\n";
+        line.description = SPrintF("Int32: %s", value);
         break;
       }
       case kInt64: {
         int64_t value;
         if (!ReadInt64().To(&value)) break;
-        out << "Int64: " << value << "\n";
+        line.description = SPrintF("Int64: %s", value);
         break;
       }
       case kUint32: {
         uint32_t value;
         if (!ReadUint32().To(&value)) break;
-        out << "Uint32: " << value << "\n";
+        line.description = SPrintF("Uint32: %s", value);
         break;
       }
       case kUint64: {
         uint64_t value;
         if (!ReadUint64().To(&value)) break;
-        out << "Uint64: " << value << "\n";
+        line.description = SPrintF("Uint64: %s", value);
         break;
       }
       case kString: {
         std::string value;
         if (!ReadString().To(&value)) break;
-        out << "String: \"" << EscapeJsonChars(value) << "\"\n";
+        if (value.size() > 120) {
+          line.description = SPrintF("String: '%s' ... '%s'",
+              EscapeJsonChars(value.substr(0, 90)),
+              EscapeJsonChars(value.substr(value.size() - 20)));
+        } else {
+          line.description = SPrintF("String: '%s'", EscapeJsonChars(value));
+        }
         break;
       }
       case kContextIndependentObjectTag:
@@ -350,29 +400,28 @@ void SnapshotReadData::Dump(std::ostream& out) {
       case kIndex: {
         size_t index;
         if (!ReadIndex().To(&index)) break;
-        if (tag == kContextIndependentObjectTag)
-          out << "Context-independent object index: ";
-        else
-          out << "Object index: ";
+        const char* type = tag == kContextIndependentObjectTag ?
+          "Context-independent object index" :
+          "Object index";
         if (index == kEmptyIndex)
-          out << "(empty)\n";
+          line.description = SPrintF("%s: (empty)", type);
         else
-          out << index << "\n";
+          line.description = SPrintF("%s: %s", type, index);
         break;
       }
       default: {
-        out << TagName(tag) << "\n";
-        add_error(SPrintF("Unknown tag %d", tag));
+        // This will indicate that this is an unknown tag.
+        line.description = TagName(tag);
+        add_error(SPrintF("Encountered unknown type tag %d", tag));
         break;
       }
     }
+
+    if (!line.description.empty())
+      ret.emplace_back(std::move(line));
   }
 
-  if (!errors().empty()) {
-    out << "\n" << errors().size() << " errors found:\n";
-    for (const std::string& error : errors())
-      out << "- " << error << "\n";
-  }
+  return std::make_pair(ret, errors());
 }
 
 void ExternalReferences::AddPointer(intptr_t ptr) {

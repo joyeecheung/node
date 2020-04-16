@@ -7,13 +7,12 @@
 
 namespace node {
 
-const std::vector<std::string>& SnapshotDataBase::errors() const {
+const std::vector<SnapshotDataBase::Error>& SnapshotDataBase::errors() const {
   return state_.errors;
 }
 
-std::vector<uint8_t> SnapshotDataBase::release_storage() {
-  storage_.resize(state_.current_index);
-  return std::move(storage_);
+std::vector<uint8_t> SnapshotDataBase::storage() {
+  return storage_;
 }
 
 SnapshotDataBase::SnapshotDataBase(std::vector<uint8_t>&& storage)
@@ -53,7 +52,7 @@ v8::Maybe<v8::Local<T>> SnapshotReadData::ReadContextIndependentObject(
   if (!ReadIndex().To(&index)) return v8::Nothing<v8::Local<T>>();
   if (index == kEmptyIndex) {
     if (mode == kAllowEmpty) return v8::Just(v8::Local<T>());
-    add_error("Unexpected empty handle");
+    add_error("Empty handle in serialized data was rejected");
     return v8::Nothing<v8::Local<T>>();
   }
   v8::MaybeLocal<T> ret = isolate()->GetDataFromSnapshotOnce<T>(index);
@@ -72,7 +71,7 @@ v8::Maybe<v8::Local<T>> SnapshotReadData::ReadObject(
   if (!ReadIndex().To(&index)) return v8::Nothing<v8::Local<T>>();
   if (index == kEmptyIndex) {
     if (mode == kAllowEmpty) return v8::Just(v8::Local<T>());
-    add_error("Unexpected empty handle");
+    add_error("Empty handle in serialized data was rejected");
     return v8::Nothing<v8::Local<T>>();
   }
   v8::MaybeLocal<T> ret = context->GetDataFromSnapshotOnce<T>(index);

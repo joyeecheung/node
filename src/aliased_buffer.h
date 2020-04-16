@@ -250,10 +250,10 @@ class AliasedBufferBase final : public Snapshottable {
   void Serialize(SnapshotCreateData* snapshot_data) const override {
     v8::HandleScope handle_scope(isolate_);
     snapshot_data->StartWriteEntry("AliasedBuffer");
-    snapshot_data->WriteUint64(count_, "count");
-    snapshot_data->WriteUint64(byte_offset_, "byte_offset");
+    snapshot_data->WriteUint64(count_);
+    snapshot_data->WriteUint64(byte_offset_);
     v8::Local<V8T> arr = GetJSArray();
-    snapshot_data->WriteObject(arr->CreationContext(), arr, "js_array");
+    snapshot_data->WriteObject(arr->CreationContext(), arr);
     snapshot_data->EndWriteEntry();
   }
 

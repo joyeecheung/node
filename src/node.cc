@@ -990,8 +990,7 @@ InitializationResult InitializeOncePerProcess(int argc, char** argv) {
     if (snapshot_data == nullptr) {
       fprintf(stderr, "No snapshot data provided\n");
     } else {
-      snapshot_data->Dump(std::cerr);
-      fflush(stderr);
+      snapshot_data->DumpToStderr();
     }
     result.exit_code = 0;
     result.early_return = true;
