@@ -48,7 +48,7 @@ v8::Maybe<v8::Local<T>> SnapshotReadData::ReadContextIndependentObject(
     EmptyHandleMode mode) {
   if (!ReadTag(kContextIndependentObjectTag))
     return v8::Nothing<v8::Local<T>>();
-  size_t index;
+  V8SnapshotIndex index;
   if (!ReadIndex().To(&index)) return v8::Nothing<v8::Local<T>>();
   if (index == kEmptyIndex) {
     if (mode == kAllowEmpty) return v8::Just(v8::Local<T>());
@@ -67,7 +67,7 @@ template <typename T>
 v8::Maybe<v8::Local<T>> SnapshotReadData::ReadObject(
     v8::Local<v8::Context> context, EmptyHandleMode mode) {
   if (!ReadTag(kObjectTag)) return v8::Nothing<v8::Local<T>>();
-  size_t index;
+  V8SnapshotIndex index;
   if (!ReadIndex().To(&index)) return v8::Nothing<v8::Local<T>>();
   if (index == kEmptyIndex) {
     if (mode == kAllowEmpty) return v8::Just(v8::Local<T>());

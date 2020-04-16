@@ -58,8 +58,8 @@ SnapshotDataBase::SaveStateScope::~SaveStateScope() {
 }
 
 
-bool SnapshotDataBase::HasSpace(size_t addition) const {
-  return storage_.size() - state_.current_index >= addition;
+bool SnapshotDataBase::HasSpace(size_t length) const {
+  return storage_.size() - state_.current_index >= length;
 }
 
 void SnapshotCreateData::WriteRawData(const uint8_t* data, size_t length) {
@@ -144,7 +144,7 @@ void SnapshotCreateData::WriteUint64(uint64_t value) {
   WriteRawData(reinterpret_cast<const uint8_t*>(&value), sizeof(value));
 }
 
-void SnapshotCreateData::WriteIndex(size_t value) {
+void SnapshotCreateData::WriteIndex(V8SnapshotIndex value) {
   WriteTag(kIndex);
   WriteRawData(reinterpret_cast<const uint8_t*>(&value), sizeof(value));
 }
@@ -223,7 +223,7 @@ v8::Maybe<uint64_t> SnapshotReadData::ReadUint64() {
   return Just(value);
 }
 
-v8::Maybe<size_t> SnapshotReadData::ReadIndex() {
+v8::Maybe<V8SnapshotIndex> SnapshotReadData::ReadIndex() {
   if (!ReadTag(kIndex)) return Nothing<size_t>();
   size_t value;
   if (!ReadRawData(reinterpret_cast<uint8_t*>(&value), sizeof(value)))
@@ -398,7 +398,7 @@ std::pair<std::vector<SnapshotReadData::DumpLine>,
         CHECK(ReadTag(tag));
         // fall-through
       case kIndex: {
-        size_t index;
+        V8SnapshotIndex index;
         if (!ReadIndex().To(&index)) break;
         const char* type = tag == kContextIndependentObjectTag ?
           "Context-independent object index" :
