@@ -19,8 +19,8 @@ void Snapshottable::Serialize(SnapshotCreateData* snapshot_data) const {
 }
 
 #define SNAPSHOT_TAGS(V)                     \
-  V(kEntryStart)                             \
-  V(kEntryEnd)                               \
+  V(kStartEntry)                             \
+  V(kEndEntry)                               \
   V(kBool)                                   \
   V(kInt32)                                  \
   V(kInt64)                                  \
@@ -102,7 +102,7 @@ Maybe<uint8_t> SnapshotReadData::PeekTag() {
 }
 
 void SnapshotCreateData::StartWriteEntry(const char* name) {
-  WriteTag(kEntryStart);
+  WriteTag(kStartEntry);
   WriteString(name);
   state_.entry_stack.push_back(name);
 }
@@ -115,7 +115,7 @@ void SnapshotCreateData::EndWriteEntry() {
   }
 
   state_.entry_stack.pop_back();
-  WriteTag(kEntryEnd);
+  WriteTag(kEndEntry);
 }
 
 void SnapshotCreateData::WriteBool(bool value) {
@@ -161,7 +161,7 @@ void SnapshotCreateData::WriteString(const std::string& str) {
 }
 
 v8::Maybe<std::string> SnapshotReadData::StartReadEntry(const char* expected) {
-  if (!ReadTag(kEntryStart)) return Nothing<std::string>();
+  if (!ReadTag(kStartEntry)) return Nothing<std::string>();
   std::string actual;
   if (!ReadString().To(&actual)) return Nothing<std::string>();
   if (expected != nullptr && actual != expected) {
@@ -174,7 +174,7 @@ v8::Maybe<std::string> SnapshotReadData::StartReadEntry(const char* expected) {
 }
 
 v8::Maybe<bool> SnapshotReadData::EndReadEntry() {
-  if (!ReadTag(kEntryEnd)) return Nothing<bool>();
+  if (!ReadTag(kEndEntry)) return Nothing<bool>();
   if (state_.entry_stack.empty()) {
     add_error("Attempting to end entry on empty stack, "
               "more EndReadEntry() than StartReadEntry() calls");
@@ -340,13 +340,13 @@ std::pair<std::vector<SnapshotReadData::DumpLine>,
     DumpLine line = { state_.current_index, state_.entry_stack.size(), "" };
 
     switch (tag) {
-      case kEntryStart: {
+      case kStartEntry: {
         std::string str;
         if (!StartReadEntry(nullptr).To(&str)) break;
         line.description = SPrintF("StartEntry: [%s]", str);
         break;
       }
-      case kEntryEnd: {
+      case kEndEntry: {
         if (EndReadEntry().IsNothing()) break;
         line.description = "EndEntry";
         break;
