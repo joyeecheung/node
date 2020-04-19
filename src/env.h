@@ -908,6 +908,16 @@ class Environment : public MemoryRetainer {
   static uv_key_t thread_local_env;
   static inline Environment* GetThreadLocalEnv();
 
+  // Initialize the Environment but without a valid Context. Use
+  // InitializeMainContext() to continue initialize the Environment fully.
+  Environment(IsolateData* isolate_data,
+              v8::Isolate* isolate,
+              const std::vector<std::string>& args,
+              const std::vector<std::string>& exec_args,
+              EnvironmentFlags::Flags flags,
+              ThreadId thread_id);
+  void InitializeMainContext(v8::Local<v8::Context> context);
+  // Fully initialize the Environment, including the main context.
   Environment(IsolateData* isolate_data,
               v8::Local<v8::Context> context,
               const std::vector<std::string>& args,
