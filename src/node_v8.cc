@@ -78,9 +78,10 @@ static constexpr size_t kHeapSpaceStatisticsPropertiesCount =
     HEAP_SPACE_STATISTICS_PROPERTIES(V);
 #undef V
 
-class BindingData : public BaseObject {
+class BindingData : public BindingDataBase {
  public:
-  BindingData(Environment* env, Local<Object> obj) : BaseObject(env, obj) {}
+  BindingData(Environment* env, Local<Object> obj)
+      : BindingDataBase(env, obj) {}
 
   std::shared_ptr<BackingStore> heap_statistics_buffer;
   std::shared_ptr<BackingStore> heap_space_statistics_buffer;
@@ -117,7 +118,7 @@ void CachedDataVersionTag(const FunctionCallbackInfo<Value>& args) {
 
 
 void UpdateHeapStatisticsArrayBuffer(const FunctionCallbackInfo<Value>& args) {
-  BindingData* data = Unwrap<BindingData>(args.Data());
+  BindingData* data = BindingDataBase::Unwrap<BindingData>(args);
   HeapStatistics s;
   args.GetIsolate()->GetHeapStatistics(&s);
   double* const buffer =
@@ -129,7 +130,7 @@ void UpdateHeapStatisticsArrayBuffer(const FunctionCallbackInfo<Value>& args) {
 
 
 void UpdateHeapSpaceStatisticsBuffer(const FunctionCallbackInfo<Value>& args) {
-  BindingData* data = Unwrap<BindingData>(args.Data());
+  BindingData* data = BindingDataBase::Unwrap<BindingData>(args);
   HeapSpaceStatistics s;
   Isolate* const isolate = args.GetIsolate();
   size_t number_of_heap_spaces = isolate->NumberOfHeapSpaces();
@@ -150,7 +151,7 @@ void UpdateHeapSpaceStatisticsBuffer(const FunctionCallbackInfo<Value>& args) {
 
 void UpdateHeapCodeStatisticsArrayBuffer(
     const FunctionCallbackInfo<Value>& args) {
-  BindingData* data = Unwrap<BindingData>(args.Data());
+  BindingData* data = BindingDataBase::Unwrap<BindingData>(args);
   HeapCodeStatistics s;
   args.GetIsolate()->GetHeapCodeAndMetadataStatistics(&s);
   double* const buffer =
@@ -173,7 +174,7 @@ void Initialize(Local<Object> target,
                 Local<Context> context,
                 void* priv) {
   Environment* env = Environment::GetCurrent(context);
-  Environment::BindingScope<BindingData> binding_scope(env);
+  Environment::BindingScope<BindingData> binding_scope(env, context, target);
   if (!binding_scope) return;
   BindingData* binding_data = binding_scope.data;
 
