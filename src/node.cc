@@ -244,7 +244,10 @@ void Environment::InitializeDiagnostics() {
 
 MaybeLocal<Value> Environment::BootstrapInternalLoaders() {
   EscapableHandleScope scope(isolate_);
-
+  Local<Object> global = context()->Global();
+  // TODO(joyeecheung): this can be done in JS land now.
+  global->Set(context(), FIXED_ONE_BYTE_STRING(isolate_, "global"), global)
+      .Check();
   // Create binding loaders
   std::vector<Local<String>> loaders_params = {
       process_string(),
@@ -286,10 +289,10 @@ MaybeLocal<Value> Environment::BootstrapInternalLoaders() {
 MaybeLocal<Value> Environment::BootstrapNode() {
   EscapableHandleScope scope(isolate_);
 
-  Local<Object> global = context()->Global();
-  // TODO(joyeecheung): this can be done in JS land now.
-  global->Set(context(), FIXED_ONE_BYTE_STRING(isolate_, "global"), global)
-      .Check();
+  // Local<Object> global = context()->Global();
+  // // TODO(joyeecheung): this can be done in JS land now.
+  // global->Set(context(), FIXED_ONE_BYTE_STRING(isolate_, "global"), global)
+  //     .Check();
 
   // process, require, internalBinding, primordials
   std::vector<Local<String>> node_params = {

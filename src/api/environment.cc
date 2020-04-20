@@ -408,11 +408,23 @@ Environment* CreateEnvironment(
   }
 #endif
 
-  if (env->isolate_data()->snapshot_data() == nullptr &&
-      env->RunBootstrapping().IsEmpty()) {
+  // if (env->isolate_data()->snapshot_data() == nullptr &&
+  //     env->RunBootstrapping().IsEmpty()) {
+  //   FreeEnvironment(env);
+  //   return nullptr;
+  // }
+
+  bool deserializing = env->isolate_data()->snapshot_data() != nullptr;
+  bool is_worker = flags == EnvironmentFlags::kNoFlags;
+  if (!deserializing && env->BootstrapInternalLoaders().IsEmpty()) {
     FreeEnvironment(env);
     return nullptr;
   }
+  if ((deserializing || is_worker) && env->BootstrapNode().IsEmpty()) {
+    FreeEnvironment(env);
+    return nullptr;
+  }
+  env->set_has_run_bootstrapping_code(true);
 
   return env;
 }

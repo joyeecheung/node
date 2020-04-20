@@ -468,10 +468,10 @@ void Environment::DeserializeProperties() {
 
 void Environment::Serialize(SnapshotCreateData* snapshot_data) const {
   // This method should only be called after CreateEnvironment() finished.
-  if (!has_run_bootstrapping_code()) {
-    snapshot_data->add_error("Environment has not been bootstrapped yet");
-    return;
-  }
+  // if (!has_run_bootstrapping_code()) {
+  //   snapshot_data->add_error("Environment has not been bootstrapped yet");
+  //   return;
+  // }
 
   snapshot_data->StartWriteEntry("Environment");
   async_hooks()->Serialize(snapshot_data);

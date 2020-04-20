@@ -2297,9 +2297,19 @@ bool HeapObject::NeedsRehashing() const {
     case SMALL_ORDERED_HASH_MAP_TYPE:
     case SMALL_ORDERED_HASH_SET_TYPE:
     case SMALL_ORDERED_NAME_DICTIONARY_TYPE:
-    case JS_MAP_TYPE:
-    case JS_SET_TYPE:
       return true;
+    case JS_MAP_TYPE: {
+      JSMap map = JSMap::cast(*this);
+      OrderedHashMap table = OrderedHashMap::cast(map.table());
+      printf("JS_MAP_TYPE needs rehash, %p %d\n", this, table.NumberOfElements());
+      return table.NumberOfElements() > 0;
+    }
+    case JS_SET_TYPE: {
+      JSSet set = JSSet::cast(*this);
+      OrderedHashSet table = OrderedHashSet::cast(set.table());
+      printf("JS_SET_TYPE needs rehash, %p %d\n", this, table.NumberOfElements());
+      return table.NumberOfElements() > 0;
+    }
     default:
       return false;
   }
@@ -2373,17 +2383,21 @@ void HeapObject::RehashBasedOnMap(Isolate* isolate, ReadOnlyRoots roots) {
     case JS_MAP_TYPE: {
       JSMap map = JSMap::cast(*this);
       Handle<OrderedHashMap> table(OrderedHashMap::cast(map.table()), isolate);
+      printf("Rehashing JS_MAP_TYPE %p, size=%d\n", this, table->NumberOfElements());
       Handle<OrderedHashMap> new_table =
           OrderedHashMap::Rehash(isolate, table).ToHandleChecked();
       map.set_table(*new_table);
+      // new_table->Print();
       break;
     }
     case JS_SET_TYPE: {
       JSSet set = JSSet::cast(*this);
       Handle<OrderedHashSet> table(OrderedHashSet::cast(set.table()), isolate);
+      printf("Rehashing JS_SET_TYPE %p, size=%d\n", this, table->NumberOfElements());
       Handle<OrderedHashSet> new_table =
           OrderedHashSet::Rehash(isolate, table).ToHandleChecked();
       set.set_table(*new_table);
+      // new_table->Print();
       break;
     }
     case SMALL_ORDERED_NAME_DICTIONARY_TYPE:
