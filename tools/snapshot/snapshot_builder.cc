@@ -210,6 +210,7 @@ std::string SnapshotBuilder::Generate(
         env->PrintAllBaseObjects();
         printf("Environment = %p\n", env);
       }
+      env->BootstrapInternalLoaders().ToLocalChecked();
       env_info = env->Serialize(&creator);
       size_t index = creator.AddContext(
           context, {SerializeNodeContextInternalFields, env});
@@ -221,7 +222,7 @@ std::string SnapshotBuilder::Generate(
     // Must be out of HandleScope
     StartupData blob =
         creator.CreateBlob(SnapshotCreator::FunctionCodeHandling::kClear);
-    CHECK(blob.CanBeRehashed());
+    // CHECK(blob.CanBeRehashed());
     // Must be done while the snapshot creator isolate is entered i.e. the
     // creator is still alive.
     env->set_stopping(true);
