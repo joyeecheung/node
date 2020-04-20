@@ -1,5 +1,6 @@
 #include "node_native_module_env.h"
 #include "env-inl.h"
+#include "node_external_reference.h"
 
 namespace node {
 namespace native_module {
@@ -219,6 +220,17 @@ void NativeModuleEnv::Initialize(Local<Object> target,
   env->SetMethod(target, "hasCachedBuiltins", HasCachedBuiltins);
   // internalBinding('native_module') should be frozen
   target->SetIntegrityLevel(context, IntegrityLevel::kFrozen).FromJust();
+}
+
+void NativeModuleEnv::RegisterExternalReferences(
+    ExternalReferenceRegistry* registry) {
+  registry->Register(ConfigStringGetter);
+  registry->Register(ModuleIdsGetter);
+  registry->Register(ModuleIdsGetter);
+  registry->Register(GetModuleCategories);
+  registry->Register(GetCacheUsage);
+  registry->Register(CompileFunction);
+  registry->Register(HasCachedBuiltins);
 }
 
 }  // namespace native_module
