@@ -130,6 +130,7 @@ std::string SnapshotBuilder::Generate(
                             nullptr,
                             node::EnvironmentFlags::kDefaultFlags,
                             {});
+      env->BootstrapInternalLoaders().ToLocalChecked();
       if (per_process::enabled_debug_list.enabled(DebugCategory::MKSNAPSHOT)) {
         env->PrintAllBaseObjects();
         printf("Environment = %p\n", env);
@@ -143,7 +144,7 @@ std::string SnapshotBuilder::Generate(
     // Must be out of HandleScope
     StartupData blob =
         creator.CreateBlob(SnapshotCreator::FunctionCodeHandling::kClear);
-    CHECK(blob.CanBeRehashed());
+    // CHECK(blob.CanBeRehashed());
     // Must be done while the snapshot creator isolate is entered i.e. the
     // creator is still alive.
     FreeEnvironment(env);
