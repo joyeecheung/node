@@ -6,6 +6,7 @@
 #include "node_external_reference.h"
 #include "node_internals.h"
 #include "node_main_instance.h"
+#include "node_native_module_env.h"
 #include "node_options-inl.h"
 #include "node_process.h"
 #include "node_v8_platform-inl.h"
@@ -56,6 +57,10 @@ const std::vector<intptr_t>& NodeMainInstance::CollectExternalReferences() {
   registry_.reset(new ExternalReferenceRegistry());
 
   registry_->Register(node::RawDebug);
+  registry_->Register(node::binding::GetLinkedBinding);
+  registry_->Register(node::binding::GetInternalBinding);
+  node::native_module::NativeModuleEnv::RegisterExternalReferences(
+      registry_.get());
   // TODO(joyeecheung): collect more external references here.
   return registry_->external_references();
 }
@@ -286,10 +291,17 @@ NodeMainInstance::CreateMainEnvironment(int* exit_code,
   env->InitializeInspector({});
 #endif
 
-  if (env->RunBootstrapping().IsEmpty()) {
+  if (!deserialize_mode_ && env->RunBootstrapping().IsEmpty()) {
     return nullptr;
   }
 
+  if (deserialize_mode_ && env->BootstrapNode().IsEmpty()) {
+    return nullptr;
+  }
+
+  CHECK(env->req_wrap_queue()->IsEmpty());
+  CHECK(env->handle_wrap_queue()->IsEmpty());
+  env->set_has_run_bootstrapping_code(true);
   return env;
 }
 
