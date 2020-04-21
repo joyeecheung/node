@@ -455,6 +455,7 @@ constexpr size_t kFsStatsBufferLength =
   V(immediate_callback_function, v8::Function)                                 \
   V(inspector_console_extension_installer, v8::Function)                       \
   V(message_port, v8::Object)                                                  \
+  V(native_module_in_snapshot, v8::Array)                                      \
   V(native_module_require, v8::Function)                                       \
   V(performance_entry_callback, v8::Function)                                  \
   V(performance_entry_template, v8::Function)                                  \

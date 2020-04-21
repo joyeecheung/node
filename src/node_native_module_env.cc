@@ -95,6 +95,19 @@ void NativeModuleEnv::GetCacheUsage(const FunctionCallbackInfo<Value>& args) {
             OneByteString(isolate, "compiledWithoutCache"),
             ToJsSet(context, env->native_modules_without_cache))
       .FromJust();
+
+  Local<Value> native_module_in_snapshot;
+  if (env->native_module_in_snapshot().IsEmpty()) {
+    native_module_in_snapshot = v8::Array::New(isolate);
+  } else {
+    native_module_in_snapshot = env->native_module_in_snapshot();
+  }
+  result
+      ->Set(env->context(),
+            OneByteString(isolate, "compiledInSnapshot"),
+            native_module_in_snapshot)
+      .FromJust();
+
   args.GetReturnValue().Set(result);
 }
 
@@ -155,6 +168,11 @@ MaybeLocal<Function> NativeModuleEnv::LookupAndCompile(
   return maybe;
 }
 
+void HasCachedBuiltins(const FunctionCallbackInfo<Value>& args) {
+  args.GetReturnValue().Set(
+      v8::Boolean::New(args.GetIsolate(), has_code_cache));
+}
+
 // TODO(joyeecheung): It is somewhat confusing that Class::Initialize
 // is used to initialize to the binding, but it is the current convention.
 // Rename this across the code base to something that makes more sense.
@@ -198,6 +216,7 @@ void NativeModuleEnv::Initialize(Local<Object> target,
 
   env->SetMethod(target, "getCacheUsage", NativeModuleEnv::GetCacheUsage);
   env->SetMethod(target, "compileFunction", NativeModuleEnv::CompileFunction);
+  env->SetMethod(target, "hasCachedBuiltins", HasCachedBuiltins);
   // internalBinding('native_module') should be frozen
   target->SetIntegrityLevel(context, IntegrityLevel::kFrozen).FromJust();
 }
