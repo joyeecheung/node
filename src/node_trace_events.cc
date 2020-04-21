@@ -2,6 +2,7 @@
 #include "env-inl.h"
 #include "memory_tracker-inl.h"
 #include "node.h"
+#include "node_external_reference.h"
 #include "node_internals.h"
 #include "node_v8_platform-inl.h"
 #include "tracing/agent.h"
@@ -11,6 +12,8 @@
 #include <string>
 
 namespace node {
+
+class ExternalReferenceRegistry;
 
 using v8::Array;
 using v8::Context;
@@ -151,6 +154,15 @@ void NodeCategorySet::Initialize(Local<Object> target,
                   .Check();
   target->Set(context, trace,
               binding->Get(context, trace).ToLocalChecked()).Check();
+}
+
+void RegisterNodeCategorySetExternalReferences(
+    ExternalReferenceRegistry* registry) {
+  registry->Register(GetEnabledCategories);
+  registry->Register(SetTraceCategoryStateUpdateHandler);
+  registry->Register(NodeCategorySet::New);
+  registry->Register(NodeCategorySet::Enable);
+  registry->Register(NodeCategorySet::Disable);
 }
 
 }  // namespace node

@@ -36,8 +36,9 @@
 #include <string>
 
 namespace node {
-
+class ExternalReferenceRegistry;
 namespace i18n {
+void RegisterExternalReferences(ExternalReferenceRegistry* registry);
 
 bool InitializeICUDirectory(const std::string& path);
 

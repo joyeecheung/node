@@ -1,6 +1,7 @@
 #include <memory>
 
 #include <iostream>
+#include "async_wrap.h"
 #include "debug_utils-inl.h"
 #include "node_errors.h"
 #include "node_external_reference.h"
@@ -59,8 +60,28 @@ const std::vector<intptr_t>& NodeMainInstance::CollectExternalReferences() {
   registry_->Register(node::RawDebug);
   registry_->Register(node::binding::GetLinkedBinding);
   registry_->Register(node::binding::GetInternalBinding);
+
   node::native_module::NativeModuleEnv::RegisterExternalReferences(
       registry_.get());
+  node::AsyncWrap::RegisterExternalReferences(registry_.get());
+  node::errors::RegisterExternalReferences(registry_.get());
+  node::Buffer::RegisterExternalReferences(registry_.get());
+  node::credentials::RegisterExternalReferences(registry_.get());
+#if HAVE_INSPECTOR
+  node::inspector::RegisterExternalReferences(registry_.get());
+#endif  // HAVE_INSPECTOR
+#if NODE_HAVE_I18N_SUPPORT
+  node::i18n::RegisterExternalReferences(registry_.get());
+#endif  // NODE_HAVE_I18N_SUPPORT
+  node::task_queue::RegisterExternalReferences(registry_.get());
+  node::url::RegisterExternalReferences(registry_.get());
+  node::util::RegisterExternalReferences(registry_.get());
+  RegisterNodeCategorySetExternalReferences(registry_.get());
+  RegisterProcessMethodsExternalReferences(registry_.get());
+  RegisterTypesExternalReferences(registry_.get());
+  RegisterStringDecoderExternalReferences(registry_.get());
+  RegisterTimerExternalReferences(registry_.get());
+  RegisterEnvVarExternalReferences(registry_.get());
   // TODO(joyeecheung): collect more external references here.
   return registry_->external_references();
 }
@@ -295,9 +316,9 @@ NodeMainInstance::CreateMainEnvironment(int* exit_code,
     return nullptr;
   }
 
-  if (deserialize_mode_ && env->BootstrapNode().IsEmpty()) {
-    return nullptr;
-  }
+  // if (deserialize_mode_ && env->BootstrapNode().IsEmpty()) {
+  //   return nullptr;
+  // }
 
   CHECK(env->req_wrap_queue()->IsEmpty());
   CHECK(env->handle_wrap_queue()->IsEmpty());
