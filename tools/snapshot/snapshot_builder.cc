@@ -214,7 +214,7 @@ std::string SnapshotBuilder::Generate(
         env->PrintAllBaseObjects();
         printf("Environment = %p\n", env);
       }
-      env->BootstrapInternalLoaders().ToLocalChecked();
+      env->RunBootstrapping().ToLocalChecked();
       env_info = env->Serialize(&creator);
       size_t index = creator.AddContext(
           context, {SerializeNodeContextInternalFields, env});

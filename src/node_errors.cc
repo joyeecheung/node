@@ -3,9 +3,10 @@
 
 #include "debug_utils-inl.h"
 #include "node_errors.h"
+#include "node_external_reference.h"
 #include "node_internals.h"
-#include "node_report.h"
 #include "node_process.h"
+#include "node_report.h"
 #include "node_v8_platform-inl.h"
 #include "util-inl.h"
 
@@ -831,6 +832,13 @@ static void TriggerUncaughtException(const FunctionCallbackInfo<Value>& args) {
   }
   bool from_promise = args[1]->IsTrue();
   errors::TriggerUncaughtException(isolate, exception, message, from_promise);
+}
+
+void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
+  registry->Register(SetPrepareStackTraceCallback);
+  registry->Register(SetEnhanceStackForFatalException);
+  registry->Register(NoSideEffectsToString);
+  registry->Register(TriggerUncaughtException);
 }
 
 void Initialize(Local<Object> target,
