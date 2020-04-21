@@ -308,27 +308,6 @@ MaybeLocal<Value> Environment::BootstrapNode() {
     return scope.EscapeMaybe(result);
   }
 
-  auto thread_switch_id =
-      is_main_thread() ? "internal/bootstrap/switches/is_main_thread"
-                       : "internal/bootstrap/switches/is_not_main_thread";
-  result =
-      ExecuteBootstrapper(this, thread_switch_id, &node_params, &node_args);
-
-  if (result.IsEmpty()) {
-    return scope.EscapeMaybe(result);
-  }
-
-  auto process_state_switch_id =
-      owns_process_state()
-          ? "internal/bootstrap/switches/does_own_process_state"
-          : "internal/bootstrap/switches/does_not_own_process_state";
-  result = ExecuteBootstrapper(
-      this, process_state_switch_id, &node_params, &node_args);
-
-  if (result.IsEmpty()) {
-    return scope.EscapeMaybe(result);
-  }
-
   Local<String> env_string = FIXED_ONE_BYTE_STRING(isolate_, "env");
   Local<Object> env_var_proxy;
   if (!CreateEnvVarProxy(context(), isolate_, current_callback_data())
@@ -392,6 +371,27 @@ MaybeLocal<Value> StartExecution(Environment* env, const char* main_script_id) {
       env->NewFunctionTemplate(MarkBootstrapComplete)
           ->GetFunction(env->context())
           .ToLocalChecked()};
+
+  MaybeLocal<Value> result;
+  auto thread_switch_id =
+      env->is_main_thread() ? "internal/bootstrap/switches/is_main_thread"
+                            : "internal/bootstrap/switches/is_not_main_thread";
+  result = ExecuteBootstrapper(env, thread_switch_id, &parameters, &arguments);
+
+  if (result.IsEmpty()) {
+    return scope.EscapeMaybe(result);
+  }
+
+  auto process_state_switch_id =
+      env->owns_process_state()
+          ? "internal/bootstrap/switches/does_own_process_state"
+          : "internal/bootstrap/switches/does_not_own_process_state";
+  result = ExecuteBootstrapper(
+      env, process_state_switch_id, &parameters, &arguments);
+
+  if (result.IsEmpty()) {
+    return scope.EscapeMaybe(result);
+  }
 
   return scope.EscapeMaybe(
       ExecuteBootstrapper(env, main_script_id, &parameters, &arguments));

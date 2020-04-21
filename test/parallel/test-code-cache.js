@@ -11,6 +11,7 @@ const {
   internalBinding
 } = require('internal/test/binding');
 const {
+  snapshottedModules,
   getCacheUsage,
   moduleCategories: { canBeRequired, cannotBeRequired }
 } = internalBinding('native_module');
@@ -25,9 +26,13 @@ const {
   compiledWithCache
 } = getCacheUsage();
 
-const loadedModules = process.moduleLoadList
-  .filter((m) => m.startsWith('NativeModule'))
+function extractModules(list) {
+  return list.filter((m) => m.startsWith('NativeModule'))
   .map((m) => m.replace('NativeModule ', ''));
+}
+
+const loadedModules = extractModules(process.moduleLoadList);
+const inSnapshot = new Set(extractModules(snapshottedModules));
 
 // Cross-compiled binaries do not have code cache, verifies that the builtins
 // are all compiled without cache and we are doing the bookkeeping right.
@@ -62,7 +67,9 @@ if (!process.features.cached_builtins) {
     if (cannotBeRequired.has(key) && !compiledWithoutCache.has(key)) {
       wrong.push(`"${key}" should've been compiled **without** code cache`);
     }
-    if (canBeRequired.has(key) && !compiledWithCache.has(key)) {
+    if (canBeRequired.has(key) &&
+      !compiledWithCache.has(key) &&
+      !inSnapshot.has(key)) {
       wrong.push(`"${key}" should've been compiled **with** code cache`);
     }
   }

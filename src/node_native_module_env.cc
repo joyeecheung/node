@@ -155,6 +155,11 @@ MaybeLocal<Function> NativeModuleEnv::LookupAndCompile(
   return maybe;
 }
 
+void HasCachedBuiltins(const FunctionCallbackInfo<Value>& args) {
+  args.GetReturnValue().Set(
+      v8::Boolean::New(args.GetIsolate(), has_code_cache));
+}
+
 // TODO(joyeecheung): It is somewhat confusing that Class::Initialize
 // is used to initialize to the binding, but it is the current convention.
 // Rename this across the code base to something that makes more sense.
@@ -198,10 +203,8 @@ void NativeModuleEnv::Initialize(Local<Object> target,
 
   env->SetMethod(target, "getCacheUsage", NativeModuleEnv::GetCacheUsage);
   env->SetMethod(target, "compileFunction", NativeModuleEnv::CompileFunction);
-  // internalBinding('native_module') should be frozen
-  target->SetIntegrityLevel(context, IntegrityLevel::kFrozen).FromJust();
+  env->SetMethod(target, "hasCachedBuiltins", HasCachedBuiltins);
 }
-
 }  // namespace native_module
 }  // namespace node
 
