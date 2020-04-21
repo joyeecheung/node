@@ -1,6 +1,7 @@
 #include "env-inl.h"
 #include "node.h"
 #include "node_errors.h"
+#include "node_external_reference.h"
 #include "node_internals.h"
 #include "node_process.h"
 #include "util-inl.h"
@@ -143,6 +144,13 @@ static void Initialize(Local<Object> target,
   env->SetMethod(target,
                  "setPromiseRejectCallback",
                  SetPromiseRejectCallback);
+}
+
+void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
+  registry->Register(EnqueueMicrotask);
+  registry->Register(SetTickCallback);
+  registry->Register(RunMicrotasks);
+  registry->Register(SetPromiseRejectCallback);
 }
 
 }  // namespace task_queue
