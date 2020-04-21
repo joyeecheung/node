@@ -1256,6 +1256,12 @@ EnvSerializeInfo Environment::Serialize(SnapshotCreator* creator) {
   EnvSerializeInfo info;
   Local<Context> ctx = context();
 
+  // Currently all modules are compiled without cache in snapshot builder
+  std::vector<std::string> modules_in_snapshot(
+      native_modules_without_cache.begin(), native_modules_without_cache.end());
+  Local<Value> arr = ToV8Value(ctx, modules_in_snapshot).ToLocalChecked();
+  set_native_module_in_snapshot(arr.As<v8::Array>());
+
   NoBindingData* data =
       BindingDataBase::Unwrap<NoBindingData>(ctx, default_callback_data());
   info.default_callback_data = creator->AddData(ctx, data->object());
