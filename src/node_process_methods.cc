@@ -3,6 +3,7 @@
 #include "env-inl.h"
 #include "node.h"
 #include "node_errors.h"
+#include "node_external_reference.h"
 #include "node_internals.h"
 #include "node_process.h"
 #include "util-inl.h"
@@ -492,7 +493,39 @@ static void InitializeProcessMethods(Local<Object> target,
   env->SetMethod(target, "patchProcessObject", PatchProcessObject);
 }
 
+void RegisterProcessMethodsExternalReferences(
+    ExternalReferenceRegistry* registry) {
+  registry->Register(DebugProcess);
+  registry->Register(DebugEnd);
+  registry->Register(Abort);
+  registry->Register(CauseSegfault);
+  registry->Register(Chdir);
+
+  registry->Register(StartProfilerIdleNotifier);
+  registry->Register(StopProfilerIdleNotifier);
+
+  registry->Register(Umask);
+  registry->Register(RawDebug);
+  registry->Register(MemoryUsage);
+  registry->Register(CPUUsage);
+  registry->Register(Hrtime);
+  registry->Register(HrtimeBigInt);
+  registry->Register(ResourceUsage);
+
+  registry->Register(GetActiveRequests);
+  registry->Register(GetActiveHandles);
+  registry->Register(Kill);
+
+  registry->Register(Cwd);
+  registry->Register(binding::DLOpen);
+  registry->Register(ReallyExit);
+  registry->Register(Uptime);
+  registry->Register(PatchProcessObject);
+}
+
 }  // namespace node
 
 NODE_MODULE_CONTEXT_AWARE_INTERNAL(process_methods,
                                    node::InitializeProcessMethods)
+NODE_MODULE_EXTERNAL_REFERENCE(process_methods,
+                               node::RegisterProcessMethodsExternalReferences)
