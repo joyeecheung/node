@@ -23,6 +23,7 @@
 #include "async_wrap-inl.h"
 #include "env-inl.h"
 #include "node_errors.h"
+#include "node_external_reference.h"
 #include "tracing/traced_value.h"
 #include "util-inl.h"
 
@@ -576,6 +577,21 @@ void AsyncWrap::Initialize(Local<Object> target,
   }
 }
 
+void AsyncWrap::RegisterExternalReferences(
+    ExternalReferenceRegistry* registry) {
+  registry->Register(SetupHooks);
+  registry->Register(PushAsyncContext);
+  registry->Register(PopAsyncContext);
+  registry->Register(QueueDestroyAsyncId);
+  registry->Register(EnablePromiseHook);
+  registry->Register(DisablePromiseHook);
+  registry->Register(PromiseWrap::getIsChainedPromise);
+  registry->Register(RegisterDestroyHook);
+  registry->Register(AsyncWrapObject::New);
+  registry->Register(AsyncWrap::GetAsyncId);
+  registry->Register(AsyncWrap::AsyncReset);
+  registry->Register(AsyncWrap::GetProviderType);
+}
 
 AsyncWrap::AsyncWrap(Environment* env,
                      Local<Object> object,
