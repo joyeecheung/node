@@ -2285,9 +2285,9 @@ bool HeapObject::NeedsRehashing() const {
     case TRANSITION_ARRAY_TYPE:
       return TransitionArray::cast(*this).number_of_entries() > 1;
     case ORDERED_HASH_MAP_TYPE:
-      return OrderedHashMap::cast(*this).NumberOfElements() > 0;
+      return false;  // We'll rehash from the JSMap referecing it
     case ORDERED_HASH_SET_TYPE:
-      return OrderedHashSet::cast(*this).NumberOfElements() > 0;
+      return false;  // We'll rehash from the JSSap referecing it
     case NAME_DICTIONARY_TYPE:
     case GLOBAL_DICTIONARY_TYPE:
     case NUMBER_DICTIONARY_TYPE:
@@ -2297,6 +2297,8 @@ bool HeapObject::NeedsRehashing() const {
     case SMALL_ORDERED_HASH_MAP_TYPE:
     case SMALL_ORDERED_HASH_SET_TYPE:
     case SMALL_ORDERED_NAME_DICTIONARY_TYPE:
+    case JS_MAP_TYPE:
+    case JS_SET_TYPE:
       return true;
     default:
       return false;
@@ -2306,8 +2308,12 @@ bool HeapObject::NeedsRehashing() const {
 bool HeapObject::CanBeRehashed() const {
   DCHECK(NeedsRehashing());
   switch (map().instance_type()) {
+    case JS_MAP_TYPE:
+    case JS_SET_TYPE:
+      return true;
     case ORDERED_HASH_MAP_TYPE:
     case ORDERED_HASH_SET_TYPE:
+      UNREACHABLE();  // We'll rehash from the JSMap or JSSet referecing them
     case ORDERED_NAME_DICTIONARY_TYPE:
       // TODO(yangguo): actually support rehashing OrderedHash{Map,Set}.
       return false;
@@ -2333,7 +2339,7 @@ bool HeapObject::CanBeRehashed() const {
   return false;
 }
 
-void HeapObject::RehashBasedOnMap(ReadOnlyRoots roots) {
+void HeapObject::RehashBasedOnMap(Isolate* isolate, ReadOnlyRoots roots) {
   switch (map().instance_type()) {
     case HASH_TABLE_TYPE:
       UNREACHABLE();
@@ -2365,6 +2371,25 @@ void HeapObject::RehashBasedOnMap(ReadOnlyRoots roots) {
     case SMALL_ORDERED_HASH_SET_TYPE:
       DCHECK_EQ(0, SmallOrderedHashSet::cast(*this).NumberOfElements());
       break;
+    case ORDERED_HASH_MAP_TYPE:
+    case ORDERED_HASH_SET_TYPE:
+      UNREACHABLE();  // We'll rehash from the JSMap or JSSet referecing them
+    case JS_MAP_TYPE: {
+      JSMap map = JSMap::cast(*this);
+      Handle<OrderedHashMap> table(OrderedHashMap::cast(map.table()), isolate);
+      Handle<OrderedHashMap> new_table =
+          OrderedHashMap::Rehash(isolate, table).ToHandleChecked();
+      map.set_table(*new_table);
+      break;
+    }
+    case JS_SET_TYPE: {
+      JSSet set = JSSet::cast(*this);
+      Handle<OrderedHashSet> table(OrderedHashSet::cast(set.table()), isolate);
+      Handle<OrderedHashSet> new_table =
+          OrderedHashSet::Rehash(isolate, table).ToHandleChecked();
+      set.set_table(*new_table);
+      break;
+    }
     case SMALL_ORDERED_NAME_DICTIONARY_TYPE:
       DCHECK_EQ(0, SmallOrderedNameDictionary::cast(*this).NumberOfElements());
       break;
