@@ -16,6 +16,7 @@
 #include "src/objects/hash-table.h"
 #include "src/objects/js-array-buffer-inl.h"
 #include "src/objects/js-array-inl.h"
+#include "src/objects/js-collection-inl.h"
 #include "src/objects/maybe-object.h"
 #include "src/objects/objects-body-descriptors-inl.h"
 #include "src/objects/slots.h"
@@ -70,7 +71,7 @@ void Deserializer::Initialize(Isolate* isolate) {
 void Deserializer::Rehash() {
   DCHECK(can_rehash() || deserializing_user_code());
   for (HeapObject item : to_rehash_) {
-    item.RehashBasedOnMap(ReadOnlyRoots(isolate_));
+    item.RehashBasedOnMap(isolate_, ReadOnlyRoots(isolate_));
   }
 }
 
@@ -129,6 +130,11 @@ void Deserializer::DeserializeDeferredObjects() {
         PostProcessNewObject(object, space);
       }
     }
+  }
+
+  // printf("Deserializer::PostProcessNewObject in DeserializeDeferredObjects\n");
+  for (auto pair : fillers_to_post_process_) {
+    PostProcessNewObject(pair.first, pair.second);
   }
 }
 
@@ -201,6 +207,11 @@ HeapObject Deserializer::PostProcessNewObject(HeapObject obj,
   DisallowHeapAllocation no_gc;
 
   if ((FLAG_rehash_snapshot && can_rehash_) || deserializing_user_code()) {
+    if (obj.IsFiller()) {
+      CHECK_EQ(fillers_to_post_process_.find(obj), fillers_to_post_process_.end());
+      fillers_to_post_process_.insert({obj, space});
+    }
+
     if (obj.IsString()) {
       // Uninitialize hash field as we need to recompute the hash.
       String string = String::cast(obj);
@@ -848,6 +859,12 @@ TSlot Deserializer::ReadDataCase(Isolate* isolate, TSlot current,
     GenerationalBarrier(host_object, MaybeObjectSlot(current.address()),
                         heap_object_ref);
   }
+
+  // if (bytecode != kBackref && heap_object.IsJSSet()) {
+  //   JSSet set = JSSet::cast(heap_object);
+  //   OrderedHashSet table = OrderedHashSet::cast(set.table());
+  //   printf("Called ReadDataCase() on JS_SET_TYPE, %p(%d), bytecode=%d\n", &heap_object, table.NumberOfElements(), static_cast<int>(bytecode));
+  // }
   return current + 1;
 }
 

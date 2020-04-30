@@ -191,6 +191,20 @@ class Serializer : public SerializerDeserializer {
     Serializer* serializer_;
   };
 
+  class DisallowDeferringScope {
+   public:
+    explicit DisallowDeferringScope(Serializer* serializer) : serializer_(serializer) {
+      serializer_->disallow_deferring_ = true;
+    }
+    ~DisallowDeferringScope() { serializer_->disallow_deferring_ = false; }
+    bool CanDefer() {
+      return serializer_->disallow_deferring_;
+    }
+
+   private:
+    Serializer* serializer_;
+  };
+
   void SerializeDeferredObjects();
   virtual void SerializeObject(HeapObject o) = 0;
 
@@ -269,6 +283,7 @@ class Serializer : public SerializerDeserializer {
   std::vector<byte> code_buffer_;
   std::vector<HeapObject> deferred_objects_;  // To handle stack overflow.
   int recursion_depth_ = 0;
+  bool disallow_deferring_ = false;
   SerializerAllocator allocator_;
 
 #ifdef OBJECT_PRINT

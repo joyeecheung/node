@@ -11,6 +11,7 @@
 #include "src/objects/code.h"
 #include "src/objects/js-array-buffer-inl.h"
 #include "src/objects/js-array-inl.h"
+#include "src/objects/js-collection-inl.h"
 #include "src/objects/map.h"
 #include "src/objects/slots-inl.h"
 #include "src/objects/smi.h"
@@ -513,6 +514,13 @@ class UnlinkWeakNextScope {
 };
 
 void Serializer::ObjectSerializer::Serialize() {
+  // if (object_.IsJSSet()) {
+  //   JSSet set = JSSet::cast(object_);
+  //   OrderedHashSet table = OrderedHashSet::cast(set.table());
+  //   printf("Serializer::ObjectSerializer::Serialize JSSet %p(%d)\n", &(object_), table.NumberOfElements());
+  //   object_.Print();
+  // }
+
   if (FLAG_trace_serializer) {
     PrintF(" Encoding heap object: ");
     object_.ShortPrint();
@@ -589,6 +597,10 @@ SnapshotSpace GetSnapshotSpace(HeapObject object) {
 void Serializer::ObjectSerializer::SerializeObject() {
   int size = object_.Size();
   Map map = object_.map();
+  // bool original = serializer_->disallow_deferring_;
+  // if (object_.IsJSSet() || object_.IsJSMap()) {
+  //   serializer_->disallow_deferring_ = true;
+  // }
   SnapshotSpace space = GetSnapshotSpace(object_);
   SerializePrologue(space, size, map);
 
@@ -599,14 +611,20 @@ void Serializer::ObjectSerializer::SerializeObject() {
   RecursionScope recursion(serializer_);
   // Objects that are immediately post processed during deserialization
   // cannot be deferred, since post processing requires the object content.
-  if ((recursion.ExceedsMaximum() && CanBeDeferred(object_)) ||
+  if ((recursion.ExceedsMaximum() && CanBeDeferred(object_) /*&& !serializer_->disallow_deferring_*/) ||
       serializer_->MustBeDeferred(object_)) {
     serializer_->QueueDeferredObject(object_);
     sink_->Put(kDeferred, "Deferring object content");
+    if (FLAG_trace_serializer) {
+      PrintF(" Deferring object: ");
+      object_.ShortPrint();
+      PrintF("\n");
+    }
     return;
   }
 
   SerializeContent(map, size);
+  // serializer_->disallow_deferring_ = original;
 }
 
 void Serializer::ObjectSerializer::SerializeDeferred() {
