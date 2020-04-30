@@ -169,7 +169,7 @@ std::string SnapshotBuilder::Generate(
     // Must be out of HandleScope
     StartupData blob =
         creator.CreateBlob(SnapshotCreator::FunctionCodeHandling::kClear);
-    // CHECK(blob.CanBeRehashed());
+    CHECK(blob.CanBeRehashed());
     // Must be done while the snapshot creator isolate is entered i.e. the
     // creator is still alive.
     env->set_stopping(true);
