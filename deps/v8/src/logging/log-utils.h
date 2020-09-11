@@ -7,7 +7,9 @@
 
 #include <stdio.h>
 
+#include <atomic>
 #include <cstdarg>
+#include <memory>
 
 #include "src/base/compiler-specific.h"
 #include "src/base/optional.h"
@@ -29,15 +31,14 @@ enum class LogSeparator { kSeparator };
 class Log {
  public:
   Log(Logger* log, const char* log_file_name);
-  // Disables logging, but preserves acquired resources.
-  void stop() { is_stopped_ = true; }
 
   static bool InitLogAtStart() {
     return FLAG_log || FLAG_log_api || FLAG_log_code || FLAG_log_handles ||
            FLAG_log_suspect || FLAG_ll_prof || FLAG_perf_basic_prof ||
            FLAG_perf_prof || FLAG_log_source_code || FLAG_gdbjit ||
            FLAG_log_internal_timer_events || FLAG_prof_cpp || FLAG_trace_ic ||
-           FLAG_log_function_events;
+           FLAG_log_function_events || FLAG_trace_zone_stats ||
+           FLAG_turbo_profiling_log_builtins;
   }
 
   // Frees all resources acquired in Initialize and Open... functions.
@@ -46,7 +47,7 @@ class Log {
   FILE* Close();
 
   // Returns whether logging is enabled.
-  bool IsEnabled() { return !is_stopped_ && output_handle_ != nullptr; }
+  bool IsEnabled() { return is_enabled_.load(std::memory_order_relaxed); }
 
   // Size of buffer used for formatting log messages.
   static const int kMessageBufferSize = 2048;
@@ -60,9 +61,6 @@ class Log {
   // and then appends them to the static buffer in Log.
   class MessageBuilder {
    public:
-    // Create a message builder starting from position 0.
-    // This acquires the mutex in the log as well.
-    explicit MessageBuilder(Log* log);
     ~MessageBuilder() = default;
 
     void AppendString(String str,
@@ -86,6 +84,10 @@ class Log {
     void WriteToLogFile();
 
    private:
+    // Create a message builder starting from position 0.
+    // This acquires the mutex in the log as well.
+    explicit MessageBuilder(Log* log);
+
     // Prints the format string into |log_->format_buffer_|. Returns the length
     // of the result, or kMessageBufferSize if it was truncated.
     int PRINTF_FORMAT(2, 0)
@@ -98,7 +100,13 @@ class Log {
 
     Log* log_;
     base::MutexGuard lock_guard_;
+
+    friend class Log;
   };
+
+  // Use this method to create an instance of Log::MessageBuilder. This method
+  // will return null if logging is disabled.
+  std::unique_ptr<Log::MessageBuilder> NewMessageBuilder();
 
  private:
   static FILE* CreateOutputHandle(const char* file_name);
@@ -111,13 +119,13 @@ class Log {
     return length;
   }
 
-  // Whether logging is stopped (e.g. due to insufficient resources).
-  bool is_stopped_;
-
   // When logging is active output_handle_ is used to store a pointer to log
   // destination.  mutex_ should be acquired before using output_handle_.
   FILE* output_handle_;
   OFStream os_;
+
+  // Stores whether logging is enabled.
+  std::atomic<bool> is_enabled_;
 
   // mutex_ is a Mutex used for enforcing exclusive
   // access to the formatting buffer and the log file or log memory buffer.

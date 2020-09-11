@@ -348,9 +348,7 @@ class V8_EXPORT_PRIVATE ProfileTree {
   ProfileNode* root() const { return root_; }
   unsigned next_node_id() { return next_node_id_++; }
 
-  void Print() {
-    root_->Print(0);
-  }
+  void Print() const { root_->Print(0); }
 
   Isolate* isolate() const { return isolate_; }
 
@@ -412,7 +410,7 @@ class CpuProfile {
 
   void UpdateTicksScale();
 
-  V8_EXPORT_PRIVATE void Print();
+  V8_EXPORT_PRIVATE void Print() const;
 
  private:
   void StreamPendingTraceEvents();
@@ -520,7 +518,10 @@ class V8_EXPORT_PRIVATE ProfileGenerator {
  public:
   explicit ProfileGenerator(CpuProfilesCollection* profiles, CodeMap* code_map);
 
-  void RecordTickSample(const TickSample& sample);
+  // Use the CodeMap to turn the raw addresses recorded in the sample into
+  // code/function names. The symbolized stack is added to the relevant
+  // profiles in the CpuProfilesCollection.
+  void SymbolizeTickSample(const TickSample& sample);
 
   void UpdateNativeContextAddress(Address from, Address to);
 

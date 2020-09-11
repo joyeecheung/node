@@ -1353,6 +1353,12 @@ void TurboAssembler::Move(XMMRegister dst, uint64_t src) {
   }
 }
 
+void TurboAssembler::Move(XMMRegister dst, uint64_t high, uint64_t low) {
+  Move(dst, low);
+  movq(kScratchRegister, high);
+  Pinsrq(dst, kScratchRegister, int8_t{1});
+}
+
 // ----------------------------------------------------------------------------
 
 void MacroAssembler::Absps(XMMRegister dst) {
@@ -2424,8 +2430,9 @@ void TurboAssembler::StubPrologue(StackFrame::Type type) {
 void TurboAssembler::Prologue() {
   pushq(rbp);  // Caller's frame pointer.
   movq(rbp, rsp);
-  Push(rsi);  // Callee's context.
-  Push(rdi);  // Callee's JS function.
+  Push(kContextRegister);                 // Callee's context.
+  Push(kJSFunctionRegister);              // Callee's JS function.
+  Push(kJavaScriptCallArgCountRegister);  // Actual argument count.
 }
 
 void TurboAssembler::EnterFrame(StackFrame::Type type) {
@@ -2756,10 +2763,10 @@ void TurboAssembler::CheckPageFlag(Register object, Register scratch, int mask,
     andq(scratch, object);
   }
   if (mask < (1 << kBitsPerByte)) {
-    testb(Operand(scratch, MemoryChunk::kFlagsOffset),
+    testb(Operand(scratch, BasicMemoryChunk::kFlagsOffset),
           Immediate(static_cast<uint8_t>(mask)));
   } else {
-    testl(Operand(scratch, MemoryChunk::kFlagsOffset), Immediate(mask));
+    testl(Operand(scratch, BasicMemoryChunk::kFlagsOffset), Immediate(mask));
   }
   j(cc, condition_met, condition_met_distance);
 }

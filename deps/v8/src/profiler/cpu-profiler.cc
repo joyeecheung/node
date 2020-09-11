@@ -16,6 +16,7 @@
 #include "src/logging/counters.h"
 #include "src/logging/log.h"
 #include "src/profiler/cpu-profiler-inl.h"
+#include "src/profiler/profiler-stats.h"
 #include "src/utils/locked-queue-inl.h"
 #include "src/wasm/wasm-engine.h"
 
@@ -32,7 +33,13 @@ class CpuSampler : public sampler::Sampler {
 
   void SampleStack(const v8::RegisterState& regs) override {
     TickSample* sample = processor_->StartTickSample();
-    if (sample == nullptr) return;
+    if (sample == nullptr) {
+      ProfilerStats::Instance()->AddReason(
+          ProfilerStats::Reason::kTickBufferFull);
+      return;
+    }
+    // Every bailout up until here resulted in a dropped sample. From now on,
+    // the sample is created in the buffer.
     Isolate* isolate = reinterpret_cast<Isolate*>(this->isolate());
     sample->Init(isolate, regs, TickSample::kIncludeCEntryFrame,
                  /* update_stats */ true,
@@ -208,7 +215,7 @@ SamplingEventsProcessor::ProcessOneSample() {
       (record1.order == last_processed_code_event_id_)) {
     TickSampleEventRecord record;
     ticks_from_vm_buffer_.Dequeue(&record);
-    generator_->RecordTickSample(record.sample);
+    generator_->SymbolizeTickSample(record.sample);
     return OneSampleProcessed;
   }
 
@@ -220,7 +227,7 @@ SamplingEventsProcessor::ProcessOneSample() {
   if (record->order != last_processed_code_event_id_) {
     return FoundSampleForNextCodeEvent;
   }
-  generator_->RecordTickSample(record->sample);
+  generator_->SymbolizeTickSample(record->sample);
   ticks_buffer_.Remove();
   return OneSampleProcessed;
 }

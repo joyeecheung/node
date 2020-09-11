@@ -3893,7 +3893,8 @@ TEST(SamplingHeapProfilerPretenuredInlineAllocations) {
   CcTest::InitializeVM();
   if (!CcTest::i_isolate()->use_optimizer() || i::FLAG_always_opt) return;
   if (i::FLAG_gc_global || i::FLAG_stress_compaction ||
-      i::FLAG_stress_incremental_marking) {
+      i::FLAG_stress_incremental_marking ||
+      i::FLAG_stress_concurrent_allocation) {
     return;
   }
 
@@ -4075,7 +4076,7 @@ TEST(WeakReference) {
   i::CodeDesc desc;
   assm.GetCode(i_isolate, &desc);
   i::Handle<i::Code> code =
-      i::Factory::CodeBuilder(i_isolate, desc, i::Code::STUB).Build();
+      i::Factory::CodeBuilder(i_isolate, desc, i::CodeKind::STUB).Build();
   CHECK(code->IsCode());
 
   fv->set_optimized_code_weak_or_smi(i::HeapObjectReference::Weak(*code));

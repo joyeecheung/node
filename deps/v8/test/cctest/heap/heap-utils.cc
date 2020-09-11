@@ -4,23 +4,31 @@
 
 #include "test/cctest/heap/heap-utils.h"
 
+#include "src/base/platform/mutex.h"
 #include "src/execution/isolate.h"
 #include "src/heap/factory.h"
 #include "src/heap/heap-inl.h"
 #include "src/heap/incremental-marking.h"
 #include "src/heap/mark-compact.h"
 #include "src/heap/memory-chunk.h"
+#include "src/heap/safepoint.h"
 #include "test/cctest/cctest.h"
 
 namespace v8 {
 namespace internal {
 namespace heap {
 
-void InvokeScavenge() { CcTest::CollectGarbage(i::NEW_SPACE); }
+void InvokeScavenge(Isolate* isolate) {
+  CcTest::CollectGarbage(i::NEW_SPACE, isolate);
+}
 
-void InvokeMarkSweep() { CcTest::CollectAllGarbage(); }
+void InvokeMarkSweep(Isolate* isolate) { CcTest::CollectAllGarbage(isolate); }
 
 void SealCurrentObjects(Heap* heap) {
+  // If you see this check failing, disable the flag at the start of your test:
+  // FLAG_stress_concurrent_allocation = false;
+  // Background thread allocating concurrently interferes with this function.
+  CHECK(!FLAG_stress_concurrent_allocation);
   CcTest::CollectAllGarbage();
   CcTest::CollectAllGarbage();
   heap->mark_compact_collector()->EnsureSweepingCompleted();
@@ -135,8 +143,10 @@ bool FillCurrentPageButNBytes(v8::internal::NewSpace* space, int extra_bytes,
   // the current allocation pointer.
   DCHECK_IMPLIES(space->heap()->inline_allocation_disabled(),
                  space->limit() == space->top());
-  int space_remaining =
-      static_cast<int>(space->to_space().page_high() - space->top());
+  size_t limit = space->heap()->inline_allocation_disabled()
+                     ? space->to_space().page_high()
+                     : space->limit();
+  int space_remaining = static_cast<int>(limit - space->top());
   CHECK(space_remaining >= extra_bytes);
   int new_linear_size = space_remaining - extra_bytes;
   if (new_linear_size == 0) return false;
@@ -150,6 +160,10 @@ bool FillCurrentPageButNBytes(v8::internal::NewSpace* space, int extra_bytes,
 
 void SimulateFullSpace(v8::internal::NewSpace* space,
                        std::vector<Handle<FixedArray>>* out_handles) {
+  // If you see this check failing, disable the flag at the start of your test:
+  // FLAG_stress_concurrent_allocation = false;
+  // Background thread allocating concurrently interferes with this function.
+  CHECK(!FLAG_stress_concurrent_allocation);
   while (heap::FillCurrentPage(space, out_handles) || space->AddFreshPage()) {
   }
 }
@@ -160,6 +174,7 @@ void SimulateIncrementalMarking(i::Heap* heap, bool force_completion) {
   i::IncrementalMarking* marking = heap->incremental_marking();
   i::MarkCompactCollector* collector = heap->mark_compact_collector();
   if (collector->sweeping_in_progress()) {
+    SafepointScope scope(heap);
     collector->EnsureSweepingCompleted();
   }
   if (marking->IsSweeping()) {
@@ -177,6 +192,7 @@ void SimulateIncrementalMarking(i::Heap* heap, bool force_completion) {
     marking->Step(kStepSizeInMs, i::IncrementalMarking::NO_GC_VIA_STACK_GUARD,
                   i::StepOrigin::kV8);
     if (marking->IsReadyToOverApproximateWeakClosure()) {
+      SafepointScope scope(heap);
       marking->FinalizeIncrementally();
     }
   }
@@ -184,6 +200,10 @@ void SimulateIncrementalMarking(i::Heap* heap, bool force_completion) {
 }
 
 void SimulateFullSpace(v8::internal::PagedSpace* space) {
+  // If you see this check failing, disable the flag at the start of your test:
+  // FLAG_stress_concurrent_allocation = false;
+  // Background thread allocating concurrently interferes with this function.
+  CHECK(!FLAG_stress_concurrent_allocation);
   CodeSpaceMemoryModificationScope modification_scope(space->heap());
   i::MarkCompactCollector* collector = space->heap()->mark_compact_collector();
   if (collector->sweeping_in_progress()) {
@@ -203,6 +223,7 @@ void AbandonCurrentlyFreeMemory(PagedSpace* space) {
 void GcAndSweep(Heap* heap, AllocationSpace space) {
   heap->CollectGarbage(space, GarbageCollectionReason::kTesting);
   if (heap->mark_compact_collector()->sweeping_in_progress()) {
+    SafepointScope scope(heap);
     heap->mark_compact_collector()->EnsureSweepingCompleted();
   }
 }
@@ -219,8 +240,14 @@ void ForceEvacuationCandidate(Page* page) {
     int remaining = static_cast<int>(limit - top);
     space->heap()->CreateFillerObjectAt(top, remaining,
                                         ClearRecordedSlots::kNo);
+    base::MutexGuard guard(space->mutex());
     space->FreeLinearAllocationArea();
   }
+}
+
+bool InCorrectGeneration(HeapObject object) {
+  return FLAG_single_generation ? !i::Heap::InYoungGeneration(object)
+                                : i::Heap::InYoungGeneration(object);
 }
 
 }  // namespace heap

@@ -205,6 +205,9 @@ class V8_EXPORT_PRIVATE CallDescriptor final
     kCallBuiltinPointer,     // target is a builtin pointer
   };
 
+  // NOTE: The lowest 10 bits of the Flags field are encoded in InstructionCode
+  // (for use in the code generator). All higher bits are lost.
+  static constexpr int kFlagsBitsEncodedInInstructionCode = 10;
   enum Flag {
     kNoFlags = 0u,
     kNeedsFrameState = 1u << 0,
@@ -214,20 +217,22 @@ class V8_EXPORT_PRIVATE CallDescriptor final
     kInitializeRootRegister = 1u << 3,
     // Does not ever try to allocate space on our heap.
     kNoAllocate = 1u << 4,
-    // Push argument count as part of function prologue.
-    kPushArgumentCount = 1u << 5,
     // Use retpoline for this call if indirect.
-    kRetpoline = 1u << 6,
+    kRetpoline = 1u << 5,
     // Use the kJavaScriptCallCodeStartRegister (fixed) register for the
     // indirect target address when calling.
-    kFixedTargetRegister = 1u << 7,
-    kCallerSavedRegisters = 1u << 8,
+    kFixedTargetRegister = 1u << 6,
+    kCallerSavedRegisters = 1u << 7,
     // The kCallerSavedFPRegisters only matters (and set) when the more general
     // flag for kCallerSavedRegisters above is also set.
-    kCallerSavedFPRegisters = 1u << 9,
+    kCallerSavedFPRegisters = 1u << 8,
     // AIX has a function descriptor by default but it can be disabled for a
     // certain CFunction call (only used for Kind::kCallAddress).
-    kNoFunctionDescriptor = 1u << 10,
+    kNoFunctionDescriptor = 1u << 9,
+
+    // Flags past here are *not* encoded in InstructionCode and are thus not
+    // accessible from the code generator. See also
+    // kFlagsBitsEncodedInInstructionCode.
   };
   using Flags = base::Flags<Flag>;
 
@@ -237,6 +242,7 @@ class V8_EXPORT_PRIVATE CallDescriptor final
                  RegList callee_saved_registers,
                  RegList callee_saved_fp_registers, Flags flags,
                  const char* debug_name = "",
+                 StackArgumentOrder stack_order = StackArgumentOrder::kDefault,
                  const RegList allocatable_registers = 0,
                  size_t stack_return_count = 0)
       : kind_(kind),
@@ -250,6 +256,7 @@ class V8_EXPORT_PRIVATE CallDescriptor final
         callee_saved_fp_registers_(callee_saved_fp_registers),
         allocatable_registers_(allocatable_registers),
         flags_(flags),
+        stack_order_(stack_order),
         debug_name_(debug_name) {}
 
   // Returns the kind of this call.
@@ -292,6 +299,19 @@ class V8_EXPORT_PRIVATE CallDescriptor final
     return stack_param_count_;
   }
 
+  int GetStackIndexFromSlot(int slot_index) const {
+#ifdef V8_REVERSE_JSARGS
+    switch (GetStackArgumentOrder()) {
+      case StackArgumentOrder::kDefault:
+        return -slot_index - 1;
+      case StackArgumentOrder::kJS:
+        return slot_index + static_cast<int>(StackParameterCount());
+    }
+#else
+    return -slot_index - 1;
+#endif
+  }
+
   // The total number of inputs to this call, which includes the target,
   // receiver, context, etc.
   // TODO(titzer): this should input the framestate input too.
@@ -302,7 +322,6 @@ class V8_EXPORT_PRIVATE CallDescriptor final
   Flags flags() const { return flags_; }
 
   bool NeedsFrameState() const { return flags() & kNeedsFrameState; }
-  bool PushArgumentCount() const { return flags() & kPushArgumentCount; }
   bool InitializeRootRegister() const {
     return flags() & kInitializeRootRegister;
   }
@@ -338,6 +357,8 @@ class V8_EXPORT_PRIVATE CallDescriptor final
     return location_sig_->GetParam(index).GetType();
   }
 
+  StackArgumentOrder GetStackArgumentOrder() const { return stack_order_; }
+
   // Operator properties describe how this call can be optimized, if at all.
   Operator::Properties properties() const { return properties_; }
 
@@ -360,7 +381,7 @@ class V8_EXPORT_PRIVATE CallDescriptor final
 
   bool CanTailCall(const CallDescriptor* callee) const;
 
-  int CalculateFixedFrameSize(Code::Kind code_kind) const;
+  int CalculateFixedFrameSize(CodeKind code_kind) const;
 
   RegList AllocatableRegisters() const { return allocatable_registers_; }
 
@@ -391,6 +412,7 @@ class V8_EXPORT_PRIVATE CallDescriptor final
   // register allocator to use.
   const RegList allocatable_registers_;
   const Flags flags_;
+  const StackArgumentOrder stack_order_;
   const char* const debug_name_;
   const CFunctionInfo* c_function_info_ = nullptr;
 
@@ -438,7 +460,8 @@ class V8_EXPORT_PRIVATE Linkage : public NON_EXPORTED_BASE(ZoneObject) {
   static CallDescriptor* GetCEntryStubCallDescriptor(
       Zone* zone, int return_count, int js_parameter_count,
       const char* debug_name, Operator::Properties properties,
-      CallDescriptor::Flags flags);
+      CallDescriptor::Flags flags,
+      StackArgumentOrder stack_order = StackArgumentOrder::kDefault);
 
   static CallDescriptor* GetStubCallDescriptor(
       Zone* zone, const CallInterfaceDescriptor& descriptor,
@@ -492,22 +515,22 @@ class V8_EXPORT_PRIVATE Linkage : public NON_EXPORTED_BASE(ZoneObject) {
   }
 
   // A special {Parameter} index for JSCalls that represents the new target.
-  static int GetJSCallNewTargetParamIndex(int parameter_count) {
+  static constexpr int GetJSCallNewTargetParamIndex(int parameter_count) {
     return parameter_count + 0;  // Parameter (arity + 0) is special.
   }
 
   // A special {Parameter} index for JSCalls that represents the argument count.
-  static int GetJSCallArgCountParamIndex(int parameter_count) {
+  static constexpr int GetJSCallArgCountParamIndex(int parameter_count) {
     return parameter_count + 1;  // Parameter (arity + 1) is special.
   }
 
   // A special {Parameter} index for JSCalls that represents the context.
-  static int GetJSCallContextParamIndex(int parameter_count) {
+  static constexpr int GetJSCallContextParamIndex(int parameter_count) {
     return parameter_count + 2;  // Parameter (arity + 2) is special.
   }
 
   // A special {Parameter} index for JSCalls that represents the closure.
-  static const int kJSCallClosureParamIndex = -1;
+  static constexpr int kJSCallClosureParamIndex = -1;
 
   // A special {OsrValue} index to indicate the context spill slot.
   static const int kOsrContextSpillSlotIndex = -1;
