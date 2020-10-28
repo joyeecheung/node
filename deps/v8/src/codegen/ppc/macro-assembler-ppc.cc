@@ -173,9 +173,8 @@ void TurboAssembler::Jump(Handle<Code> code, RelocInfo::Mode rmode,
                  Builtins::IsIsolateIndependentBuiltin(*code));
 
   int builtin_index = Builtins::kNoBuiltinId;
-  bool target_is_isolate_independent_builtin =
-      isolate()->builtins()->IsBuiltinHandle(code, &builtin_index) &&
-      Builtins::IsIsolateIndependent(builtin_index);
+  bool target_is_builtin =
+      isolate()->builtins()->IsBuiltinHandle(code, &builtin_index);
 
   if (root_array_available_ && options().isolate_independent_code) {
     Label skip;
@@ -187,8 +186,7 @@ void TurboAssembler::Jump(Handle<Code> code, RelocInfo::Mode rmode,
     Jump(scratch);
     bind(&skip);
     return;
-  } else if (options().inline_offheap_trampolines &&
-             target_is_isolate_independent_builtin) {
+  } else if (options().inline_offheap_trampolines && target_is_builtin) {
     // Inline the trampoline.
     Label skip;
     RecordCommentForOffHeapTrampoline(builtin_index);
@@ -264,9 +262,8 @@ void TurboAssembler::Call(Handle<Code> code, RelocInfo::Mode rmode,
                  Builtins::IsIsolateIndependentBuiltin(*code));
 
   int builtin_index = Builtins::kNoBuiltinId;
-  bool target_is_isolate_independent_builtin =
-      isolate()->builtins()->IsBuiltinHandle(code, &builtin_index) &&
-      Builtins::IsIsolateIndependent(builtin_index);
+  bool target_is_builtin =
+      isolate()->builtins()->IsBuiltinHandle(code, &builtin_index);
 
   if (root_array_available_ && options().isolate_independent_code) {
     Label skip;
@@ -277,8 +274,7 @@ void TurboAssembler::Call(Handle<Code> code, RelocInfo::Mode rmode,
     Call(ip);
     bind(&skip);
     return;
-  } else if (options().inline_offheap_trampolines &&
-             target_is_isolate_independent_builtin) {
+  } else if (options().inline_offheap_trampolines && target_is_builtin) {
     // Inline the trampoline.
     RecordCommentForOffHeapTrampoline(builtin_index);
     EmbeddedData d = EmbeddedData::FromBlob();
@@ -318,6 +314,38 @@ void TurboAssembler::Push(Handle<HeapObject> handle) {
 void TurboAssembler::Push(Smi smi) {
   mov(r0, Operand(smi));
   push(r0);
+}
+
+void TurboAssembler::PushArray(Register array, Register size, Register scratch,
+                               Register scratch2, PushArrayOrder order) {
+  Label loop, done;
+
+  if (order == kNormal) {
+    cmpi(size, Operand::Zero());
+    beq(&done);
+    ShiftLeftImm(scratch, size, Operand(kSystemPointerSizeLog2));
+    add(scratch, array, scratch);
+    mtctr(size);
+
+    bind(&loop);
+    LoadPU(scratch2, MemOperand(scratch, -kSystemPointerSize));
+    StorePU(scratch2, MemOperand(sp, -kSystemPointerSize));
+    bdnz(&loop);
+
+    bind(&done);
+  } else {
+    cmpi(size, Operand::Zero());
+    beq(&done);
+
+    mtctr(size);
+    subi(scratch, array, Operand(kSystemPointerSize));
+
+    bind(&loop);
+    LoadPU(scratch2, MemOperand(scratch, kSystemPointerSize));
+    StorePU(scratch2, MemOperand(sp, -kSystemPointerSize));
+    bdnz(&loop);
+    bind(&done);
+  }
 }
 
 void TurboAssembler::Move(Register dst, Handle<HeapObject> value,
@@ -775,6 +803,7 @@ void TurboAssembler::PushStandardFrame(Register function_reg) {
     }
   }
   addi(fp, sp, Operand(fp_delta * kSystemPointerSize));
+  Push(kJavaScriptCallArgCountRegister);
 }
 
 void TurboAssembler::RestoreFrameStateForTailCall() {
@@ -1350,8 +1379,7 @@ void MacroAssembler::CheckDebugHook(Register fun, Register new_target,
 
   {
     // Load receiver to pass it later to DebugOnFunctionCall hook.
-    ShiftLeftImm(r7, actual_parameter_count, Operand(kSystemPointerSizeLog2));
-    LoadPX(r7, MemOperand(sp, r7));
+    LoadReceiver(r7, actual_parameter_count);
     FrameScope frame(this,
                      has_frame() ? StackFrame::NONE : StackFrame::INTERNAL);
 
@@ -3219,16 +3247,17 @@ void TurboAssembler::StoreReturnAddressAndCall(Register target) {
             SizeOfCodeGeneratedSince(&start_call));
 }
 
-void TurboAssembler::CallForDeoptimization(Address target, int deopt_id,
-                                           Label* exit, DeoptimizeKind kind) {
+void TurboAssembler::CallForDeoptimization(Builtins::Name target, int,
+                                           Label* exit, DeoptimizeKind kind,
+                                           Label*) {
+  LoadP(ip, MemOperand(kRootRegister,
+                       IsolateData::builtin_entry_slot_offset(target)));
+  Call(ip);
+  DCHECK_EQ(SizeOfCodeGeneratedSince(exit),
+            (kind == DeoptimizeKind::kLazy)
+                ? Deoptimizer::kLazyDeoptExitSize
+                : Deoptimizer::kNonLazyDeoptExitSize);
   USE(exit, kind);
-  NoRootArrayScope no_root_array(this);
-
-  // Save the deopt id in r29 (we don't need the roots array from now on).
-  DCHECK_LE(deopt_id, 0xFFFF);
-
-  mov(r29, Operand(deopt_id));
-  Call(target, RelocInfo::RUNTIME_ENTRY);
 }
 
 void TurboAssembler::ZeroExtByte(Register dst, Register src) {

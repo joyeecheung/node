@@ -455,7 +455,7 @@ TEST(TracedGlobalToUnmodifiedJSObjectDiesOnMarkSweep) {
   CcTest::InitializeVM();
   TracedGlobalTest(
       CcTest::isolate(), ConstructJSObject,
-      [](const TracedGlobal<v8::Object>& global) {}, InvokeMarkSweep,
+      [](const TracedGlobal<v8::Object>& global) {}, [] { InvokeMarkSweep(); },
       SurvivalMode::kDies);
 }
 
@@ -469,7 +469,7 @@ TEST(TracedGlobalToUnmodifiedJSObjectSurvivesMarkSweepWhenHeldAliveOtherwise) {
         v8::HandleScope scope(isolate);
         strong_global = v8::Global<v8::Object>(isolate, global.Get(isolate));
       },
-      InvokeMarkSweep, SurvivalMode::kSurvives);
+      []() { InvokeMarkSweep(); }, SurvivalMode::kSurvives);
 }
 
 TEST(TracedGlobalToUnmodifiedJSObjectSurvivesScavenge) {
@@ -478,7 +478,7 @@ TEST(TracedGlobalToUnmodifiedJSObjectSurvivesScavenge) {
   CcTest::InitializeVM();
   TracedGlobalTest(
       CcTest::isolate(), ConstructJSObject,
-      [](const TracedGlobal<v8::Object>& global) {}, InvokeScavenge,
+      [](const TracedGlobal<v8::Object>& global) {}, []() { InvokeScavenge(); },
       SurvivalMode::kSurvives);
 }
 
@@ -492,7 +492,7 @@ TEST(TracedGlobalToUnmodifiedJSObjectSurvivesScavengeWhenExcludedFromRoots) {
   tracer.ConsiderTracedGlobalAsRoot(false);
   TracedGlobalTest(
       CcTest::isolate(), ConstructJSObject,
-      [](const TracedGlobal<v8::Object>& global) {}, InvokeScavenge,
+      [](const TracedGlobal<v8::Object>& global) {}, []() { InvokeScavenge(); },
       SurvivalMode::kSurvives);
 }
 
@@ -506,7 +506,7 @@ TEST(TracedGlobalToUnmodifiedJSApiObjectSurvivesScavengePerDefault) {
   tracer.ConsiderTracedGlobalAsRoot(true);
   TracedGlobalTest(
       CcTest::isolate(), ConstructJSApiObject<TracedGlobal<v8::Object>>,
-      [](const TracedGlobal<v8::Object>& global) {}, InvokeScavenge,
+      [](const TracedGlobal<v8::Object>& global) {}, []() { InvokeScavenge(); },
       SurvivalMode::kSurvives);
 }
 
@@ -520,7 +520,7 @@ TEST(TracedGlobalToUnmodifiedJSApiObjectDiesOnScavengeWhenExcludedFromRoots) {
   tracer.ConsiderTracedGlobalAsRoot(false);
   TracedGlobalTest(
       CcTest::isolate(), ConstructJSApiObject<TracedGlobal<v8::Object>>,
-      [](const TracedGlobal<v8::Object>& global) {}, InvokeScavenge,
+      [](const TracedGlobal<v8::Object>& global) {}, []() { InvokeScavenge(); },
       SurvivalMode::kDies);
 }
 
@@ -833,8 +833,8 @@ class EmbedderHeapTracerNoDestructorNonTracingClearing final
 
     // Convention (for test): Objects that are optimized have their first field
     // set as a back pointer.
-    TracedReferenceBase<v8::Value>* original_handle =
-        reinterpret_cast<TracedReferenceBase<v8::Value>*>(
+    BasicTracedReference<v8::Value>* original_handle =
+        reinterpret_cast<BasicTracedReference<v8::Value>*>(
             v8::Object::GetAlignedPointerFromInternalField(
                 handle.As<v8::Object>(), 0));
     original_handle->Reset();

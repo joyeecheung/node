@@ -1,12 +1,20 @@
 // Copyright 2015 the V8 project authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+//
+// Flags: --allow-natives-syntax
 
-__v_0 = 100000;
-__v_1 = new Array();
-for (var __v_2 = 0; __v_2 < __v_0; __v_2++) {
-  __v_1[__v_2] = 0.5;
-}
-for (var __v_2 = 0; __v_2 < 10; __v_2++) {
-  var __v_0 = __v_1 + 0.5;
-}
+(function() {
+  const page_size_bits = 18;
+  const max_heap_object_size = (1 << (page_size_bits - 1));
+
+  const filler = "Large amount of text per element, so that the joined array is"
+      + "large enough to be allocated in the large object space"
+  const size = Math.ceil(max_heap_object_size / filler.length + 1);
+  const arr = Array(size).fill(filler);
+
+  for (let i = 0; i < 10; i++) {
+    assertTrue(%InLargeObjectSpace(arr.join("")));
+  }
+
+})();

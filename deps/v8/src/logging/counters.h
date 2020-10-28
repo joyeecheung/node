@@ -13,6 +13,7 @@
 #include "src/base/platform/elapsed-timer.h"
 #include "src/base/platform/time.h"
 #include "src/common/globals.h"
+#include "src/debug/debug-interface.h"
 #include "src/execution/isolate.h"
 #include "src/init/heap-symbols.h"
 #include "src/logging/counters-definitions.h"
@@ -274,6 +275,9 @@ class TimedHistogram : public Histogram {
   // Records a TimeDelta::Max() result. Useful to record percentage of tasks
   // that never got to run in a given scenario. Log if isolate non-null.
   void RecordAbandon(base::ElapsedTimer* timer, Isolate* isolate);
+
+  // Add a single sample to this histogram.
+  void AddTimedSample(base::TimeDelta sample);
 
  protected:
   friend class Counters;
@@ -746,7 +750,6 @@ class RuntimeCallTimer final {
   V(Int8Array_New)                                         \
   V(Isolate_DateTimeConfigurationChangeNotification)       \
   V(Isolate_LocaleConfigurationChangeNotification)         \
-  V(JSMemberBase_New)                                      \
   V(JSON_Parse)                                            \
   V(JSON_Stringify)                                        \
   V(Map_AsArray)                                           \
@@ -926,7 +929,6 @@ class RuntimeCallTimer final {
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, MachineOperatorOptimization)     \
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, MeetRegisterConstraints)         \
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, MemoryOptimization)              \
-  ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, MergeSplinteredRanges)           \
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, OptimizeMoves)                   \
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, PopulatePointerMaps)             \
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, PrintGraph)                      \
@@ -938,7 +940,6 @@ class RuntimeCallTimer final {
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, Scheduling)                      \
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, SelectInstructions)              \
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, SimplifiedLowering)              \
-  ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, SplinterLiveRanges)              \
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, StoreStoreElimination)           \
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, TypeAssertions)                  \
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, TypedLowering)                   \
@@ -1145,6 +1146,9 @@ class RuntimeCallStats final {
   V8_EXPORT_PRIVATE void Print(std::ostream& os);
   V8_EXPORT_PRIVATE void Print();
   V8_NOINLINE void Dump(v8::tracing::TracedValue* value);
+
+  V8_EXPORT_PRIVATE void EnumerateCounters(
+      debug::RuntimeCallCounterCallback callback);
 
   ThreadId thread_id() const { return thread_id_; }
   RuntimeCallTimer* current_timer() { return current_timer_.Value(); }

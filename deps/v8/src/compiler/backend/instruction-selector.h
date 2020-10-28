@@ -272,7 +272,8 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
       InstructionSequence* sequence, Schedule* schedule,
       SourcePositionTable* source_positions, Frame* frame,
       EnableSwitchJumpTable enable_switch_jump_table, TickCounter* tick_counter,
-      size_t* max_unoptimized_frame_height, size_t* max_pushed_argument_count,
+      JSHeapBroker* broker, size_t* max_unoptimized_frame_height,
+      size_t* max_pushed_argument_count,
       SourcePositionMode source_position_mode = kCallSourcePositions,
       Features features = SupportedFeatures(),
       EnableScheduling enable_scheduling = FLAG_turbo_instruction_scheduling
@@ -667,6 +668,17 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
   void VisitWord64AtomicNarrowBinop(Node* node, ArchOpcode uint8_op,
                                     ArchOpcode uint16_op, ArchOpcode uint32_op);
 
+#if V8_TARGET_ARCH_64_BIT
+  bool ZeroExtendsWord32ToWord64(Node* node, int recursion_depth = 0);
+  bool ZeroExtendsWord32ToWord64NoPhis(Node* node);
+
+  enum Upper32BitsState : uint8_t {
+    kNotYetChecked,
+    kUpperBitsGuaranteedZero,
+    kNoGuarantee,
+  };
+#endif  // V8_TARGET_ARCH_64_BIT
+
   // ===========================================================================
 
   Zone* const zone_;
@@ -697,11 +709,21 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
   ZoneVector<std::pair<int, int>> instr_origins_;
   EnableTraceTurboJson trace_turbo_;
   TickCounter* const tick_counter_;
+  // The broker is only used for unparking the LocalHeap for diagnostic printing
+  // for failed StaticAsserts.
+  JSHeapBroker* const broker_;
 
   // Store the maximal unoptimized frame height and an maximal number of pushed
   // arguments (for calls). Later used to apply an offset to stack checks.
   size_t* max_unoptimized_frame_height_;
   size_t* max_pushed_argument_count_;
+
+#if V8_TARGET_ARCH_64_BIT
+  // Holds lazily-computed results for whether phi nodes guarantee their upper
+  // 32 bits to be zero. Indexed by node ID; nobody reads or writes the values
+  // for non-phi nodes.
+  ZoneVector<Upper32BitsState> phi_states_;
+#endif
 };
 
 }  // namespace compiler

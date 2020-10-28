@@ -5,12 +5,12 @@ import "./stats-panel.mjs";
 import "./map-panel/map-details.mjs";
 import "./map-panel/map-transitions.mjs";
 import { FocusEvent } from './events.mjs';
-import { MapLogEvent } from "./map-processor.mjs";
+import { MapLogEntry } from "./log/map.mjs";
 import { defineCustomElement, V8CustomElement } from './helper.mjs';
 
 defineCustomElement('map-panel', (templateText) =>
   class MapPanel extends V8CustomElement {
-    #map;
+    _map;
     constructor() {
       super(templateText);
       this.searchBarBtn.addEventListener(
@@ -20,13 +20,9 @@ defineCustomElement('map-panel', (templateText) =>
     }
 
     handleUpdateMapDetails(e) {
-      if (e.entry instanceof MapLogEvent) {
+      if (e.entry instanceof MapLogEntry) {
         this.mapDetailsPanel.mapDetails = e.entry;
       }
-    }
-
-    get statsPanel() {
-      return this.$('#stats-panel');
     }
 
     get mapTransitionsPanel() {
@@ -49,32 +45,20 @@ defineCustomElement('map-panel', (templateText) =>
       return this.mapDetailsPanel.mapDetails;
     }
 
-    // send a timeline to the stats-panel
-    get timeline() {
-      return this.statsPanel.timeline;
-    }
-    set timeline(value) {
-      console.assert(value !== undefined, "timeline undefined!");
-      this.statsPanel.timeline = value;
-      this.statsPanel.update();
-    }
-    get transitions() {
-      return this.statsPanel.transitions;
-    }
-    set transitions(value) {
-      this.statsPanel.transitions = value;
+    set timeline(timeline) {
+      this._timeline = timeline;
     }
 
     set map(value) {
-      this.#map = value;
-      this.mapTransitionsPanel.map = this.#map;
+      this._map = value;
+      this.mapTransitionsPanel.map = this._map;
     }
 
     handleSearchBar(e) {
       let searchBar = this.$('#searchBarInput');
       let searchBarInput = searchBar.value;
       //access the map from model cache
-      let selectedMap = MapLogEvent.get(searchBarInput);
+      let selectedMap = MapLogEntry.get(parseInt(searchBarInput));
       if (selectedMap) {
         searchBar.className = "success";
       } else {
@@ -83,11 +67,11 @@ defineCustomElement('map-panel', (templateText) =>
       this.dispatchEvent(new FocusEvent(selectedMap));
     }
 
-    set selectedMapLogEvents(list) {
-      this.mapTransitionsPanel.selectedMapLogEvents = list;
+    set selectedMapLogEntries(list) {
+      this.mapTransitionsPanel.selectedMapLogEntries = list;
     }
-    get selectedMapLogEvents() {
-      return this.mapTransitionsPanel.selectedMapLogEvents;
+    get selectedMapLogEntries() {
+      return this.mapTransitionsPanel.selectedMapLogEntries;
     }
 
   });

@@ -23,6 +23,7 @@
 #include "src/wasm/wasm-debug.h"
 #include "src/wasm/wasm-engine.h"
 #include "src/wasm/wasm-objects.h"
+#include "src/wasm/wasm-subtyping.h"
 #include "src/wasm/wasm-value.h"
 
 namespace v8 {
@@ -87,20 +88,23 @@ Object ThrowWasmError(Isolate* isolate, MessageTemplate message) {
 }
 }  // namespace
 
-RUNTIME_FUNCTION(Runtime_WasmIsValidFuncRefValue) {
+RUNTIME_FUNCTION(Runtime_WasmIsValidRefValue) {
   // This code is called from wrappers, so the "thread is wasm" flag is not set.
   DCHECK(!trap_handler::IsThreadInWasm());
   HandleScope scope(isolate);
-  DCHECK_EQ(1, args.length());
-  CONVERT_ARG_HANDLE_CHECKED(Object, function, 0);
+  DCHECK_EQ(3, args.length());
+  CONVERT_ARG_HANDLE_CHECKED(WasmInstanceObject, instance, 0)
+  CONVERT_ARG_HANDLE_CHECKED(Object, value, 1);
+  // Make sure ValueType fits properly in a Smi.
+  STATIC_ASSERT(wasm::ValueType::kLastUsedBit + 1 <= kSmiValueSize);
+  CONVERT_SMI_ARG_CHECKED(raw_type, 2);
 
-  if (function->IsNull(isolate)) {
-    return Smi::FromInt(true);
-  }
-  if (WasmExternalFunction::IsWasmExternalFunction(*function)) {
-    return Smi::FromInt(true);
-  }
-  return Smi::FromInt(false);
+  wasm::ValueType type = wasm::ValueType::FromRawBitField(raw_type);
+  const char* error_message;
+
+  bool result = internal::wasm::TypecheckJSObject(isolate, instance->module(),
+                                                  value, type, &error_message);
+  return Smi::FromInt(result);
 }
 
 RUNTIME_FUNCTION(Runtime_WasmMemoryGrow) {
@@ -133,7 +137,7 @@ RUNTIME_FUNCTION(Runtime_ThrowWasmStackOverflow) {
   return isolate->StackOverflow();
 }
 
-RUNTIME_FUNCTION(Runtime_WasmThrowTypeError) {
+RUNTIME_FUNCTION(Runtime_WasmThrowJSTypeError) {
   // This runtime function is called both from wasm and from e.g. js-to-js
   // functions. Hence the "thread in wasm" flag can be either set or not. Both
   // is OK, since throwing will trigger unwinding anyway, which sets the flag
@@ -141,7 +145,7 @@ RUNTIME_FUNCTION(Runtime_WasmThrowTypeError) {
   HandleScope scope(isolate);
   DCHECK_EQ(0, args.length());
   THROW_NEW_ERROR_RETURN_FAILURE(
-      isolate, NewTypeError(MessageTemplate::kWasmTrapTypeError));
+      isolate, NewTypeError(MessageTemplate::kWasmTrapJSTypeError));
 }
 
 RUNTIME_FUNCTION(Runtime_WasmThrowCreate) {
@@ -209,6 +213,34 @@ RUNTIME_FUNCTION(Runtime_WasmCompileLazy) {
   return Object(entrypoint);
 }
 
+RUNTIME_FUNCTION(Runtime_WasmCompileWrapper) {
+  HandleScope scope(isolate);
+  DCHECK_EQ(2, args.length());
+  CONVERT_ARG_HANDLE_CHECKED(WasmInstanceObject, instance, 0);
+  CONVERT_ARG_HANDLE_CHECKED(WasmExportedFunctionData, function_data, 1);
+  DCHECK(isolate->context().is_null());
+  isolate->set_context(instance->native_context());
+
+  const wasm::WasmModule* module = instance->module();
+  const int function_index = function_data->function_index();
+  const wasm::WasmFunction function = module->functions[function_index];
+  const wasm::FunctionSig* sig = function.sig;
+
+  Handle<Code> wrapper =
+      wasm::JSToWasmWrapperCompilationUnit::CompileSpecificJSToWasmWrapper(
+          isolate, sig, module);
+
+  function_data->set_wrapper_code(*wrapper);
+
+  MaybeHandle<WasmExternalFunction> maybe_result =
+      WasmInstanceObject::GetWasmExternalFunction(isolate, instance,
+                                                  function_index);
+  Handle<WasmExternalFunction> result = maybe_result.ToHandleChecked();
+  result->set_code(*wrapper);
+
+  return ReadOnlyRoots(isolate).undefined_value();
+}
+
 RUNTIME_FUNCTION(Runtime_WasmTriggerTierUp) {
   HandleScope scope(isolate);
   DCHECK_EQ(1, args.length());
@@ -223,32 +255,20 @@ RUNTIME_FUNCTION(Runtime_WasmTriggerTierUp) {
   return ReadOnlyRoots(isolate).undefined_value();
 }
 
-// Should be called from within a handle scope
-Handle<JSArrayBuffer> GetArrayBuffer(Handle<WasmInstanceObject> instance,
-                                     Isolate* isolate, uint32_t address) {
-  DCHECK(instance->has_memory_object());
-  Handle<JSArrayBuffer> array_buffer(instance->memory_object().array_buffer(),
-                                     isolate);
-
-  // Should have trapped if address was OOB
-  DCHECK_LT(address, array_buffer->byte_length());
-  return array_buffer;
-}
-
 RUNTIME_FUNCTION(Runtime_WasmAtomicNotify) {
   ClearThreadInWasmScope clear_wasm_flag;
   HandleScope scope(isolate);
   DCHECK_EQ(3, args.length());
   CONVERT_ARG_HANDLE_CHECKED(WasmInstanceObject, instance, 0);
-  CONVERT_NUMBER_CHECKED(uint32_t, address, Uint32, args[1]);
+  CONVERT_DOUBLE_ARG_CHECKED(offset_double, 1);
+  uintptr_t offset = static_cast<uintptr_t>(offset_double);
   CONVERT_NUMBER_CHECKED(uint32_t, count, Uint32, args[2]);
-  Handle<JSArrayBuffer> array_buffer =
-      GetArrayBuffer(instance, isolate, address);
-  if (array_buffer->is_shared()) {
-    return FutexEmulation::Wake(array_buffer, address, count);
-  } else {
-    return Smi::FromInt(0);
-  }
+  Handle<JSArrayBuffer> array_buffer{instance->memory_object().array_buffer(),
+                                     isolate};
+  // Should have trapped if address was OOB.
+  DCHECK_LT(offset, array_buffer->byte_length());
+  if (!array_buffer->is_shared()) return Smi::FromInt(0);
+  return FutexEmulation::Wake(array_buffer, offset, count);
 }
 
 RUNTIME_FUNCTION(Runtime_WasmI32AtomicWait) {
@@ -256,18 +276,21 @@ RUNTIME_FUNCTION(Runtime_WasmI32AtomicWait) {
   HandleScope scope(isolate);
   DCHECK_EQ(4, args.length());
   CONVERT_ARG_HANDLE_CHECKED(WasmInstanceObject, instance, 0);
-  CONVERT_NUMBER_CHECKED(uint32_t, address, Uint32, args[1]);
+  CONVERT_DOUBLE_ARG_CHECKED(offset_double, 1);
+  uintptr_t offset = static_cast<uintptr_t>(offset_double);
   CONVERT_NUMBER_CHECKED(int32_t, expected_value, Int32, args[2]);
   CONVERT_ARG_HANDLE_CHECKED(BigInt, timeout_ns, 3);
 
-  Handle<JSArrayBuffer> array_buffer =
-      GetArrayBuffer(instance, isolate, address);
+  Handle<JSArrayBuffer> array_buffer{instance->memory_object().array_buffer(),
+                                     isolate};
+  // Should have trapped if address was OOB.
+  DCHECK_LT(offset, array_buffer->byte_length());
 
-  // Trap if memory is not shared
+  // Trap if memory is not shared.
   if (!array_buffer->is_shared()) {
     return ThrowWasmError(isolate, MessageTemplate::kAtomicsWaitNotAllowed);
   }
-  return FutexEmulation::WaitWasm32(isolate, array_buffer, address,
+  return FutexEmulation::WaitWasm32(isolate, array_buffer, offset,
                                     expected_value, timeout_ns->AsInt64());
 }
 
@@ -276,18 +299,21 @@ RUNTIME_FUNCTION(Runtime_WasmI64AtomicWait) {
   HandleScope scope(isolate);
   DCHECK_EQ(4, args.length());
   CONVERT_ARG_HANDLE_CHECKED(WasmInstanceObject, instance, 0);
-  CONVERT_NUMBER_CHECKED(uint32_t, address, Uint32, args[1]);
+  CONVERT_DOUBLE_ARG_CHECKED(offset_double, 1);
+  uintptr_t offset = static_cast<uintptr_t>(offset_double);
   CONVERT_ARG_HANDLE_CHECKED(BigInt, expected_value, 2);
   CONVERT_ARG_HANDLE_CHECKED(BigInt, timeout_ns, 3);
 
-  Handle<JSArrayBuffer> array_buffer =
-      GetArrayBuffer(instance, isolate, address);
+  Handle<JSArrayBuffer> array_buffer{instance->memory_object().array_buffer(),
+                                     isolate};
+  // Should have trapped if address was OOB.
+  DCHECK_LT(offset, array_buffer->byte_length());
 
-  // Trap if memory is not shared
+  // Trap if memory is not shared.
   if (!array_buffer->is_shared()) {
     return ThrowWasmError(isolate, MessageTemplate::kAtomicsWaitNotAllowed);
   }
-  return FutexEmulation::WaitWasm64(isolate, array_buffer, address,
+  return FutexEmulation::WaitWasm64(isolate, array_buffer, offset,
                                     expected_value->AsInt64(),
                                     timeout_ns->AsInt64());
 }
@@ -331,7 +357,11 @@ RUNTIME_FUNCTION(Runtime_WasmFunctionTableGet) {
   auto table = handle(
       WasmTableObject::cast(instance->tables().get(table_index)), isolate);
   // We only use the runtime call for lazily initialized function references.
-  DCHECK_EQ(table->type(), wasm::kWasmFuncRef);
+  DCHECK(
+      table->instance().IsUndefined()
+          ? table->type() == wasm::kWasmFuncRef
+          : IsSubtypeOf(table->type(), wasm::kWasmFuncRef,
+                        WasmInstanceObject::cast(table->instance()).module()));
 
   if (!WasmTableObject::IsInBounds(isolate, table, entry_index)) {
     return ThrowWasmError(isolate, MessageTemplate::kWasmTrapTableOutOfBounds);
@@ -354,7 +384,11 @@ RUNTIME_FUNCTION(Runtime_WasmFunctionTableSet) {
   auto table = handle(
       WasmTableObject::cast(instance->tables().get(table_index)), isolate);
   // We only use the runtime call for function references.
-  DCHECK_EQ(table->type(), wasm::kWasmFuncRef);
+  DCHECK(
+      table->instance().IsUndefined()
+          ? table->type() == wasm::kWasmFuncRef
+          : IsSubtypeOf(table->type(), wasm::kWasmFuncRef,
+                        WasmInstanceObject::cast(table->instance()).module()));
 
   if (!WasmTableObject::IsInBounds(isolate, table, entry_index)) {
     return ThrowWasmError(isolate, MessageTemplate::kWasmTrapTableOutOfBounds);

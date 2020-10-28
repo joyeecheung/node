@@ -50,10 +50,11 @@ type Zero extends PositiveSmi;
 type Uninitialized extends Tagged;
 
 extern macro MakeWeak(HeapObject): WeakHeapObject;
-extern macro GetHeapObjectAssumeWeak(WeakHeapObject):
-    HeapObject labels ClearedWeakPointer;
+extern macro GetHeapObjectAssumeWeak(MaybeObject): HeapObject labels IfCleared;
+extern macro GetHeapObjectIfStrong(MaybeObject): HeapObject labels IfNotStrong;
 extern macro IsWeakOrCleared(MaybeObject): bool;
 extern macro IsWeakReferenceToObject(MaybeObject, Object): bool;
+extern macro IsStrong(MaybeObject): bool;
 
 macro StrongToWeak<T: type>(x: T): Weak<T> {
   return %RawDownCast<Weak<T>>(MakeWeak(x));
@@ -110,7 +111,7 @@ type bint generates 'TNode<BInt>' constexpr 'BInt';
 type string constexpr 'const char*';
 
 // A Smi value containing a bitfield struct as its integer data.
-type SmiTagged<T : type extends uint31> extends Smi;
+@useParentTypeChecker type SmiTagged<T : type extends uint31> extends Smi;
 
 // WARNING: The memory representation (i.e., in class fields and arrays) of
 // float64_or_hole is just a float64 that may be the hole-representing
@@ -165,6 +166,9 @@ extern class ScriptContextTable extends FixedArray;
 type LayoutDescriptor extends ByteArray
     generates 'TNode<LayoutDescriptor>';
 extern class TransitionArray extends WeakFixedArray;
+
+extern operator '.length_intptr' macro LoadAndUntagWeakFixedArrayLength(
+    WeakFixedArray): intptr;
 
 type InstanceType extends uint16 constexpr 'InstanceType';
 
@@ -278,6 +282,7 @@ extern enum MessageTemplate {
   kFirstArgumentNotRegExp,
   kBigIntMixedTypes,
   kTypedArrayTooShort,
+  kTypedArrayTooLargeToSort,
   kInvalidCountValue,
   kConstructorNotFunction,
   kSymbolToString,
@@ -320,7 +325,6 @@ extern enum MessageTemplate {
   kWasmTrapDivUnrepresentable,
   kWasmTrapRemByZero,
   kWasmTrapFloatUnrepresentable,
-  kWasmTrapFuncInvalid,
   kWasmTrapFuncSigMismatch,
   kWasmTrapDataSegmentDropped,
   kWasmTrapElemSegmentDropped,
@@ -608,6 +612,7 @@ extern macro CodeStubAssembler::AllocateNameDictionary(constexpr int32):
 
 extern builtin ToObject(Context, JSAny): JSReceiver;
 extern macro ToObject_Inline(Context, JSAny): JSReceiver;
+extern macro IsUndefined(Object): bool;
 extern macro IsNullOrUndefined(Object): bool;
 extern macro IsString(HeapObject): bool;
 extern macro IsSeqOneByteString(HeapObject): bool;
@@ -635,6 +640,7 @@ extern transitioning runtime TransitionElementsKindWithKind(
 extern macro LoadBufferObject(RawPtr, constexpr int32): Object;
 extern macro LoadBufferPointer(RawPtr, constexpr int32): RawPtr;
 extern macro LoadBufferSmi(RawPtr, constexpr int32): Smi;
+extern macro LoadBufferIntptr(RawPtr, constexpr int32): intptr;
 
 extern runtime StringEqual(Context, String, String): Oddball;
 extern builtin StringLessThan(Context, String, String): Boolean;
@@ -1035,6 +1041,12 @@ const kPromiseCapabilityMap: Map = PromiseCapabilityMapConstant();
 const kOneByteStringMap: Map = OneByteStringMapConstant();
 // The map of a non-internalized internal SeqTwoByteString.
 const kStringMap: Map = StringMapConstant();
+
+macro OutOfBounds<T: type, X: type>(index: T, length: X): bool {
+  return UintPtrGreaterThanOrEqual(
+      Convert<uintptr>(Convert<intptr>(index)),
+      Convert<uintptr>(Convert<intptr>(length)));
+}
 
 extern macro IsPrototypeInitialArrayPrototype(implicit context: Context)(Map):
     bool;
@@ -1546,6 +1558,7 @@ namespace runtime {
 extern runtime
 GetDerivedMap(Context, JSFunction, JSReceiver): Map;
 }
+extern macro IsDeprecatedMap(Map): bool;
 
 transitioning builtin FastCreateDataProperty(implicit context: Context)(
     receiver: JSReceiver, key: JSAny, value: JSAny): Object {
@@ -1632,14 +1645,15 @@ macro IsIntegerOrSomeInfinity(o: Object): bool {
 }
 
 builtin CheckNumberInRange(implicit context: Context)(
-    value: Number, min: Number, max: Number): Undefined {
+    value: Number, min: Number, max: Number, nodeId: Smi): Undefined {
   if (IsIntegerOrSomeInfinity(value) && min <= value && value <= max) {
     return Undefined;
   } else {
-    Print('Range type assertion failed! (value/min/max)');
+    Print('Range type assertion failed! (value/min/max/nodeId)');
     Print(value);
     Print(min);
     Print(max);
+    Print(nodeId);
     unreachable;
   }
 }
@@ -1693,3 +1707,9 @@ struct ConstantIterator<T: type> {
 macro ConstantIterator<T: type>(value: T): ConstantIterator<T> {
   return ConstantIterator{value};
 }
+
+extern macro FeedbackIteratorSizeFor(constexpr int32): intptr;
+extern macro FeedbackIteratorMapIndexForEntry(constexpr int32): intptr;
+extern macro FeedbackIteratorHandlerIndexForEntry(constexpr int32): intptr;
+extern operator '[]' macro LoadWeakFixedArrayElement(
+    WeakFixedArray, intptr): MaybeObject;

@@ -31,7 +31,7 @@ namespace v8 {
 namespace internal {
 
 Address Code::SafepointTableAddress() const {
-  return InstructionStart() + safepoint_table_offset();
+  return MetadataStart() + safepoint_table_offset();
 }
 
 int Code::safepoint_table_size() const {
@@ -42,7 +42,7 @@ int Code::safepoint_table_size() const {
 bool Code::has_safepoint_table() const { return safepoint_table_size() > 0; }
 
 Address Code::HandlerTableAddress() const {
-  return InstructionStart() + handler_table_offset();
+  return MetadataStart() + handler_table_offset();
 }
 
 int Code::handler_table_size() const {
@@ -62,13 +62,11 @@ int Code::constant_pool_size() const {
 bool Code::has_constant_pool() const { return constant_pool_size() > 0; }
 
 int Code::code_comments_size() const {
-  DCHECK_GE(InstructionSize() - code_comments_offset(), 0);
-  return InstructionSize() - code_comments_offset();
+  DCHECK_GE(unwinding_info_offset() - code_comments_offset(), 0);
+  return unwinding_info_offset() - code_comments_offset();
 }
 
 bool Code::has_code_comments() const { return code_comments_size() > 0; }
-
-int Code::ExecutableInstructionSize() const { return safepoint_table_offset(); }
 
 void Code::ClearEmbeddedObjects(Heap* heap) {
   HeapObject undefined = ReadOnlyRoots(heap).undefined_value();
@@ -93,17 +91,13 @@ void Code::FlushICache() const {
 
 void Code::CopyFromNoFlush(Heap* heap, const CodeDesc& desc) {
   // Copy code.
+  // TODO(jgruber,v8:11036): Distinguish instruction and metadata areas.
+  STATIC_ASSERT(kOnHeapBodyIsContiguous);
   CopyBytes(reinterpret_cast<byte*>(raw_instruction_start()), desc.buffer,
             static_cast<size_t>(desc.instr_size));
-
-  // Copy unwinding info, if any.
-  if (desc.unwinding_info) {
-    DCHECK_GT(desc.unwinding_info_size, 0);
-    set_unwinding_info_size(desc.unwinding_info_size);
-    CopyBytes(reinterpret_cast<byte*>(unwinding_info_start()),
-              desc.unwinding_info,
-              static_cast<size_t>(desc.unwinding_info_size));
-  }
+  // TODO(jgruber,v8:11036): Merge with the above.
+  CopyBytes(reinterpret_cast<byte*>(raw_instruction_start() + desc.instr_size),
+            desc.unwinding_info, static_cast<size_t>(desc.unwinding_info_size));
 
   // Copy reloc info.
   CopyRelocInfoToByteArray(unchecked_relocation_info(), desc);
@@ -143,27 +137,58 @@ SafepointEntry Code::GetSafepointEntry(Address pc) {
 
 int Code::OffHeapInstructionSize() const {
   DCHECK(is_off_heap_trampoline());
-  if (Isolate::CurrentEmbeddedBlobCode() == nullptr)
+  if (Isolate::CurrentEmbeddedBlobCode() == nullptr) {
     return raw_instruction_size();
+  }
   EmbeddedData d = EmbeddedData::FromBlob();
   return d.InstructionSizeOfBuiltin(builtin_index());
 }
 
 Address Code::OffHeapInstructionStart() const {
   DCHECK(is_off_heap_trampoline());
-  if (Isolate::CurrentEmbeddedBlobCode() == nullptr)
-    return raw_instruction_start();
+  if (Isolate::CurrentEmbeddedBlobCode() == nullptr) {
+    return raw_instruction_size();
+  }
   EmbeddedData d = EmbeddedData::FromBlob();
   return d.InstructionStartOfBuiltin(builtin_index());
 }
 
 Address Code::OffHeapInstructionEnd() const {
   DCHECK(is_off_heap_trampoline());
-  if (Isolate::CurrentEmbeddedBlobCode() == nullptr)
-    return raw_instruction_end();
+  if (Isolate::CurrentEmbeddedBlobCode() == nullptr) {
+    return raw_instruction_size();
+  }
   EmbeddedData d = EmbeddedData::FromBlob();
   return d.InstructionStartOfBuiltin(builtin_index()) +
          d.InstructionSizeOfBuiltin(builtin_index());
+}
+
+int Code::OffHeapMetadataSize() const {
+  DCHECK(is_off_heap_trampoline());
+  if (Isolate::CurrentEmbeddedBlobCode() == nullptr) {
+    return raw_instruction_size();
+  }
+  EmbeddedData d = EmbeddedData::FromBlob();
+  return d.MetadataSizeOfBuiltin(builtin_index());
+}
+
+Address Code::OffHeapMetadataStart() const {
+  DCHECK(is_off_heap_trampoline());
+  if (Isolate::CurrentEmbeddedBlobCode() == nullptr) {
+    return raw_instruction_size();
+  }
+  EmbeddedData d = EmbeddedData::FromBlob();
+  return d.MetadataStartOfBuiltin(builtin_index());
+}
+
+Address Code::OffHeapMetadataEnd() const {
+  DCHECK(is_off_heap_trampoline());
+  if (Isolate::CurrentEmbeddedBlobCode() == nullptr) {
+    return raw_instruction_size();
+  }
+  EmbeddedData d = EmbeddedData::FromBlob();
+  return d.MetadataStartOfBuiltin(builtin_index()) +
+         d.MetadataSizeOfBuiltin(builtin_index());
 }
 
 int AbstractCode::SourcePosition(int offset) {
@@ -199,17 +224,6 @@ int AbstractCode::SourceStatementPosition(int offset) {
     }
   }
   return statement_position;
-}
-
-void Code::PrintDeoptLocation(FILE* out, const char* str, Address pc) {
-  Deoptimizer::DeoptInfo info = Deoptimizer::GetDeoptInfo(*this, pc);
-  class SourcePosition pos = info.position;
-  if (info.deopt_reason != DeoptimizeReason::kUnknown || pos.IsKnown()) {
-    PrintF(out, "%s", str);
-    OFStream outstr(out);
-    pos.Print(outstr, *this);
-    PrintF(out, ", %s\n", DeoptimizeReasonToString(info.deopt_reason));
-  }
 }
 
 bool Code::CanDeoptAt(Address pc) {
@@ -690,8 +704,7 @@ void Code::Disassemble(const char* name, std::ostream& os, Isolate* isolate,
   }
 
   {
-    // Stop before reaching any embedded tables
-    int code_size = ExecutableInstructionSize();
+    int code_size = InstructionSize();
     os << "Instructions (size = " << code_size << ")\n";
     DisassembleCodeRange(isolate, os, *this, InstructionStart(), code_size,
                          current_pc);
@@ -700,8 +713,8 @@ void Code::Disassemble(const char* name, std::ostream& os, Isolate* isolate,
       DCHECK_EQ(pool_size & kPointerAlignmentMask, 0);
       os << "\nConstant Pool (size = " << pool_size << ")\n";
       Vector<char> buf = Vector<char>::New(50);
-      intptr_t* ptr = reinterpret_cast<intptr_t*>(InstructionStart() +
-                                                  constant_pool_offset());
+      intptr_t* ptr =
+          reinterpret_cast<intptr_t*>(MetadataStart() + constant_pool_offset());
       for (int i = 0; i < pool_size; i += kSystemPointerSize, ptr++) {
         SNPrintF(buf, "%4d %08" V8PRIxPTR, i, *ptr);
         os << static_cast<const void*>(ptr) << "  " << buf.begin() << "\n";
@@ -712,8 +725,7 @@ void Code::Disassemble(const char* name, std::ostream& os, Isolate* isolate,
 
   {
     SourcePositionTableIterator it(
-        SourcePositionTableIfCollected(),
-        SourcePositionTableIterator::kJavaScriptOnly);
+        SourcePositionTable(), SourcePositionTableIterator::kJavaScriptOnly);
     if (!it.done()) {
       os << "Source positions:\n pc offset  position\n";
       for (; !it.done(); it.Advance()) {
@@ -726,7 +738,7 @@ void Code::Disassemble(const char* name, std::ostream& os, Isolate* isolate,
   }
 
   {
-    SourcePositionTableIterator it(SourcePositionTableIfCollected(),
+    SourcePositionTableIterator it(SourcePositionTable(),
                                    SourcePositionTableIterator::kExternalOnly);
     if (!it.done()) {
       os << "External Source positions:\n pc offset  fileid  line\n";
@@ -808,8 +820,7 @@ void BytecodeArray::Disassemble(std::ostream& os) {
   os << "Frame size " << frame_size() << "\n";
 
   Address base_address = GetFirstBytecodeAddress();
-  SourcePositionTableIterator source_positions(
-      SourcePositionTableIfCollected());
+  SourcePositionTableIterator source_positions(SourcePositionTable());
 
   // Storage for backing the handle passed to the iterator. This handle won't be
   // updated by the gc, but that's ok because we've disallowed GCs anyway.
@@ -868,11 +879,12 @@ void BytecodeArray::Disassemble(std::ostream& os) {
   }
 #endif
 
-  os << "Source Position Table (size = "
-     << SourcePositionTableIfCollected().length() << ")\n";
+  ByteArray source_position_table = SourcePositionTable();
+  os << "Source Position Table (size = " << source_position_table.length()
+     << ")\n";
 #ifdef OBJECT_PRINT
-  if (SourcePositionTableIfCollected().length() > 0) {
-    os << Brief(SourcePositionTableIfCollected()) << std::endl;
+  if (source_position_table.length() > 0) {
+    os << Brief(source_position_table) << std::endl;
   }
 #endif
 }
@@ -1058,27 +1070,7 @@ void DependentCode::DeoptimizeDependentCodeGroup(
 
 void Code::SetMarkedForDeoptimization(const char* reason) {
   set_marked_for_deoptimization(true);
-  if (FLAG_trace_deopt &&
-      (deoptimization_data() != GetReadOnlyRoots().empty_fixed_array())) {
-    DeoptimizationData deopt_data =
-        DeoptimizationData::cast(deoptimization_data());
-    auto isolate = GetIsolate();
-    CodeTracer::Scope scope(isolate->GetCodeTracer());
-    PrintF(scope.file(), "[marking dependent code " V8PRIxPTR_FMT " ", ptr());
-    deopt_data.SharedFunctionInfo().ShortPrint(scope.file());
-    PrintF(" (opt #%d) for deoptimization, reason: %s]\n",
-           deopt_data.OptimizationId().value(), reason);
-    {
-      HandleScope scope(isolate);
-      PROFILE(
-          isolate,
-          CodeDependencyChangeEvent(
-              handle(*this, isolate),
-              handle(SharedFunctionInfo::cast(deopt_data.SharedFunctionInfo()),
-                     isolate),
-              reason));
-    }
-  }
+  Deoptimizer::TraceMarkForDeoptimization(*this, reason);
 }
 
 const char* DependentCode::DependencyGroupName(DependencyGroup group) {

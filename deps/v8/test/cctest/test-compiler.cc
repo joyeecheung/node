@@ -808,30 +808,6 @@ TEST(InvocationCount) {
   CHECK_EQ(4, foo->feedback_vector().invocation_count());
 }
 
-TEST(SafeToSkipArgumentsAdaptor) {
-  CcTest::InitializeVM();
-  v8::HandleScope scope(CcTest::isolate());
-  CompileRun(
-      "function a() { \"use strict\"; }; a();"
-      "function b() { }; b();"
-      "function c() { \"use strict\"; return arguments; }; c();"
-      "function d(...args) { return args; }; d();"
-      "function e() { \"use strict\"; return eval(\"\"); }; e();"
-      "function f(x, y) { \"use strict\"; return x + y; }; f(1, 2);");
-  Handle<JSFunction> a = Handle<JSFunction>::cast(GetGlobalProperty("a"));
-  CHECK(a->shared().is_safe_to_skip_arguments_adaptor());
-  Handle<JSFunction> b = Handle<JSFunction>::cast(GetGlobalProperty("b"));
-  CHECK(!b->shared().is_safe_to_skip_arguments_adaptor());
-  Handle<JSFunction> c = Handle<JSFunction>::cast(GetGlobalProperty("c"));
-  CHECK(!c->shared().is_safe_to_skip_arguments_adaptor());
-  Handle<JSFunction> d = Handle<JSFunction>::cast(GetGlobalProperty("d"));
-  CHECK(!d->shared().is_safe_to_skip_arguments_adaptor());
-  Handle<JSFunction> e = Handle<JSFunction>::cast(GetGlobalProperty("e"));
-  CHECK(!e->shared().is_safe_to_skip_arguments_adaptor());
-  Handle<JSFunction> f = Handle<JSFunction>::cast(GetGlobalProperty("f"));
-  CHECK(f->shared().is_safe_to_skip_arguments_adaptor());
-}
-
 TEST(ShallowEagerCompilation) {
   i::FLAG_always_opt = false;
   CcTest::InitializeVM();
@@ -972,7 +948,8 @@ TEST(DecideToPretenureDuringCompilation) {
   // compilation.
   if (!i::FLAG_opt || i::FLAG_always_opt || i::FLAG_minor_mc ||
       i::FLAG_stress_incremental_marking || i::FLAG_optimize_for_size ||
-      i::FLAG_turbo_nci || i::FLAG_turbo_nci_as_highest_tier) {
+      i::FLAG_turbo_nci || i::FLAG_turbo_nci_as_midtier ||
+      i::FLAG_stress_concurrent_allocation) {
     return;
   }
 

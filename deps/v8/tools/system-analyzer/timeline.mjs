@@ -3,33 +3,50 @@
 // found in the LICENSE file.
 
 class Timeline {
-  #values;
-  #selection;
-  constructor() {
-    this.#values = [];
+  // Class:
+  _model;
+  // Array of #model instances:
+  _values;
+  // Current selection, subset of #values:
+  _selection;
+  _uniqueTypes;
+
+  constructor(model) {
+    this._model = model;
+    this._values = [];
     this.startTime = 0;
     this.endTime = 0;
   }
-  get all(){
-    return this.#values;
+
+  get model() {
+    return this._model;
   }
-  get selection(){
-    return this.#selection;
+
+  get all() {
+    return this._values;
   }
-  set selection(value){
-    this.#selection = value;
+
+  get selection() {
+    return this._selection;
   }
-  selectTimeRange(start, end){
-    this.#selection =  this.filter(
+
+  set selection(value) {
+    this._selection = value;
+  }
+
+  selectTimeRange(start, end) {
+    this._selection = this.filter(
       e => e.time >= start && e.time <= end);
   }
-  getChunks(windowSizeMs){
+
+  getChunks(windowSizeMs) {
     //TODO(zcankara) Fill this one
     return this.chunkSizes(windowSizeMs);
   }
-  get values(){
+
+  get values() {
     //TODO(zcankara) Not to break something delete later
-    return this.#values;
+    return this._values;
   }
 
   count(filter) {
@@ -48,9 +65,9 @@ class Timeline {
       // Invalid insertion order, might happen without --single-process,
       // finding insertion point.
       let insertionPoint = this.find(time);
-      this.#values.splice(insertionPoint, event);
+      this._values.splice(insertionPoint, event);
     } else {
-      this.#values.push(event);
+      this._values.push(event);
     }
     if (time > 0) {
       this.endTime = Math.max(this.endTime, time);
@@ -63,7 +80,7 @@ class Timeline {
   }
 
   at(index) {
-    return this.#values[index];
+    return this._values[index];
   }
 
   isEmpty() {
@@ -71,15 +88,19 @@ class Timeline {
   }
 
   size() {
-    return this.#values.length;
+    return this._values.length;
+  }
+
+  get length() {
+    return this._values.length;
   }
 
   first() {
-    return this.#values.first();
+    return this._values[0];
   }
 
   last() {
-    return this.#values.last();
+    return this._values[this._values.length - 1];
   }
 
   duration() {
@@ -108,7 +129,7 @@ class Timeline {
   chunks(count) {
     let chunks = [];
     this.forEachChunkSize(count, (start, end, startTime, endTime) => {
-      let items = this.#values.slice(start, end);
+      let items = this._values.slice(start, end);
       chunks.push(new Chunk(chunks.length, startTime, endTime, items));
     });
     return chunks;
@@ -118,14 +139,14 @@ class Timeline {
     const first = this.find(start);
     if (first < 0) return [];
     const last = this.find(end, first);
-    return this.#values.slice(first, last);
+    return this._values.slice(first, last);
   }
 
   find(time, offset = 0) {
-    return this.#find(this.#values, each => each.time - time, offset);
+    return this._find(this._values, each => each.time - time, offset);
   }
 
-  #find(array, cmp, offset = 0) {
+  _find(array, cmp, offset = 0) {
     let min = offset;
     let max = array.length;
     while (min < max) {
@@ -140,16 +161,28 @@ class Timeline {
     return min;
   }
 
+  initializeTypes() {
+    const types = new Map();
+    for (const entry of this.all) {
+      types.get(entry.type)?.push(entry) ?? types.set(entry.type, [entry])
+    }
+    return this._uniqueTypes = types;
+  }
+
+  get uniqueTypes() {
+    return this._uniqueTypes ?? this.initializeTypes();
+  }
+
   depthHistogram() {
-    return this.#values.histogram(each => each.depth);
+    return this._values.histogram(each => each.depth);
   }
 
   fanOutHistogram() {
-    return this.#values.histogram(each => each.children.length);
+    return this._values.histogram(each => each.children.length);
   }
 
   forEach(fn) {
-    return this.#values.forEach(fn);
+    return this._values.forEach(fn);
   }
 }
 
@@ -216,11 +249,11 @@ class Chunk {
     return chunk;
   }
 
-  getBreakdown(event_fn){
+  getBreakdown(event_fn) {
     if (event_fn === void 0) {
       event_fn = each => each;
     }
-    let breakdown = {__proto__: null};
+    let breakdown = { __proto__: null };
     this.items.forEach(each => {
       const type = event_fn(each);
       const v = breakdown[type];
@@ -229,10 +262,10 @@ class Chunk {
     return Object.entries(breakdown).sort((a, b) => a[1] - b[1]);
   }
 
-  filter(){
+  filter() {
     return this.items.filter(map => !map.parent() || !this.has(map.parent()));
   }
 
 }
 
-export {Timeline, Chunk};
+export { Timeline, Chunk };

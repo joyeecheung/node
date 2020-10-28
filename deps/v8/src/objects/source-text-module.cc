@@ -189,7 +189,7 @@ MaybeHandle<Cell> SourceTextModule::ResolveExport(
     } else if (name_set->count(export_name)) {
       // Cycle detected.
       if (must_resolve) {
-        return isolate->Throw<Cell>(
+        return isolate->ThrowAt<Cell>(
             isolate->factory()->NewSyntaxError(
                 MessageTemplate::kCyclicModuleDependency, export_name,
                 module_specifier),
@@ -274,10 +274,10 @@ MaybeHandle<Cell> SourceTextModule::ResolveExportUsingStarExports(
               .ToHandle(&cell)) {
         if (unique_cell.is_null()) unique_cell = cell;
         if (*unique_cell != *cell) {
-          return isolate->Throw<Cell>(isolate->factory()->NewSyntaxError(
-                                          MessageTemplate::kAmbiguousExport,
-                                          module_specifier, export_name),
-                                      &loc);
+          return isolate->ThrowAt<Cell>(isolate->factory()->NewSyntaxError(
+                                            MessageTemplate::kAmbiguousExport,
+                                            module_specifier, export_name),
+                                        &loc);
         }
       } else if (isolate->has_pending_exception()) {
         return MaybeHandle<Cell>();
@@ -296,7 +296,7 @@ MaybeHandle<Cell> SourceTextModule::ResolveExportUsingStarExports(
 
   // Unresolvable.
   if (must_resolve) {
-    return isolate->Throw<Cell>(
+    return isolate->ThrowAt<Cell>(
         isolate->factory()->NewSyntaxError(MessageTemplate::kUnresolvableExport,
                                            module_specifier, export_name),
         &loc);
@@ -453,10 +453,9 @@ bool SourceTextModule::FinishInstantiate(
     if (requested_module->status() == kInstantiating) {
       // SyntheticModules go straight to kInstantiated so this must be a
       // SourceTextModule
-      module->set_dfs_ancestor_index(
-          std::min(module->dfs_ancestor_index(),
-                   Handle<SourceTextModule>::cast(requested_module)
-                       ->dfs_ancestor_index()));
+      module->set_dfs_ancestor_index(std::min(
+          module->dfs_ancestor_index(),
+          SourceTextModule::cast(*requested_module).dfs_ancestor_index()));
     }
   }
 
@@ -694,7 +693,7 @@ MaybeHandle<Object> SourceTextModule::Evaluate(
       CHECK_EQ(descendant->status(), kEvaluating);
       //  ii. Set m.[[Status]] to "evaluated".
       // iii. Set m.[[EvaluationError]] to result.
-      descendant->RecordErrorUsingPendingException(isolate);
+      Module::RecordErrorUsingPendingException(isolate, descendant);
     }
 
 #ifdef DEBUG
@@ -819,7 +818,7 @@ void SourceTextModule::AsyncModuleExecutionRejected(
   }
 
   // 4. Set module.[[EvaluationError]] to ThrowCompletion(error).
-  module->RecordError(isolate, exception);
+  Module::RecordError(isolate, module, exception);
 
   // 5. Set module.[[AsyncEvaluating]] to false.
   module->set_async_evaluating(false);

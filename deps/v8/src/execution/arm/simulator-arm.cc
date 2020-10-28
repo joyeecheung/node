@@ -248,7 +248,7 @@ void ArmDebugger::Debug() {
                 PrintF("\n");
               }
             }
-            for (int i = 0; i < DwVfpRegister::NumRegisters(); i++) {
+            for (int i = 0; i < DwVfpRegister::SupportedRegisterCount(); i++) {
               dvalue = GetVFPDoubleRegisterValue(i);
               uint64_t as_words = bit_cast<uint64_t>(dvalue);
               PrintF("%3s: %f 0x%08x %08x\n", VFPRegisters::Name(i, true),
@@ -753,22 +753,22 @@ void Simulator::set_dw_register(int dreg, const int* dbl) {
 }
 
 void Simulator::get_d_register(int dreg, uint64_t* value) {
-  DCHECK((dreg >= 0) && (dreg < DwVfpRegister::NumRegisters()));
+  DCHECK((dreg >= 0) && (dreg < DwVfpRegister::SupportedRegisterCount()));
   memcpy(value, vfp_registers_ + dreg * 2, sizeof(*value));
 }
 
 void Simulator::set_d_register(int dreg, const uint64_t* value) {
-  DCHECK((dreg >= 0) && (dreg < DwVfpRegister::NumRegisters()));
+  DCHECK((dreg >= 0) && (dreg < DwVfpRegister::SupportedRegisterCount()));
   memcpy(vfp_registers_ + dreg * 2, value, sizeof(*value));
 }
 
 void Simulator::get_d_register(int dreg, uint32_t* value) {
-  DCHECK((dreg >= 0) && (dreg < DwVfpRegister::NumRegisters()));
+  DCHECK((dreg >= 0) && (dreg < DwVfpRegister::SupportedRegisterCount()));
   memcpy(value, vfp_registers_ + dreg * 2, sizeof(*value) * 2);
 }
 
 void Simulator::set_d_register(int dreg, const uint32_t* value) {
-  DCHECK((dreg >= 0) && (dreg < DwVfpRegister::NumRegisters()));
+  DCHECK((dreg >= 0) && (dreg < DwVfpRegister::SupportedRegisterCount()));
   memcpy(vfp_registers_ + dreg * 2, value, sizeof(*value) * 2);
 }
 
@@ -818,7 +818,8 @@ void Simulator::SetVFPRegister(int reg_index, const InputType& value) {
   DCHECK_EQ(sizeof(InputType), bytes);
   DCHECK_GE(reg_index, 0);
   if (register_size == 1) DCHECK(reg_index < num_s_registers);
-  if (register_size == 2) DCHECK(reg_index < DwVfpRegister::NumRegisters());
+  if (register_size == 2)
+    DCHECK(reg_index < DwVfpRegister::SupportedRegisterCount());
 
   memcpy(&vfp_registers_[reg_index * register_size], &value, bytes);
 }
@@ -829,7 +830,8 @@ ReturnType Simulator::GetFromVFPRegister(int reg_index) {
   DCHECK_EQ(sizeof(ReturnType), bytes);
   DCHECK_GE(reg_index, 0);
   if (register_size == 1) DCHECK(reg_index < num_s_registers);
-  if (register_size == 2) DCHECK(reg_index < DwVfpRegister::NumRegisters());
+  if (register_size == 2)
+    DCHECK(reg_index < DwVfpRegister::SupportedRegisterCount());
 
   ReturnType value;
   memcpy(&value, &vfp_registers_[register_size * reg_index], bytes);
@@ -3927,7 +3929,7 @@ void SaturatingUnsignedNarrow(Simulator* simulator, int Vd, int Vm) {
 }
 
 template <typename T>
-void AddSaturate(Simulator* simulator, int Vd, int Vm, int Vn) {
+void AddSat(Simulator* simulator, int Vd, int Vm, int Vn) {
   static const int kLanes = 16 / sizeof(T);
   T src1[kLanes], src2[kLanes];
   simulator->get_neon_register(Vn, src1);
@@ -3939,7 +3941,7 @@ void AddSaturate(Simulator* simulator, int Vd, int Vm, int Vn) {
 }
 
 template <typename T>
-void SubSaturate(Simulator* simulator, int Vd, int Vm, int Vn) {
+void SubSat(Simulator* simulator, int Vd, int Vm, int Vn) {
   static const int kLanes = 16 / sizeof(T);
   T src1[kLanes], src2[kLanes];
   simulator->get_neon_register(Vn, src1);
@@ -4046,7 +4048,9 @@ uint16_t Multiply(uint16_t a, uint16_t b) {
 
 void VmovImmediate(Simulator* simulator, Instruction* instr) {
   byte cmode = instr->Bits(11, 8);
-  int vd = instr->VFPDRegValue(kSimd128Precision);
+  int vd = instr->VFPDRegValue(kDoublePrecision);
+  int q = instr->Bit(6);
+  int regs = q ? 2 : 1;
   uint8_t imm = instr->Bit(24) << 7;  // i
   imm |= instr->Bits(18, 16) << 4;    // imm3
   imm |= instr->Bits(3, 0);           // imm4
@@ -4054,14 +4058,20 @@ void VmovImmediate(Simulator* simulator, Instruction* instr) {
     case 0: {
       // Set the LSB of each 64-bit halves.
       uint64_t imm64 = imm;
-      simulator->set_neon_register(vd, {imm64, imm64});
+      for (int r = 0; r < regs; r++) {
+        simulator->set_d_register(vd + r, &imm64);
+      }
       break;
     }
     case 0xe: {
       uint8_t imms[kSimd128Size];
       // Set all bytes of register.
       std::fill_n(imms, kSimd128Size, imm);
-      simulator->set_neon_register(vd, imms);
+      uint64_t imm64;
+      memcpy(&imm64, imms, 8);
+      for (int r = 0; r < regs; r++) {
+        simulator->set_d_register(vd + r, &imm64);
+      }
       break;
     }
     default: {
@@ -4309,13 +4319,13 @@ void Simulator::DecodeSpecialCondition(Instruction* instr) {
             NeonSize size = static_cast<NeonSize>(instr->Bits(21, 20));
             switch (size) {
               case Neon8:
-                AddSaturate<int8_t>(this, Vd, Vm, Vn);
+                AddSat<int8_t>(this, Vd, Vm, Vn);
                 break;
               case Neon16:
-                AddSaturate<int16_t>(this, Vd, Vm, Vn);
+                AddSat<int16_t>(this, Vd, Vm, Vn);
                 break;
               case Neon32:
-                AddSaturate<int32_t>(this, Vd, Vm, Vn);
+                AddSat<int32_t>(this, Vd, Vm, Vn);
                 break;
               default:
                 UNREACHABLE();
@@ -4372,16 +4382,16 @@ void Simulator::DecodeSpecialCondition(Instruction* instr) {
             NeonSize size = static_cast<NeonSize>(instr->Bits(21, 20));
             switch (size) {
               case Neon8:
-                SubSaturate<int8_t>(this, Vd, Vm, Vn);
+                SubSat<int8_t>(this, Vd, Vm, Vn);
                 break;
               case Neon16:
-                SubSaturate<int16_t>(this, Vd, Vm, Vn);
+                SubSat<int16_t>(this, Vd, Vm, Vn);
                 break;
               case Neon32:
-                SubSaturate<int32_t>(this, Vd, Vm, Vn);
+                SubSat<int32_t>(this, Vd, Vm, Vn);
                 break;
               case Neon64:
-                SubSaturate<int64_t>(this, Vd, Vm, Vn);
+                SubSat<int64_t>(this, Vd, Vm, Vn);
                 break;
               default:
                 UNREACHABLE();
@@ -4610,9 +4620,13 @@ void Simulator::DecodeSpecialCondition(Instruction* instr) {
             } else {
               // vmin/vmax.f32 Qd, Qm, Qn.
               bool min = instr->Bit(21) == 1;
+              bool saved = FPSCR_default_NaN_mode_;
+              FPSCR_default_NaN_mode_ = true;
               for (int i = 0; i < 4; i++) {
-                src1[i] = MinMax(src1[i], src2[i], min);
+                // vmin returns default NaN if any input is NaN.
+                src1[i] = canonicalizeNaN(MinMax(src1[i], src2[i], min));
               }
+              FPSCR_default_NaN_mode_ = saved;
             }
             set_neon_register(Vd, src1);
           } else {
@@ -4757,13 +4771,13 @@ void Simulator::DecodeSpecialCondition(Instruction* instr) {
             NeonSize size = static_cast<NeonSize>(instr->Bits(21, 20));
             switch (size) {
               case Neon8:
-                AddSaturate<uint8_t>(this, Vd, Vm, Vn);
+                AddSat<uint8_t>(this, Vd, Vm, Vn);
                 break;
               case Neon16:
-                AddSaturate<uint16_t>(this, Vd, Vm, Vn);
+                AddSat<uint16_t>(this, Vd, Vm, Vn);
                 break;
               case Neon32:
-                AddSaturate<uint32_t>(this, Vd, Vm, Vn);
+                AddSat<uint32_t>(this, Vd, Vm, Vn);
                 break;
               default:
                 UNREACHABLE();
@@ -4834,13 +4848,13 @@ void Simulator::DecodeSpecialCondition(Instruction* instr) {
             NeonSize size = static_cast<NeonSize>(instr->Bits(21, 20));
             switch (size) {
               case Neon8:
-                SubSaturate<uint8_t>(this, Vd, Vm, Vn);
+                SubSat<uint8_t>(this, Vd, Vm, Vn);
                 break;
               case Neon16:
-                SubSaturate<uint16_t>(this, Vd, Vm, Vn);
+                SubSat<uint16_t>(this, Vd, Vm, Vn);
                 break;
               case Neon32:
-                SubSaturate<uint32_t>(this, Vd, Vm, Vn);
+                SubSat<uint32_t>(this, Vd, Vm, Vn);
                 break;
               default:
                 UNREACHABLE();
@@ -5739,7 +5753,7 @@ void Simulator::DecodeSpecialCondition(Instruction* instr) {
     case 9: {
       if (instr->Bits(21, 20) == 2) {
         // Bits(11, 8) is the B field in A7.7 Advanced SIMD element or structure
-        // load/store instructions.
+        // load/store instructions. See table A7-21.
         if (instr->Bits(11, 8) == 0xC) {
           // vld1 (single element to all lanes).
           DCHECK_EQ(instr->Bits(11, 8), 0b1100);  // Type field.
@@ -5778,6 +5792,53 @@ void Simulator::DecodeSpecialCondition(Instruction* instr) {
           for (int r = 0; r < regs; r++) {
             set_neon_register<uint32_t, kDoubleSize>(Vd + r, q_data);
           }
+          if (Rm != 15) {
+            if (Rm == 13) {
+              set_register(Rn, address);
+            } else {
+              set_register(Rn, get_register(Rn) + get_register(Rm));
+            }
+          }
+        } else if (instr->Bits(11, 8) == 8 ||
+                   ((instr->Bits(11, 8) & 0b1011) == 0)) {
+          // vld1 (single element to one lane)
+          int Vd = (instr->Bit(22) << 4) | instr->VdValue();
+          int Rn = instr->VnValue();
+          int Rm = instr->VmValue();
+          int32_t address = get_register(Rn);
+          int size = instr->Bits(11, 10);
+          uint64_t dreg;
+          get_d_register(Vd, &dreg);
+          switch (size) {
+            case Neon8: {
+              uint64_t data = ReadBU(address);
+              DCHECK_EQ(0, instr->Bit(4));
+              int i = instr->Bits(7, 5) * 8;
+              dreg = (dreg & ~(uint64_t{0xff} << i)) | (data << i);
+              break;
+            }
+            case Neon16: {
+              DCHECK_EQ(0, instr->Bits(5, 4));  // Alignment not supported.
+              uint64_t data = ReadHU(address);
+              int i = instr->Bits(7, 6) * 16;
+              dreg = (dreg & ~(uint64_t{0xffff} << i)) | (data << i);
+              break;
+            }
+            case Neon32: {
+              DCHECK_EQ(0, instr->Bits(6, 4));  // Alignment not supported.
+              uint64_t data = static_cast<unsigned>(ReadW(address));
+              int i = instr->Bit(7) * 32;
+              dreg = (dreg & ~(uint64_t{0xffffffff} << i)) | (data << i);
+              break;
+            }
+            case Neon64: {
+              // Should have been handled by vld1 (single element to all lanes).
+              UNREACHABLE();
+            }
+          }
+          set_d_register(Vd, &dreg);
+
+          // write back
           if (Rm != 15) {
             if (Rm == 13) {
               set_register(Rn, address);

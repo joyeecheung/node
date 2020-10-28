@@ -26,6 +26,7 @@
 #include "src/logging/counters.h"
 #include "src/objects/heap-object-inl.h"
 #include "src/objects/js-array-inl.h"
+#include "src/objects/js-function-inl.h"
 #include "src/objects/js-regexp-inl.h"
 #include "src/objects/smi.h"
 #include "src/snapshot/snapshot.h"
@@ -253,7 +254,7 @@ RUNTIME_FUNCTION(Runtime_IsConcurrentRecompilationSupported) {
 RUNTIME_FUNCTION(Runtime_DynamicMapChecksEnabled) {
   SealHandleScope shs(isolate);
   DCHECK_EQ(0, args.length());
-  return isolate->heap()->ToBoolean(FLAG_dynamic_map_checks);
+  return isolate->heap()->ToBoolean(FLAG_turboprop_dynamic_map_checks);
 }
 
 RUNTIME_FUNCTION(Runtime_OptimizeFunctionOnNextCall) {
@@ -1089,6 +1090,16 @@ RUNTIME_FUNCTION(Runtime_HaveSameMap) {
   return isolate->heap()->ToBoolean(obj1.map() == obj2.map());
 }
 
+RUNTIME_FUNCTION(Runtime_InLargeObjectSpace) {
+  SealHandleScope shs(isolate);
+  DCHECK_EQ(1, args.length());
+  CONVERT_ARG_CHECKED(HeapObject, obj, 0);
+  return isolate->heap()->ToBoolean(
+      isolate->heap()->new_lo_space()->Contains(obj) ||
+      isolate->heap()->code_lo_space()->Contains(obj) ||
+      isolate->heap()->lo_space()->Contains(obj));
+}
+
 RUNTIME_FUNCTION(Runtime_HasElementsInALargeObjectSpace) {
   SealHandleScope shs(isolate);
   DCHECK_EQ(1, args.length());
@@ -1159,7 +1170,10 @@ RUNTIME_FUNCTION(Runtime_IsWasmCode) {
   SealHandleScope shs(isolate);
   DCHECK_EQ(1, args.length());
   CONVERT_ARG_CHECKED(JSFunction, function, 0);
-  bool is_js_to_wasm = function.code().kind() == CodeKind::JS_TO_WASM_FUNCTION;
+  bool is_js_to_wasm =
+      function.code().kind() == CodeKind::JS_TO_WASM_FUNCTION ||
+      (function.code().is_builtin() &&
+       function.code().builtin_index() == Builtins::kGenericJSToWasmWrapper);
   return isolate->heap()->ToBoolean(is_js_to_wasm);
 }
 
@@ -1250,6 +1264,28 @@ RUNTIME_FUNCTION(Runtime_RegexpHasNativeCode) {
     result = false;
   }
   return isolate->heap()->ToBoolean(result);
+}
+
+RUNTIME_FUNCTION(Runtime_RegexpTypeTag) {
+  HandleScope shs(isolate);
+  DCHECK_EQ(1, args.length());
+  CONVERT_ARG_CHECKED(JSRegExp, regexp, 0);
+  const char* type_str;
+  switch (regexp.TypeTag()) {
+    case JSRegExp::NOT_COMPILED:
+      type_str = "NOT_COMPILED";
+      break;
+    case JSRegExp::ATOM:
+      type_str = "ATOM";
+      break;
+    case JSRegExp::IRREGEXP:
+      type_str = "IRREGEXP";
+      break;
+    case JSRegExp::EXPERIMENTAL:
+      type_str = "EXPERIMENTAL";
+      break;
+  }
+  return *isolate->factory()->NewStringFromAsciiChecked(type_str);
 }
 
 #define ELEMENTS_KIND_CHECK_RUNTIME_FUNCTION(Name)      \
@@ -1576,7 +1612,6 @@ RUNTIME_FUNCTION(Runtime_EnableCodeLoggingForTesting) {
                                Handle<String> source) final {}
     void CodeMoveEvent(AbstractCode from, AbstractCode to) final {}
     void SharedFunctionInfoMoveEvent(Address from, Address to) final {}
-    void NativeContextMoveEvent(Address from, Address to) final {}
     void CodeMovingGCEvent() final {}
     void CodeDisableOptEvent(Handle<AbstractCode> code,
                              Handle<SharedFunctionInfo> shared) final {}

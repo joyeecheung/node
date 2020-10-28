@@ -3,27 +3,29 @@
 // found in the LICENSE file.
 
 import { Group } from './ic-model.mjs';
-import CustomIcProcessor from "./ic-processor.mjs";
-import { FocusEvent, SelectTimeEvent } from './events.mjs';
+import { MapLogEntry } from "./log/map.mjs";
+import { FocusEvent, SelectTimeEvent, SelectionEvent } from './events.mjs';
 import { defineCustomElement, V8CustomElement } from './helper.mjs';
+import { IcLogEntry } from './log/ic.mjs';
 
 defineCustomElement('ic-panel', (templateText) =>
   class ICPanel extends V8CustomElement {
-    //TODO(zcankara) Entries never set
-    #entries;
-    #filteredEntries;
+    _selectedLogEntries;
+    _timeline;
     constructor() {
       super(templateText);
+      this.initGroupKeySelect();
       this.groupKey.addEventListener(
         'change', e => this.updateTable(e));
       this.$('#filterICTimeBtn').addEventListener(
         'click', e => this.handleICTimeFilter(e));
     }
-
-    get entries() {
-      return this.#entries;
+    set timeline(value) {
+      console.assert(value !== undefined, "timeline undefined!");
+      this._timeline = value;
+      this.selectedLogEntries = this._timeline.all;
+      this.updateCount();
     }
-
     get groupKey() {
       return this.$('#group-key');
     }
@@ -44,13 +46,14 @@ defineCustomElement('ic-panel', (templateText) =>
       return this.querySelectorAll("span");
     }
 
-    set filteredEntries(value) {
-      this.#filteredEntries = value;
+    set selectedLogEntries(value) {
+      this._selectedLogEntries = value;
+      this.updateCount();
       this.updateTable();
     }
 
-    get filteredEntries() {
-      return this.#filteredEntries;
+    updateCount() {
+      this.count.innerHTML = this._selectedLogEntries.length;
     }
 
     updateTable(event) {
@@ -58,7 +61,7 @@ defineCustomElement('ic-panel', (templateText) =>
       let key = select.options[select.selectedIndex].text;
       let tableBody = this.tableBody;
       this.removeAllChildren(tableBody);
-      let groups = Group.groupBy(this.filteredEntries, key, true);
+      let groups = Group.groupBy(this._selectedLogEntries, key, true);
       this.render(groups, tableBody);
     }
 
@@ -93,11 +96,28 @@ defineCustomElement('ic-panel', (templateText) =>
     }
 
     handleMapClick(e) {
-      this.dispatchEvent(new FocusEvent(e.target.parentNode.entry));
+      const entry = e.target.parentNode.entry;
+      const id = entry.key;
+      const selectedMapLogEntries =
+        this.searchIcLogEntryToMapLogEntry(id, entry.entries);
+      this.dispatchEvent(new SelectionEvent(selectedMapLogEntries));
     }
 
+    searchIcLogEntryToMapLogEntry(id, icLogEntries) {
+      // searches for mapLogEntries using the id, time
+      const selectedMapLogEntriesSet = new Set();
+      for (const icLogEntry of icLogEntries) {
+        const time = icLogEntry.time;
+        const selectedMap = MapLogEntry.get(id, time);
+        selectedMapLogEntriesSet.add(selectedMap);
+      }
+      return Array.from(selectedMapLogEntriesSet);
+    }
+
+    //TODO(zcankara) Handle in the processor for events with source positions.
     handleFilePositionClick(e) {
-      this.dispatchEvent(new FocusEvent(e.target.parentNode.entry.key));
+      const entry = e.target.parentNode.entry;
+      this.dispatchEvent(new FocusEvent(entry.filePosition));
     }
 
     render(entries, parent) {
@@ -110,7 +130,9 @@ defineCustomElement('ic-panel', (templateText) =>
         //TODO(zcankara) Create one bound method and use it everywhere
         if (entry.property === "map") {
           tr.addEventListener('click', e => this.handleMapClick(e));
+          tr.classList.add('clickable');
         } else if (entry.property == "filePosition") {
+          tr.classList.add('clickable');
           tr.addEventListener('click',
             e => this.handleFilePositionClick(e));
         }
@@ -182,9 +204,9 @@ defineCustomElement('ic-panel', (templateText) =>
     initGroupKeySelect() {
       let select = this.groupKey;
       select.options.length = 0;
-      for (let i in CustomIcProcessor.kProperties) {
+      for (const propertyName of IcLogEntry.propertyNames) {
         let option = document.createElement("option");
-        option.text = CustomIcProcessor.kProperties[i];
+        option.text = propertyName;
         select.add(option);
       }
     }
