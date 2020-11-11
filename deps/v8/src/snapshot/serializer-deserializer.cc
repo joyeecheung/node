@@ -36,7 +36,8 @@ bool SerializerDeserializer::CanBeDeferred(HeapObject o) {
   // references to the now-thin string will already have been written.
   // TODO(leszeks): Could we defer string serialization if forward references
   // were resolved after object post processing?
-  return !o.IsMap() && !o.IsInternalizedString();
+  return !o.IsMap() && !o.IsInternalizedString() &&
+    !(o.IsJSObject() && JSObject::cast(o).GetEmbedderFieldCount() > 0);
 }
 
 void SerializerDeserializer::RestoreExternalReferenceRedirector(
