@@ -10,19 +10,36 @@
 #include <iostream>
 
 namespace node {
+class DeserializeRequestData;
+
 namespace fs {
 
 class FileHandleReadWrap;
 
 class BindingData : public BaseObject {
  public:
-  explicit BindingData(Environment* env, v8::Local<v8::Object> wrap)
-      : BaseObject(env, wrap),
-        stats_field_array(env->isolate(), kFsStatsBufferLength),
-        stats_field_bigint_array(env->isolate(), kFsStatsBufferLength) {}
-
   AliasedFloat64Array stats_field_array;
   AliasedBigUint64Array stats_field_bigint_array;
+
+  struct SerializeInfo : public struct InternalFieldInfo {
+  }
+
+  explicit BindingData(Environment* env,
+                       v8::Local<v8::Object> wrap,
+                       const SerializeInfo* info)
+      : BaseObject(env, wrap),
+        stats_field_array(env->isolate(), kFsStatsBufferLength),
+        stats_field_bigint_array(env->isolate(), kFsStatsBufferLength) {
+    set_type(InternalFieldType::kFSBindingData);
+    if (info != nullptr) {
+      env->EnqueueDeserializeRequest(BindingData::Deserialize, {data, info});
+    }
+  }
+
+  void Serialize();
+
+  static void Deserialize(v8::Local<v8::Context> context,
+                          DeserializeRequestData data);
 
   std::vector<BaseObjectPtr<FileHandleReadWrap>>
       file_handle_read_wrap_freelist;

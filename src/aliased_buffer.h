@@ -112,10 +112,7 @@ class AliasedBufferBase {
     return creator->AddData(context, GetJSArray());
   }
 
-  inline void Deserialize(v8::Local<v8::Context> context) {
-    DCHECK_NOT_NULL(index_);
-    v8::Local<V8T> arr =
-        context->GetDataFromSnapshotOnce<V8T>(*index_).ToLocalChecked();
+  inline void Deserialize(v8::Local<V8T> arr) {
     // These may not hold true for AliasedBuffers that have grown, so should
     // be removed when we expand the snapshot support.
     DCHECK_EQ(count_, arr->Length());
@@ -125,6 +122,13 @@ class AliasedBufferBase {
     buffer_ = reinterpret_cast<NativeT*>(raw + byte_offset_);
     js_array_.Reset(isolate_, arr);
     index_ = nullptr;
+  }
+
+  inline void Deserialize(v8::Local<v8::Context> context) {
+    DCHECK_NOT_NULL(index_);
+    v8::Local<V8T> arr =
+        context->GetDataFromSnapshotOnce<V8T>(*index_).ToLocalChecked();
+    Deserialize(arr);
   }
 
   AliasedBufferBase& operator=(AliasedBufferBase&& that) noexcept {

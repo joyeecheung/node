@@ -2393,6 +2393,43 @@ void BindingData::MemoryInfo(MemoryTracker* tracker) const {
                       file_handle_read_wrap_freelist);
 }
 
+void BindingData::Deserialize(Local<Context> context,
+                              DeserializeRequestData data) {
+  HandleScope scope(context->GetIsolate());
+  BindingData* binding = static_cast<BindingData*>(data.native_object);
+  binding->stats_field_array.Deserialize(
+      binding->object()
+          ->Get(context, env()->fs_stats_field_array_symbol())
+          .ToLocalChecked());
+  binding->stats_field_bigint_array.Deserialize(
+      binding->object()
+          ->Get(context, env()->fs_stats_field_bigint_array_symbol())
+          .ToLocalChecked());
+  ::operator delete(data.info);
+}
+
+void BindingData::Serialize() {
+  CHECK(file_handle_read_wrap_freelist.empty());
+  SerializeInfo info;
+  info.type = type();
+  info.length = sizeof(SerializeInfo);
+  HandleScope scope(env()->isolate());
+  // TODO(joyeecheung): get the creation context in a different way so that
+  // we can support binding data inf multiple contexts.
+  Local<Context> context = env()->context();
+  object()
+      ->Set(context,
+            env->fs_stats_field_array_symbol(),
+            stats_field_array.GetJSArray())
+      .ToLocalChecked();
+  object()
+      ->Set(context,
+            env->fs_stats_field_bigint_array_symbol(),
+            stats_field_bigint_array.GetJSArray())
+      .ToLocalChecked();
+  return info;
+}
+
 // TODO(addaleax): Remove once we're on C++17.
 constexpr FastStringKey BindingData::binding_data_name;
 

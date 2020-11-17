@@ -4,6 +4,7 @@
 #include "debug_utils-inl.h"
 #include "env-inl.h"
 #include "node_external_reference.h"
+#include "node_file.h"
 #include "node_internals.h"
 #include "node_main_instance.h"
 #include "node_v8_platform-inl.h"
@@ -91,14 +92,6 @@ static StartupData SerializeNodeContextInternalFields(Local<Object> holder,
   if (index == BaseObject::kSlot) {
     BaseObject* obj = static_cast<BaseObject*>(ptr);
     switch (obj->type()) {
-      // case InternalFieldType::kNoBindingData: {
-      //   per_process::Debug(DebugCategory::MKSNAPSHOT,
-      //                      "Serializing NoBindingData with index %d at %p\n",
-      //                      index,
-      //                      ptr);
-      //   InternalFieldInfo* info = new InternalFieldInfo{obj->type(), 0};
-      //   return StartupData{reinterpret_cast<const char*>(info), sizeof(*info)};
-      // }
       case InternalFieldType::kDefault: {
         per_process::Debug(DebugCategory::MKSNAPSHOT,
                            "Serializing default with index %d at %p\n",
@@ -107,6 +100,16 @@ static StartupData SerializeNodeContextInternalFields(Local<Object> holder,
         InternalFieldInfo* info = new InternalFieldInfo{obj->type(), 0};
         return StartupData{reinterpret_cast<const char*>(info), sizeof(*info)};
       };
+      case InternalFieldType::kFSBindingData: {
+        per_process::Debug(DebugCategory::MKSNAPSHOT,
+                           "Serializing FSBindingData with index %d at %p\n",
+                           index,
+                           ptr);
+        fs::BindingData* obj = static_cast<fs::BindingData*>(ptr);
+        obj->Serialize();
+        InternalFieldInfo* info = new InternalFieldInfo{obj->type(), 0};
+        return StartupData{reinterpret_cast<const char*>(info), sizeof(*info)};
+      }
       default: { UNREACHABLE(); }
     }
   }

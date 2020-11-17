@@ -152,6 +152,8 @@ constexpr size_t kFsStatsBufferLength =
   V(contextify_context_private_symbol, "node:contextify:context")             \
   V(contextify_global_private_symbol, "node:contextify:global")               \
   V(decorated_private_symbol, "node:decorated")                               \
+  V(fs_stats_field_array_symbol, "node:fs::stats")                               \
+  V(fs_stats_field_bigint_array_symbol, "node:fs::stats::bigint")             \
   V(napi_type_tag, "node:napi:type_tag")                                      \
   V(napi_wrapper, "node:napi:wrapper")                                        \
   V(untransferable_object_private_symbol, "node:untransferableObject")        \
@@ -945,16 +947,6 @@ struct DeserializeRequestData {
   void* native_object;
   InternalFieldInfo* info;  // Owned by the request
 };
-
-// class NoBindingData : public BindingDataBase {
-//  public:
-//   NoBindingData(Environment* env, v8::Local<v8::Object> obj);
-//   static void Deserialize(v8::Local<v8::Context> context,
-//                           DeserializeRequestData data);
-//   SET_NO_MEMORY_INFO()
-//   SET_MEMORY_INFO_NAME(NoBindingData)
-//   SET_SELF_SIZE(NoBindingData)
-// };
 
 struct EnvSerializeInfo {
   std::vector<std::string> native_modules;

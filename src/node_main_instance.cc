@@ -3,6 +3,7 @@
 #include <memory>
 #include "debug_utils-inl.h"
 #include "node_external_reference.h"
+#include "node_file.h"
 #include "node_internals.h"
 #include "node_main_instance.h"
 #include "node_options-inl.h"
@@ -182,16 +183,17 @@ void DeserializeNodeInternalFields(Local<Object> holder,
   const InternalFieldInfo* info =
       reinterpret_cast<const InternalFieldInfo*>(payload.data);
   switch (info->type) {
-    // case InternalFieldType::kNoBindingData: {
-    //   per_process::Debug(DebugCategory::MKSNAPSHOT,
-    //                      "Deserialize NoBindingData\n");
-    //   NoBindingData* data = new NoBindingData(env_ptr, holder);
-    //   env_ptr->EnqueueDeserializeRequest(NoBindingData::Deserialize,
-    //                                      {data, info->Copy()});
-    // }
     case InternalFieldType::kDefault: {
       per_process::Debug(DebugCategory::MKSNAPSHOT, "Deserialize default\n");
       break;
+    }
+    // TODO(joyeecheung): use macro to generate the cases
+    case InternalFieldType::kFSBindingData: {
+      per_process::Debug(DebugCategory::MKSNAPSHOT,
+                         "Deserialize FSBindingData\n");
+      fs::BindingData::SerializeInfo* info =
+          reinterpret_cast<fs::BindingData::SerializeInfo*>(info->Copy());
+      fs::BindingData* data = new fs::BindingData(env_ptr, holder, info);
     }
     default: { UNREACHABLE(); }
   }

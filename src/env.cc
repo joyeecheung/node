@@ -251,21 +251,6 @@ void TrackingTraceStateObserver::UpdateTraceCategoryState() {
   USE(cb->Call(env_->context(), Undefined(isolate), arraysize(args), args));
 }
 
-
-// NoBindingData::NoBindingData(Environment* env, Local<Object> obj)
-//     : BindingDataBase(env, obj) {
-//   set_type(InternalFieldType::kNoBindingData);
-// }
-
-// void NoBindingData::Deserialize(Local<Context> context,
-//                                 DeserializeRequestData data) {
-//   HandleScope scope(context->GetIsolate());
-//   NoBindingData* binding = static_cast<NoBindingData*>(data.native_object);
-//   v8::Local<v8::Uint32> index = BindingDataBase::Initialize(context, binding);
-//   binding->env()->set_default_callback_data(index);
-//   ::operator delete(data.info);
-// }
-
 void Environment::CreateProperties() {
   HandleScope handle_scope(isolate_);
   Local<Context> ctx = context();
@@ -1249,10 +1234,6 @@ void Environment::VerifyNoStrongBaseObjects() {
 EnvSerializeInfo Environment::Serialize(SnapshotCreator* creator) {
   EnvSerializeInfo info;
   Local<Context> ctx = context();
-
-  // NoBindingData* data =
-  //     BindingDataBase::Unwrap<NoBindingData>(ctx, default_callback_data());
-  // info.default_callback_data = creator->AddData(ctx, data->object());
 
   // Currently all modules are compiled without cache in builtin snapshot
   // builder.
