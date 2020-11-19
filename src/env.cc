@@ -1326,18 +1326,21 @@ std::ostream& operator<<(std::ostream& output, const EnvSerializeInfo& i) {
   return output;
 }
 
-void Environment::EnqueueDeserializeRequest(DeserializeRequestCallback cb,
-                                            DeserializeRequestData data) {
-  deserialize_requests_.push_back({cb, data});
+void Environment::EnqueueDeserializeRequest(DeserializeRequest request) {
+  deserialize_requests_.push_back(std::move(request));
 }
 
 void Environment::RunDeserializeRequests() {
   HandleScope scope(isolate());
   Local<Context> ctx = context();
+  Isolate* is = isolate();
   while (!deserialize_requests_.empty()) {
-    DeserializeRequest request = deserialize_requests_.front();
-    request.cb(ctx, request.data);
+    DeserializeRequest request(std::move(deserialize_requests_.front()));
     deserialize_requests_.pop_front();
+    Local<Object> holder = request.holder.Get(is);
+    request.cb(ctx, holder, request.info);
+    request.holder.Reset();  // unnecessary?
+    request.info->Delete();
   }
 }
 

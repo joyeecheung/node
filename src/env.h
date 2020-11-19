@@ -931,21 +931,59 @@ struct PropInfo {
   SnapshotIndex index;  // In the snapshot
 };
 
+// When serializing an embedder object, we'll serialize the native states
+// into a chunk that can be mapped into a subclass of InternalFieldInfo,
+// and pass it into the V8 callback as the payload of StartupData.
+// TODO(joyeecheung): the classification of types seem to be wrong.
+// We'd need a type for each field of each class of native object.
+// Maybe it's fine - we'll just use the type to invoke BaseObject constructors
+// and specify that the BaseObject has only one field for us to serialize.
+// And for non-BaseObject embedder objects, we'll use field-wise types.
+// The memory chunk looks like this:
+//
+// [   type   ] - InternalFieldType (a uint8_t)
+// [  length  ] - a size_t
+// [    ...   ] - custom bytes of size |length - header size|
 struct InternalFieldInfo {
   InternalFieldType type;
   size_t length;
-  // Below should be data of length bytes.
-  InternalFieldInfo(InternalFieldType t, size_t l) : type(t), length(l) {}
-  InternalFieldInfo* Copy() const {
-    void* mem = ::operator new(sizeof(InternalFieldInfo) + length);
-    InternalFieldInfo* result = new (mem) InternalFieldInfo(type, length);
+
+  InternalFieldInfo() = delete;
+
+  static InternalFieldInfo* New(InternalFieldType type) {
+    return New(type, sizeof(InternalFieldInfo));
+  }
+
+  static InternalFieldInfo* New(InternalFieldType type, size_t length) {
+    InternalFieldInfo* result =
+        reinterpret_cast<InternalFieldInfo*>(::operator new(length));
+    result->type = type;
+    result->length = length;
     return result;
   }
-};
 
-struct DeserializeRequestData {
-  void* native_object;
+  InternalFieldInfo* Copy() const {
+    InternalFieldInfo* result =
+        reinterpret_cast<InternalFieldInfo*>(::operator new(length));
+    memcpy(result, this, length);
+    return result;
+  }
+
+  void Delete() { ::operator delete(this); }
+};
+typedef void (*DeserializeRequestCallback)(v8::Local<v8::Context>,
+                                           v8::Local<v8::Object> holder,
+                                           InternalFieldInfo* info);
+struct DeserializeRequest {
+  DeserializeRequestCallback cb;
+  v8::Global<v8::Object> holder;
   InternalFieldInfo* info;  // Owned by the request
+
+  // Move constructor
+  // DeserializeRequest(DeserializeRequest&& other) :
+  //   cb(std::move(other.cb)),
+  //   holder(std::move(other.holder)),
+  //   info(std::move(other.info)) {}
 };
 
 struct EnvSerializeInfo {
@@ -984,10 +1022,7 @@ class Environment : public MemoryRetainer {
 
   void PrintAllBaseObjects();
   void VerifyNoStrongBaseObjects();
-  typedef void (*DeserializeRequestCallback)(v8::Local<v8::Context>,
-                                             DeserializeRequestData data);
-  void EnqueueDeserializeRequest(DeserializeRequestCallback request,
-                                 DeserializeRequestData data);
+  void EnqueueDeserializeRequest(DeserializeRequest request);
   void RunDeserializeRequests();
   // Should be called before InitializeInspector()
   void InitializeDiagnostics();
@@ -1512,10 +1547,6 @@ class Environment : public MemoryRetainer {
   std::unique_ptr<inspector::Agent> inspector_agent_;
   bool is_in_inspector_console_call_ = false;
 #endif
-  struct DeserializeRequest {
-    DeserializeRequestCallback cb;
-    DeserializeRequestData data;
-  };
 
   std::list<DeserializeRequest> deserialize_requests_;
 

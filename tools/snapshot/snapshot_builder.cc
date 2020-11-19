@@ -81,42 +81,37 @@ static StartupData SerializeNodeContextInternalFields(Local<Object> holder,
                                                       int index,
                                                       void* env) {
   void* ptr = holder->GetAlignedPointerFromInternalField(index);
-  if (ptr == nullptr || ptr == env) {
+  if (ptr == nullptr) {
     return StartupData{nullptr, 0};
   }
-  if (ptr == env && index == ContextEmbedderIndex::kEnvironment) {
+  // TODO(joyeecheung): remove this?
+  if (ptr == env) {
     return StartupData{nullptr, 0};
   }
 
-  // TODO(joyee): add more types for other objects with embedder fields.
-  if (index == BaseObject::kSlot) {
-    BaseObject* obj = static_cast<BaseObject*>(ptr);
-    switch (obj->type()) {
-      case InternalFieldType::kDefault: {
-        per_process::Debug(DebugCategory::MKSNAPSHOT,
-                           "Serializing default with index %d at %p\n",
-                           index,
-                           ptr);
-        InternalFieldInfo* info = new InternalFieldInfo{obj->type(), 0};
-        return StartupData{reinterpret_cast<const char*>(info), sizeof(*info)};
-      };
-      case InternalFieldType::kFSBindingData: {
-        per_process::Debug(DebugCategory::MKSNAPSHOT,
-                           "Serializing FSBindingData with index %d at %p\n",
-                           index,
-                           ptr);
-        fs::BindingData* obj = static_cast<fs::BindingData*>(ptr);
-        obj->Serialize();
-        InternalFieldInfo* info = new InternalFieldInfo{obj->type(), 0};
-        return StartupData{reinterpret_cast<const char*>(info), sizeof(*info)};
-      }
-      default: { UNREACHABLE(); }
+  // TODO(joyeecheung): we shouldn't use the index to identify field types.
+  // For now, we just assume that we are only dealing with BaseObject here
+  // and we only deal with its kSlot field.
+  CHECK_EQ(index, BaseObject::kSlot);
+  // if (index == Serializable::kTagIndex) {
+
+  // }
+
+  // TODO(joyeecheung): add more types for other objects with embedder fields.
+  BaseObject* obj = static_cast<BaseObject*>(ptr);
+  switch (obj->type()) {
+    case InternalFieldType::kFSBindingData: {
+      per_process::Debug(DebugCategory::MKSNAPSHOT,
+                         "Serializing FSBindingData with index %d at %p\n",
+                         index,
+                         ptr);
+      fs::BindingData* obj = static_cast<fs::BindingData*>(ptr);
+      InternalFieldInfo* info = obj->Serialize();
+      return StartupData{reinterpret_cast<const char*>(info),
+                         static_cast<int>(info->length)};
     }
+    default: { UNREACHABLE(); }
   }
-  // TODO(joyee): add more types for other objects with embedder fields.
-  InternalFieldInfo* info =
-      new InternalFieldInfo{InternalFieldType::kDefault, 0};
-  return StartupData{reinterpret_cast<const char*>(info), sizeof(*info)};
 }
 
 std::string SnapshotBuilder::Generate(

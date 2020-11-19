@@ -30,7 +30,7 @@
 
 namespace node {
 
-enum class InternalFieldType { kDefault = 0, kFSBindingData };
+enum class InternalFieldType : uint8_t { kDefault = 0, kFSBindingData };
 
 class Environment;
 template <typename T, bool kIsWeak>

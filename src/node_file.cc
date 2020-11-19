@@ -51,9 +51,11 @@ namespace node {
 namespace fs {
 
 using v8::Array;
+using v8::BigUint64Array;
 using v8::Boolean;
 using v8::Context;
 using v8::EscapableHandleScope;
+using v8::Float64Array;
 using v8::Function;
 using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
@@ -2393,40 +2395,50 @@ void BindingData::MemoryInfo(MemoryTracker* tracker) const {
                       file_handle_read_wrap_freelist);
 }
 
-void BindingData::Deserialize(Local<Context> context,
-                              DeserializeRequestData data) {
-  HandleScope scope(context->GetIsolate());
-  BindingData* binding = static_cast<BindingData*>(data.native_object);
-  binding->stats_field_array.Deserialize(
-      binding->object()
-          ->Get(context, env()->fs_stats_field_array_symbol())
-          .ToLocalChecked());
-  binding->stats_field_bigint_array.Deserialize(
-      binding->object()
-          ->Get(context, env()->fs_stats_field_bigint_array_symbol())
-          .ToLocalChecked());
-  ::operator delete(data.info);
+BindingData::BindingData(Environment* env, v8::Local<v8::Object> wrap)
+    : BaseObject(env, wrap),
+      stats_field_array(env->isolate(), kFsStatsBufferLength),
+      stats_field_bigint_array(env->isolate(), kFsStatsBufferLength) {
+  set_type(InternalFieldType::kFSBindingData);
 }
 
-void BindingData::Serialize() {
+void BindingData::Deserialize(Local<Context> context,
+                              Local<Object> holder,
+                              InternalFieldInfo* info) {
+  HandleScope scope(context->GetIsolate());
+  Environment* env = Environment::GetCurrent(context);
+  BindingData* binding = env->AddBindingData<BindingData>(context, holder);
+  CHECK_NOT_NULL(binding);
+  Local<Value> stats_arr =
+      holder->GetPrivate(context, env->fs_stats_field_array_symbol())
+          .ToLocalChecked();
+  CHECK(stats_arr->IsFloat64Array());
+  binding->stats_field_array.Deserialize(stats_arr.As<Float64Array>());
+  Local<Value> bigint_stats_arr =
+      holder->GetPrivate(context, env->fs_stats_field_bigint_array_symbol())
+          .ToLocalChecked();
+  CHECK(bigint_stats_arr->IsBigUint64Array());
+  binding->stats_field_bigint_array.Deserialize(
+      bigint_stats_arr.As<BigUint64Array>());
+}
+
+InternalFieldInfo* BindingData::Serialize() {
   CHECK(file_handle_read_wrap_freelist.empty());
-  SerializeInfo info;
-  info.type = type();
-  info.length = sizeof(SerializeInfo);
+  InternalFieldInfo* info = InternalFieldInfo::New(type());
   HandleScope scope(env()->isolate());
   // TODO(joyeecheung): get the creation context in a different way so that
   // we can support binding data inf multiple contexts.
   Local<Context> context = env()->context();
   object()
-      ->Set(context,
-            env->fs_stats_field_array_symbol(),
-            stats_field_array.GetJSArray())
-      .ToLocalChecked();
+      ->SetPrivate(context,
+                   env()->fs_stats_field_array_symbol(),
+                   stats_field_array.GetJSArray())
+      .FromJust();
   object()
-      ->Set(context,
-            env->fs_stats_field_bigint_array_symbol(),
-            stats_field_bigint_array.GetJSArray())
-      .ToLocalChecked();
+      ->SetPrivate(context,
+                   env()->fs_stats_field_bigint_array_symbol(),
+                   stats_field_bigint_array.GetJSArray())
+      .FromJust();
   return info;
 }
 

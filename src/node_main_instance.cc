@@ -179,21 +179,28 @@ void DeserializeNodeInternalFields(Local<Object> holder,
     return;
   }
 
+  // TODO(joyeecheung): here we assume that any non-empty embdder
+  // payload indicates that
+  // 1. the holder is a BaseObject
+  // 2. the slot is the and BaseObject::kSlot and we are reviving
+  //    the BaseObject reference
+  // 3. the payload contains a InternalFieldInfo whose type indicates
+  //    the type of the BaseObject.
+  // Which may be expanded if we want to support non-BaseObject types
+  // or types with more slots.
+  CHECK_EQ(index, BaseObject::kSlot);
   Environment* env_ptr = static_cast<Environment*>(env);
   const InternalFieldInfo* info =
       reinterpret_cast<const InternalFieldInfo*>(payload.data);
+
   switch (info->type) {
-    case InternalFieldType::kDefault: {
-      per_process::Debug(DebugCategory::MKSNAPSHOT, "Deserialize default\n");
-      break;
-    }
-    // TODO(joyeecheung): use macro to generate the cases
+    // TODO(joyeecheung): maybe this should be done using a macro
     case InternalFieldType::kFSBindingData: {
       per_process::Debug(DebugCategory::MKSNAPSHOT,
                          "Deserialize FSBindingData\n");
-      fs::BindingData::SerializeInfo* info =
-          reinterpret_cast<fs::BindingData::SerializeInfo*>(info->Copy());
-      fs::BindingData* data = new fs::BindingData(env_ptr, holder, info);
+      env_ptr->EnqueueDeserializeRequest({fs::BindingData::Deserialize,
+                                          {env_ptr->isolate(), holder},
+                                          info->Copy()});
     }
     default: { UNREACHABLE(); }
   }
