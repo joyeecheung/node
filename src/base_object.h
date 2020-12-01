@@ -42,7 +42,7 @@ class TransferData;
 
 class BaseObject : public MemoryRetainer {
  public:
-  enum InternalFields { kSlot, kInternalFieldCount };
+  enum InternalFields { kType, kSlot, kInternalFieldCount };
 
   // Associates this object with `object`. It uses the 0th internal field for
   // that, and in particular aborts if there is no such field.
