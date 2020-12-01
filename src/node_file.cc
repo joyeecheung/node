@@ -2396,11 +2396,9 @@ void BindingData::MemoryInfo(MemoryTracker* tracker) const {
 }
 
 BindingData::BindingData(Environment* env, v8::Local<v8::Object> wrap)
-    : BaseObject(env, wrap),
+    : BaseObject(env, wrap, InternalFieldType::kFSBindingData),
       stats_field_array(env->isolate(), kFsStatsBufferLength),
-      stats_field_bigint_array(env->isolate(), kFsStatsBufferLength) {
-  set_type(InternalFieldType::kFSBindingData);
-}
+      stats_field_bigint_array(env->isolate(), kFsStatsBufferLength) {}
 
 void BindingData::Deserialize(Local<Context> context,
                               Local<Object> holder,

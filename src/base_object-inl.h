@@ -32,8 +32,10 @@
 
 namespace node {
 
-BaseObject::BaseObject(Environment* env, v8::Local<v8::Object> object)
-    : persistent_handle_(env->isolate(), object), env_(env) {
+BaseObject::BaseObject(Environment* env,
+                       v8::Local<v8::Object> object,
+                       InternalFieldType type)
+    : type_(type), persistent_handle_(env->isolate(), object), env_(env) {
   CHECK_EQ(false, object.IsEmpty());
   CHECK_GT(object->InternalFieldCount(), 0);
   object->SetAlignedPointerInInternalField(

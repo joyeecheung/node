@@ -46,7 +46,9 @@ class BaseObject : public MemoryRetainer {
 
   // Associates this object with `object`. It uses the 0th internal field for
   // that, and in particular aborts if there is no such field.
-  inline BaseObject(Environment* env, v8::Local<v8::Object> object);
+  inline BaseObject(Environment* env,
+                    v8::Local<v8::Object> object,
+                    InternalFieldType type = InternalFieldType::kDefault);
   inline ~BaseObject() override;
 
   BaseObject() = delete;
@@ -109,8 +111,8 @@ class BaseObject : public MemoryRetainer {
   // a BaseObjectPtr to this object.
   inline void Detach();
 
+  // We'll make sure that the type is set in the constructor
   InternalFieldType type() { return type_; }
-  void set_type(InternalFieldType type) { type_ = type; }
 
   static v8::Local<v8::FunctionTemplate> GetConstructorTemplate(
       Environment* env);

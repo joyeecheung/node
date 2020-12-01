@@ -10,8 +10,6 @@
 #include <iostream>
 
 namespace node {
-struct DeserializeRequestData;
-
 namespace fs {
 
 class FileHandleReadWrap;
@@ -25,7 +23,7 @@ class BindingData : public BaseObject {
 
   InternalFieldInfo* Serialize();
 
-  static void Deserialize(v8::Local<v8::Context>,
+  static void Deserialize(v8::Local<v8::Context> context,
                           v8::Local<v8::Object> holder,
                           InternalFieldInfo* info);
 
