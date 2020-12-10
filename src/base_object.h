@@ -30,7 +30,15 @@
 
 namespace node {
 
-enum class InternalFieldType : uint8_t { kDefault = 0, kFSBindingData };
+#define INTERNAL_FIELD_TYPES(V) V(FSBindingData, fs::BindingData)
+#undef V
+
+enum class InternalFieldType : uint8_t {
+  kDefault = 0,
+#define V(TypeName, NativeType) k##TypeName,
+  INTERNAL_FIELD_TYPES(V)
+#undef V
+};
 
 class Environment;
 template <typename T, bool kIsWeak>

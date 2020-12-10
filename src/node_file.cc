@@ -19,10 +19,11 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "node_file.h"  // NOLINT(build/include_inline)
-#include "node_file-inl.h"
 #include "aliased_buffer.h"
 #include "memory_tracker-inl.h"
 #include "node_buffer.h"
+#include "node_external_reference.h"
+#include "node_file-inl.h"
 #include "node_process.h"
 #include "node_stat_watcher.h"
 #include "util-inl.h"
@@ -2420,23 +2421,27 @@ void BindingData::Deserialize(Local<Context> context,
       bigint_stats_arr.As<BigUint64Array>());
 }
 
-InternalFieldInfo* BindingData::Serialize() {
+void BindingData::Serialize(Local<Context> context,
+                            v8::SnapshotCreator* creator) {
   CHECK(file_handle_read_wrap_freelist.empty());
-  InternalFieldInfo* info = InternalFieldInfo::New(type());
-  HandleScope scope(env()->isolate());
-  // TODO(joyeecheung): get the creation context in a different way so that
-  // we can support binding data inf multiple contexts.
-  Local<Context> context = env()->context();
+  HandleScope scope(context->GetIsolate());
+
   object()
       ->SetPrivate(context,
                    env()->fs_stats_field_array_symbol(),
                    stats_field_array.GetJSArray())
       .FromJust();
+  stats_field_array.Release();
   object()
       ->SetPrivate(context,
                    env()->fs_stats_field_bigint_array_symbol(),
                    stats_field_bigint_array.GetJSArray())
       .FromJust();
+  stats_field_bigint_array.Release();
+}
+
+InternalFieldInfo* BindingData::Serialize() {
+  InternalFieldInfo* info = InternalFieldInfo::New(type());
   return info;
 }
 
@@ -2574,8 +2579,62 @@ void Initialize(Local<Object> target,
 BindingData* FSReqBase::binding_data() {
   return binding_data_.get();
 }
+
+void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
+  registry->Register(Access);
+  StatWatcher::RegisterExternalReferences(registry);
+
+  registry->Register(Close);
+  registry->Register(Open);
+  registry->Register(OpenFileHandle);
+  registry->Register(Read);
+  registry->Register(ReadBuffers);
+  registry->Register(Fdatasync);
+  registry->Register(Fsync);
+  registry->Register(Rename);
+  registry->Register(FTruncate);
+  registry->Register(RMDir);
+  registry->Register(MKDir);
+  registry->Register(ReadDir);
+  registry->Register(InternalModuleReadJSON);
+  registry->Register(InternalModuleStat);
+  registry->Register(Stat);
+  registry->Register(LStat);
+  registry->Register(FStat);
+  registry->Register(Link);
+  registry->Register(Symlink);
+  registry->Register(ReadLink);
+  registry->Register(Unlink);
+  registry->Register(WriteBuffer);
+  registry->Register(WriteBuffers);
+  registry->Register(WriteString);
+  registry->Register(RealPath);
+  registry->Register(CopyFile);
+
+  registry->Register(Chmod);
+  registry->Register(FChmod);
+  // registry->Register(LChmod);
+
+  registry->Register(Chown);
+  registry->Register(FChown);
+  registry->Register(LChown);
+
+  registry->Register(UTimes);
+  registry->Register(FUTimes);
+  registry->Register(LUTimes);
+
+  registry->Register(Mkdtemp);
+  registry->Register(NewFSReqCallback);
+
+  registry->Register(FileHandle::New);
+  registry->Register(FileHandle::Close);
+  registry->Register(FileHandle::ReleaseFD);
+  StreamBase::RegisterExternalReferences(registry);
+}
+
 }  // namespace fs
 
 }  // end namespace node
 
 NODE_MODULE_CONTEXT_AWARE_INTERNAL(fs, node::fs::Initialize)
+NODE_MODULE_EXTERNAL_REFERENCE(fs, node::fs::RegisterExternalReferences)

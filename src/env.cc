@@ -8,6 +8,7 @@
 #include "node_buffer.h"
 #include "node_context_data.h"
 #include "node_errors.h"
+#include "node_file.h"
 #include "node_internals.h"
 #include "node_options-inl.h"
 #include "node_process.h"
@@ -1235,6 +1236,34 @@ EnvSerializeInfo Environment::Serialize(SnapshotCreator* creator) {
   EnvSerializeInfo info;
   Local<Context> ctx = context();
 
+  size_t i = 0;
+  ForEachBaseObject([&](BaseObject* obj) {
+    per_process::Debug(DebugCategory::MKSNAPSHOT,
+                       "Serialize object %d, type = %d\n",
+                       static_cast<int>(i),
+                       static_cast<int>(obj->type()));
+    // if (obj->IsWeakOrDetached()) {
+    //   per_process::Debug(DebugCategory::MKSNAPSHOT,
+    //                     "skip object because it's weak or detached");
+    //   return;
+    // }
+
+    switch (obj->type()) {
+      case InternalFieldType::kFSBindingData: {
+        size_t index = creator->AddData(ctx, obj->object());
+        per_process::Debug(DebugCategory::MKSNAPSHOT,
+                           "Serializing object %d, FSBindingData, index=%d\n",
+                           static_cast<int>(i),
+                           static_cast<int>(index));
+        info.bindings.push_back({"FSBindingData", i++, index});
+        fs::BindingData* ptr = static_cast<fs::BindingData*>(obj);
+        ptr->Serialize(ctx, creator);
+        break;
+      }
+      default: { UNREACHABLE(); }
+    }
+  });
+
   // Currently all modules are compiled without cache in builtin snapshot
   // builder.
   info.native_modules = std::vector<std::string>(
@@ -1301,6 +1330,9 @@ std::ostream& operator<<(std::ostream& output,
 
 std::ostream& operator<<(std::ostream& output, const EnvSerializeInfo& i) {
   output << "{\n"
+         << "// -- bindings begins --\n"
+         << i.bindings << ",\n"
+         << "// -- bindings ends --\n"
          << "// -- native_modules begins --\n"
          << i.native_modules << ",\n"
          << "// -- native_modules ends --\n"

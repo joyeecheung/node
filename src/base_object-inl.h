@@ -38,9 +38,13 @@ BaseObject::BaseObject(Environment* env,
     : type_(type), persistent_handle_(env->isolate(), object), env_(env) {
   CHECK_EQ(false, object.IsEmpty());
   CHECK_GT(object->InternalFieldCount(), 0);
-  object->SetInternalField(BaseObject::kType,
-                           v8::Integer::NewFromUnsigned(
-                               env->isolate(), static_cast<uint32_t>(type)));
+  std::string type_str = std::to_string(static_cast<int>(type));
+  object->SetInternalField(
+      BaseObject::kType,
+      v8::String::NewFromOneByte(
+          env->isolate(),
+          reinterpret_cast<const uint8_t*>(type_str.c_str()),
+          v8::NewStringType::kInternalized).ToLocalChecked());
   object->SetAlignedPointerInInternalField(
       BaseObject::kSlot,
       static_cast<void*>(this));

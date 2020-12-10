@@ -21,6 +21,7 @@ class BindingData : public BaseObject {
 
   explicit BindingData(Environment* env, v8::Local<v8::Object> wrap);
 
+  void Serialize(v8::Local<v8::Context> context, v8::SnapshotCreator* creator);
   InternalFieldInfo* Serialize();
 
   static void Deserialize(v8::Local<v8::Context> context,

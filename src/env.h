@@ -987,6 +987,7 @@ struct DeserializeRequest {
 };
 
 struct EnvSerializeInfo {
+  std::vector<PropInfo> bindings;
   std::vector<std::string> native_modules;
 
   AsyncHooks::SerializeInfo async_hooks;

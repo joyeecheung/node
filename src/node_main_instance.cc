@@ -174,6 +174,10 @@ void DeserializeNodeInternalFields(Local<Object> holder,
                                    int index,
                                    v8::StartupData payload,
                                    void* env) {
+  per_process::Debug(DebugCategory::MKSNAPSHOT,
+                    "Deserialize internal field, index=%d, size=%d\n",
+                    static_cast<int>(index),
+                    static_cast<int>(payload.raw_size));
   if (payload.raw_size == 0) {
     holder->SetAlignedPointerInInternalField(index, nullptr);
     return;
@@ -193,6 +197,10 @@ void DeserializeNodeInternalFields(Local<Object> holder,
   const InternalFieldInfo* info =
       reinterpret_cast<const InternalFieldInfo*>(payload.data);
 
+  per_process::Debug(DebugCategory::MKSNAPSHOT,
+                     "Deserialize internal field, type=%d, length=%d\n",
+                     static_cast<int>(info->type),
+                     static_cast<int>(info->length));
   switch (info->type) {
     // TODO(joyeecheung): maybe this should be done using a macro
     case InternalFieldType::kFSBindingData: {
@@ -201,6 +209,7 @@ void DeserializeNodeInternalFields(Local<Object> holder,
       env_ptr->EnqueueDeserializeRequest({fs::BindingData::Deserialize,
                                           {env_ptr->isolate(), holder},
                                           info->Copy()});
+      break;
     }
     default: { UNREACHABLE(); }
   }

@@ -81,35 +81,38 @@ static StartupData SerializeNodeContextInternalFields(Local<Object> holder,
                                                       int index,
                                                       void* env) {
   void* ptr = holder->GetAlignedPointerFromInternalField(index);
+  per_process::Debug(DebugCategory::MKSNAPSHOT,
+                     "Serialize internal field, index=%d, ptr=%p\n",
+                     static_cast<int>(index),
+                     ptr);
   if (ptr == nullptr) {
     return StartupData{nullptr, 0};
   }
-  // TODO(joyeecheung): remove this?
-  if (ptr == env) {
-    return StartupData{nullptr, 0};
-  }
-
-  // TODO(joyeecheung): we shouldn't use the index to identify field types.
-  // For now, we just assume that we are only dealing with BaseObject here
-  // and we only deal with its kSlot field.
+  // TODO(joyeecheung): for now, we just assume that we are only dealing
+  // with BaseObject here and we only deal with its kSlot field.
   CHECK_EQ(index, BaseObject::kSlot);
-  // if (index == Serializable::kTagIndex) {
-
-  // }
 
   // TODO(joyeecheung): add more types for other objects with embedder fields.
   BaseObject* obj = static_cast<BaseObject*>(ptr);
+  per_process::Debug(DebugCategory::MKSNAPSHOT,
+                     "Serialize internal field, type = %d\n",
+                     static_cast<int>(obj->type()));
+
   switch (obj->type()) {
-    case InternalFieldType::kFSBindingData: {
-      per_process::Debug(DebugCategory::MKSNAPSHOT,
-                         "Serializing FSBindingData with index %d at %p\n",
-                         index,
-                         ptr);
-      fs::BindingData* obj = static_cast<fs::BindingData*>(ptr);
-      InternalFieldInfo* info = obj->Serialize();
-      return StartupData{reinterpret_cast<const char*>(info),
-                         static_cast<int>(info->length)};
-    }
+#define V(TypeName, NativeType)                                                \
+  case InternalFieldType::k##TypeName: {                                       \
+    NativeType* ptr = static_cast<NativeType*>(obj);                           \
+    InternalFieldInfo* info = ptr->Serialize();                                \
+    per_process::Debug(DebugCategory::MKSNAPSHOT,                              \
+                       "Serializing " #NativeType "at %p, length=%d\n",        \
+                       ptr,                                                    \
+                       static_cast<int>(info->length));                        \
+    return StartupData{reinterpret_cast<const char*>(info),                    \
+                       static_cast<int>(info->length)};                        \
+  }
+
+    INTERNAL_FIELD_TYPES(V)
+#undef V
     default: { UNREACHABLE(); }
   }
 }
