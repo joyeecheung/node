@@ -590,13 +590,16 @@ class IsolateData : public MemoryRetainer {
 #define VP(PropertyName, StringValue) V(v8::Private, PropertyName)
 #define VY(PropertyName, StringValue) V(v8::Symbol, PropertyName)
 #define VS(PropertyName, StringValue) V(v8::String, PropertyName)
+#define VB(PropertyName, _) V(v8::String, PropertyName##_string)
 #define V(TypeName, PropertyName)                                             \
   inline v8::Local<TypeName> PropertyName() const;
   PER_ISOLATE_PRIVATE_SYMBOL_PROPERTIES(VP)
   PER_ISOLATE_SYMBOL_PROPERTIES(VY)
   PER_ISOLATE_STRING_PROPERTIES(VS)
+  SERIALIZABLE_OBJECT_TYPES(VB)
 #undef V
 #undef VY
+#undef VB
 #undef VS
 #undef VP
   inline v8::Local<v8::String> async_wrap_provider(int index) const;
@@ -617,13 +620,16 @@ class IsolateData : public MemoryRetainer {
 #define VP(PropertyName, StringValue) V(v8::Private, PropertyName)
 #define VY(PropertyName, StringValue) V(v8::Symbol, PropertyName)
 #define VS(PropertyName, StringValue) V(v8::String, PropertyName)
+#define VB(PropertyName, _) V(v8::String, PropertyName##_string)
 #define V(TypeName, PropertyName)                                             \
   v8::Eternal<TypeName> PropertyName ## _;
   PER_ISOLATE_PRIVATE_SYMBOL_PROPERTIES(VP)
   PER_ISOLATE_SYMBOL_PROPERTIES(VY)
   PER_ISOLATE_STRING_PROPERTIES(VS)
+  SERIALIZABLE_OBJECT_TYPES(VB)
 #undef V
 #undef VY
+#undef VB
 #undef VS
 #undef VP
   // Keep a list of all Persistent strings used for AsyncWrap Provider types.
@@ -941,20 +947,20 @@ struct PropInfo {
 // And for non-BaseObject embedder objects, we'll use field-wise types.
 // The memory chunk looks like this:
 //
-// [   type   ] - InternalFieldType (a uint8_t)
+// [   type   ] - EmbedderObjectType (a uint8_t)
 // [  length  ] - a size_t
 // [    ...   ] - custom bytes of size |length - header size|
 struct InternalFieldInfo {
-  InternalFieldType type;
+  EmbedderObjectType type;
   size_t length;
 
   InternalFieldInfo() = delete;
 
-  static InternalFieldInfo* New(InternalFieldType type) {
+  static InternalFieldInfo* New(EmbedderObjectType type) {
     return New(type, sizeof(InternalFieldInfo));
   }
 
-  static InternalFieldInfo* New(InternalFieldType type, size_t length) {
+  static InternalFieldInfo* New(EmbedderObjectType type, size_t length) {
     InternalFieldInfo* result =
         reinterpret_cast<InternalFieldInfo*>(::operator new(length));
     result->type = type;
@@ -1314,12 +1320,15 @@ class Environment : public MemoryRetainer {
 #define VP(PropertyName, StringValue) V(v8::Private, PropertyName)
 #define VY(PropertyName, StringValue) V(v8::Symbol, PropertyName)
 #define VS(PropertyName, StringValue) V(v8::String, PropertyName)
+#define VB(PropertyName, _) V(v8::String, PropertyName##_string)
 #define V(TypeName, PropertyName)                                             \
   inline v8::Local<TypeName> PropertyName() const;
   PER_ISOLATE_PRIVATE_SYMBOL_PROPERTIES(VP)
   PER_ISOLATE_SYMBOL_PROPERTIES(VY)
   PER_ISOLATE_STRING_PROPERTIES(VS)
+  SERIALIZABLE_OBJECT_TYPES(VB)
 #undef V
+#undef VB
 #undef VS
 #undef VY
 #undef VP
@@ -1613,6 +1622,8 @@ class Environment : public MemoryRetainer {
 
   template <typename T>
   void ForEachBaseObject(T&& iterator);
+  template <typename T>
+  void ForEachBindingData(T&& iterator);
 
 #define V(PropertyName, TypeName) v8::Global<TypeName> PropertyName ## _;
   ENVIRONMENT_STRONG_PERSISTENT_VALUES(V)

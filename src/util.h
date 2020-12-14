@@ -805,6 +805,14 @@ class FastStringKey {
   size_t cached_hash_;
 };
 
+inline v8::MaybeLocal<v8::String> ToOneByteString(v8::Isolate* isolate,
+                                                  const char* str) {
+  return v8::String::NewFromOneByte(isolate,
+                                    reinterpret_cast<const uint8_t*>(str),
+                                    v8::NewStringType::kInternalized,
+                                    -1);
+}
+
 // Like std::static_pointer_cast but for unique_ptr with the default deleter.
 template <typename T, typename U>
 std::unique_ptr<T> static_unique_pointer_cast(std::unique_ptr<U>&& ptr) {

@@ -31,8 +31,10 @@ class BindingData : public BaseObject {
   std::vector<BaseObjectPtr<FileHandleReadWrap>>
       file_handle_read_wrap_freelist;
 
-  static constexpr FastStringKey binding_data_name { "fs" };
-
+  static v8::Local<v8::String> GetTypeName(Environment* env);
+  static constexpr FastStringKey type_name{"node::fs::BindingData"};
+  static constexpr EmbedderObjectType type_int =
+      EmbedderObjectType::k_fs_binding_data;
   void MemoryInfo(MemoryTracker* tracker) const override;
   SET_SELF_SIZE(BindingData)
   SET_MEMORY_INFO_NAME(BindingData)

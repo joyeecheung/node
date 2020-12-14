@@ -2389,6 +2389,10 @@ static void Mkdtemp(const FunctionCallbackInfo<Value>& args) {
   }
 }
 
+Local<String> BindingData::GetTypeName(Environment* env) {
+  return env->fs_binding_data_string();
+}
+
 void BindingData::MemoryInfo(MemoryTracker* tracker) const {
   tracker->TrackField("stats_field_array", stats_field_array);
   tracker->TrackField("stats_field_bigint_array", stats_field_bigint_array);
@@ -2397,9 +2401,13 @@ void BindingData::MemoryInfo(MemoryTracker* tracker) const {
 }
 
 BindingData::BindingData(Environment* env, v8::Local<v8::Object> wrap)
-    : BaseObject(env, wrap, InternalFieldType::kFSBindingData),
+    : BaseObject(env, wrap, type_int),
       stats_field_array(env->isolate(), kFsStatsBufferLength),
-      stats_field_bigint_array(env->isolate(), kFsStatsBufferLength) {}
+      stats_field_bigint_array(env->isolate(), kFsStatsBufferLength) {
+  // Store the type name into the embedder object for debugging and
+  // serialization.
+  object()->SetInternalField(BaseObject::kType, GetTypeName(env));
+}
 
 void BindingData::Deserialize(Local<Context> context,
                               Local<Object> holder,
@@ -2446,7 +2454,7 @@ InternalFieldInfo* BindingData::Serialize() {
 }
 
 // TODO(addaleax): Remove once we're on C++17.
-constexpr FastStringKey BindingData::binding_data_name;
+constexpr FastStringKey BindingData::type_name;
 
 void Initialize(Local<Object> target,
                 Local<Value> unused,

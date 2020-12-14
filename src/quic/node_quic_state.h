@@ -60,7 +60,7 @@ class QuicState : public BaseObject {
 
   bool warn_trace_tls = true;
 
-  static constexpr FastStringKey binding_data_name { "quic" };
+  static constexpr FastStringKey type_name{"node::quic::QuicState"};
 
   void MemoryInfo(MemoryTracker* tracker) const override;
   SET_SELF_SIZE(QuicState)

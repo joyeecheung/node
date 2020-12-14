@@ -30,13 +30,12 @@
 
 namespace node {
 
-#define INTERNAL_FIELD_TYPES(V) V(FSBindingData, fs::BindingData)
-#undef V
+#define SERIALIZABLE_OBJECT_TYPES(V) V(fs_binding_data, fs::BindingData)
 
-enum class InternalFieldType : uint8_t {
-  kDefault = 0,
-#define V(TypeName, NativeType) k##TypeName,
-  INTERNAL_FIELD_TYPES(V)
+enum class EmbedderObjectType : uint8_t {
+  k_default = 0,
+#define V(PropertyName, NativeType) k_##PropertyName,
+  SERIALIZABLE_OBJECT_TYPES(V)
 #undef V
 };
 
@@ -56,7 +55,7 @@ class BaseObject : public MemoryRetainer {
   // that, and in particular aborts if there is no such field.
   inline BaseObject(Environment* env,
                     v8::Local<v8::Object> object,
-                    InternalFieldType type = InternalFieldType::kDefault);
+                    EmbedderObjectType type = EmbedderObjectType::k_default);
   inline ~BaseObject() override;
 
   BaseObject() = delete;
@@ -120,7 +119,7 @@ class BaseObject : public MemoryRetainer {
   inline void Detach();
 
   // We'll make sure that the type is set in the constructor
-  InternalFieldType type() { return type_; }
+  EmbedderObjectType type() { return type_; }
 
   static v8::Local<v8::FunctionTemplate> GetConstructorTemplate(
       Environment* env);
@@ -174,7 +173,7 @@ class BaseObject : public MemoryRetainer {
   virtual inline void OnGCCollect();
 
  private:
-  InternalFieldType type_ = InternalFieldType::kDefault;
+  EmbedderObjectType type_ = EmbedderObjectType::k_default;
   v8::Local<v8::Object> WrappedObject() const override;
   bool IsRootNode() const override;
   static void DeleteMe(void* data);

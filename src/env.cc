@@ -73,12 +73,15 @@ std::vector<size_t> IsolateData::Serialize(SnapshotCreator* creator) {
 #define VP(PropertyName, StringValue) V(Private, PropertyName)
 #define VY(PropertyName, StringValue) V(Symbol, PropertyName)
 #define VS(PropertyName, StringValue) V(String, PropertyName)
+#define VB(PropertyName, _) V(v8::String, PropertyName##_string)
 #define V(TypeName, PropertyName)                                              \
   indexes.push_back(creator->AddData(PropertyName##_.Get(isolate)));
   PER_ISOLATE_PRIVATE_SYMBOL_PROPERTIES(VP)
   PER_ISOLATE_SYMBOL_PROPERTIES(VY)
   PER_ISOLATE_STRING_PROPERTIES(VS)
+  SERIALIZABLE_OBJECT_TYPES(VB)
 #undef V
+#undef VB
 #undef VY
 #undef VS
 #undef VP
@@ -95,6 +98,7 @@ void IsolateData::DeserializeProperties(const std::vector<size_t>* indexes) {
 #define VP(PropertyName, StringValue) V(Private, PropertyName)
 #define VY(PropertyName, StringValue) V(Symbol, PropertyName)
 #define VS(PropertyName, StringValue) V(String, PropertyName)
+#define VB(PropertyName, _) V(v8::String, PropertyName##_string)
 #define V(TypeName, PropertyName)                                              \
   do {                                                                         \
     MaybeLocal<TypeName> maybe_field =                                         \
@@ -108,7 +112,9 @@ void IsolateData::DeserializeProperties(const std::vector<size_t>* indexes) {
   PER_ISOLATE_PRIVATE_SYMBOL_PROPERTIES(VP)
   PER_ISOLATE_SYMBOL_PROPERTIES(VY)
   PER_ISOLATE_STRING_PROPERTIES(VS)
+  SERIALIZABLE_OBJECT_TYPES(VB)
 #undef V
+#undef VB
 #undef VY
 #undef VS
 #undef VP
@@ -172,7 +178,13 @@ void IsolateData::CreateProperties() {
           .ToLocalChecked());
   PER_ISOLATE_STRING_PROPERTIES(V)
 #undef V
-
+#define V(PropertyName, NativeTypeName)                                        \
+  PropertyName##_string_.Set(                                                  \
+      isolate_,                                                                \
+      ToOneByteString(isolate_, NativeTypeName::type_name.c_str())             \
+          .ToLocalChecked());
+  SERIALIZABLE_OBJECT_TYPES(V)
+#undef V
   // Create all the provider strings that will be passed to JS. Place them in
   // an array so the array index matches the PROVIDER id offset. This way the
   // strings can be retrieved quickly.
@@ -214,6 +226,11 @@ void IsolateData::MemoryInfo(MemoryTracker* tracker) const {
   PER_ISOLATE_SYMBOL_PROPERTIES(V)
 
   PER_ISOLATE_STRING_PROPERTIES(V)
+#undef V
+
+#define V(PropertyName, _)                                                     \
+  tracker->TrackField(#PropertyName, PropertyName##_string());
+  SERIALIZABLE_OBJECT_TYPES(V)
 #undef V
 
   tracker->TrackField("async_wrap_providers", async_wrap_providers_);
@@ -1237,31 +1254,26 @@ EnvSerializeInfo Environment::Serialize(SnapshotCreator* creator) {
   Local<Context> ctx = context();
 
   size_t i = 0;
-  ForEachBaseObject([&](BaseObject* obj) {
+  ForEachBindingData([&](FastStringKey key, BaseObjectPtr<BaseObject> binding) {
     per_process::Debug(DebugCategory::MKSNAPSHOT,
-                       "Serialize object %d, type = %d\n",
+                       "Serialize binding %i, %p, type=%s\n",
                        static_cast<int>(i),
-                       static_cast<int>(obj->type()));
-    // if (obj->IsWeakOrDetached()) {
-    //   per_process::Debug(DebugCategory::MKSNAPSHOT,
-    //                     "skip object because it's weak or detached");
-    //   return;
-    // }
+                       *(binding->object()),
+                       key.c_str());
 
-    switch (obj->type()) {
-      case InternalFieldType::kFSBindingData: {
-        size_t index = creator->AddData(ctx, obj->object());
-        per_process::Debug(DebugCategory::MKSNAPSHOT,
-                           "Serializing object %d, FSBindingData, index=%d\n",
-                           static_cast<int>(i),
-                           static_cast<int>(index));
-        info.bindings.push_back({"FSBindingData", i++, index});
-        fs::BindingData* ptr = static_cast<fs::BindingData*>(obj);
-        ptr->Serialize(ctx, creator);
-        break;
-      }
-      default: { UNREACHABLE(); }
+    if (key == fs::BindingData::type_name) {
+      size_t index = creator->AddData(ctx, binding->object());
+      per_process::Debug(DebugCategory::MKSNAPSHOT,
+                         "Serialized with index=%d\n",
+                         static_cast<int>(index));
+      info.bindings.push_back({key.c_str(), i, index});
+      fs::BindingData* ptr = static_cast<fs::BindingData*>(binding.get());
+      ptr->Serialize(ctx, creator);
+    } else {
+      UNREACHABLE();
     }
+
+    i++;
   });
 
   // Currently all modules are compiled without cache in builtin snapshot

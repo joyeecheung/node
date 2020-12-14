@@ -175,16 +175,16 @@ void DeserializeNodeInternalFields(Local<Object> holder,
                                    v8::StartupData payload,
                                    void* env) {
   per_process::Debug(DebugCategory::MKSNAPSHOT,
-                    "Deserialize internal field, index=%d, size=%d\n",
-                    static_cast<int>(index),
-                    static_cast<int>(payload.raw_size));
+                     "Deserialize internal field %d of %p, size=%d\n",
+                     static_cast<int>(index),
+                     (*holder),
+                     static_cast<int>(payload.raw_size));
   if (payload.raw_size == 0) {
     holder->SetAlignedPointerInInternalField(index, nullptr);
     return;
   }
 
-  // TODO(joyeecheung): here we assume that any non-empty embdder
-  // payload indicates that
+  // TODO(joyeecheung): here we assume that
   // 1. the holder is a BaseObject
   // 2. the slot is the and BaseObject::kSlot and we are reviving
   //    the BaseObject reference
@@ -197,15 +197,15 @@ void DeserializeNodeInternalFields(Local<Object> holder,
   const InternalFieldInfo* info =
       reinterpret_cast<const InternalFieldInfo*>(payload.data);
 
-  per_process::Debug(DebugCategory::MKSNAPSHOT,
-                     "Deserialize internal field, type=%d, length=%d\n",
-                     static_cast<int>(info->type),
-                     static_cast<int>(info->length));
+  // TODO(joyeecheung): use macro
   switch (info->type) {
-    // TODO(joyeecheung): maybe this should be done using a macro
-    case InternalFieldType::kFSBindingData: {
+    case EmbedderObjectType::k_fs_binding_data: {
+      // fs::BindingData has only one slot
+      CHECK_EQ(index, BaseObject::kSlot);
       per_process::Debug(DebugCategory::MKSNAPSHOT,
-                         "Deserialize FSBindingData\n");
+                         "Object %p is %s\n",
+                         (*holder),
+                         fs::BindingData::type_name.c_str());
       env_ptr->EnqueueDeserializeRequest({fs::BindingData::Deserialize,
                                           {env_ptr->isolate(), holder},
                                           info->Copy()});

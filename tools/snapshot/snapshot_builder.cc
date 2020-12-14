@@ -18,6 +18,8 @@ using v8::Local;
 using v8::Object;
 using v8::SnapshotCreator;
 using v8::StartupData;
+using v8::String;
+using v8::Value;
 
 template <typename T>
 void WriteVector(std::stringstream* ss, const T* vec, size_t size) {
@@ -77,43 +79,50 @@ const EnvSerializeInfo* NodeMainInstance::GetEnvSerializeInfo() {
   return ss.str();
 }
 
+// All the serializable embedder objects should point slot 0
+// to a v8::String indicating its type.
 static StartupData SerializeNodeContextInternalFields(Local<Object> holder,
                                                       int index,
                                                       void* env) {
-  void* ptr = holder->GetAlignedPointerFromInternalField(index);
   per_process::Debug(DebugCategory::MKSNAPSHOT,
-                     "Serialize internal field, index=%d, ptr=%p\n",
+                     "Serialize internal field, index=%d, holder=%p\n",
                      static_cast<int>(index),
-                     ptr);
+                     *holder);
+
+  if (index == BaseObject::kType) return StartupData{nullptr, 0};
+
+  void* ptr = holder->GetAlignedPointerFromInternalField(index);
   if (ptr == nullptr) {
     return StartupData{nullptr, 0};
   }
-  // TODO(joyeecheung): for now, we just assume that we are only dealing
-  // with BaseObject here and we only deal with its kSlot field.
+
+  // For now, we just assume that we can only deal with kSlot fields of
+  // BaseObjects.
+  // TODO(joyeecheung): add more types for other objects with embedder fields.
   CHECK_EQ(index, BaseObject::kSlot);
 
-  // TODO(joyeecheung): add more types for other objects with embedder fields.
-  BaseObject* obj = static_cast<BaseObject*>(ptr);
-  per_process::Debug(DebugCategory::MKSNAPSHOT,
-                     "Serialize internal field, type = %d\n",
-                     static_cast<int>(obj->type()));
+  Environment* env_ptr = static_cast<Environment*>(env);
+  Local<Value> type = holder->GetInternalField(BaseObject::kType);
+  CHECK(type->IsString());
+  Local<String> type_str = type.As<String>();
 
-  switch (obj->type()) {
-#define V(TypeName, NativeType)                                                \
-  case InternalFieldType::k##TypeName: {                                       \
-    NativeType* ptr = static_cast<NativeType*>(obj);                           \
-    InternalFieldInfo* info = ptr->Serialize();                                \
-    per_process::Debug(DebugCategory::MKSNAPSHOT,                              \
-                       "Serializing " #NativeType "at %p, length=%d\n",        \
-                       ptr,                                                    \
-                       static_cast<int>(info->length));                        \
-    return StartupData{reinterpret_cast<const char*>(info),                    \
-                       static_cast<int>(info->length)};                        \
-  }
-
-    INTERNAL_FIELD_TYPES(V)
-#undef V
-    default: { UNREACHABLE(); }
+  // TODO(joyee): use macro
+  if (type_str->StringEquals(fs::BindingData::GetTypeName(env_ptr))) {
+    // fs::BindingData has only one slot
+    CHECK_EQ(index, BaseObject::kSlot);
+    per_process::Debug(DebugCategory::MKSNAPSHOT,
+                       "Object %p is %s, ",
+                       *holder,
+                       fs::BindingData::type_name.c_str());
+    fs::BindingData* obj = static_cast<fs::BindingData*>(ptr);
+    InternalFieldInfo* info = obj->Serialize();
+    per_process::Debug(DebugCategory::MKSNAPSHOT,
+                       "payload size=%d\n",
+                       static_cast<int>(info->length));
+    return StartupData{reinterpret_cast<const char*>(info),
+                       static_cast<int>(info->length)};
+  } else {
+    UNREACHABLE();
   }
 }
 
