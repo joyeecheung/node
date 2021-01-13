@@ -12,6 +12,7 @@
 #include "node_internals.h"
 #include "node_options-inl.h"
 #include "node_process.h"
+#include "node_v8.h"
 #include "node_v8_platform-inl.h"
 #include "node_worker.h"
 #include "req_wrap-inl.h"
@@ -1268,6 +1269,15 @@ EnvSerializeInfo Environment::Serialize(SnapshotCreator* creator) {
                          static_cast<int>(index));
       info.bindings.push_back({key.c_str(), i, index});
       fs::BindingData* ptr = static_cast<fs::BindingData*>(binding.get());
+      ptr->PrepareForSerialization(ctx, creator);
+    } else if (key == v8_utils::BindingData::type_name) {
+      size_t index = creator->AddData(ctx, binding->object());
+      per_process::Debug(DebugCategory::MKSNAPSHOT,
+                         "Serialized with index=%d\n",
+                         static_cast<int>(index));
+      info.bindings.push_back({key.c_str(), i, index});
+      v8_utils::BindingData* ptr =
+          static_cast<v8_utils::BindingData*>(binding.get());
       ptr->PrepareForSerialization(ctx, creator);
     } else {
       UNREACHABLE();

@@ -7,6 +7,7 @@
 #include "node_file.h"
 #include "node_internals.h"
 #include "node_main_instance.h"
+#include "node_v8.h"
 #include "node_v8_platform-inl.h"
 
 namespace node {
@@ -115,6 +116,21 @@ static StartupData SerializeNodeContextInternalFields(Local<Object> holder,
                        *holder,
                        fs::BindingData::type_name.c_str());
     fs::BindingData* obj = static_cast<fs::BindingData*>(ptr);
+    InternalFieldInfo* info = obj->Serialize();
+    per_process::Debug(DebugCategory::MKSNAPSHOT,
+                       "payload size=%d\n",
+                       static_cast<int>(info->length));
+    return StartupData{reinterpret_cast<const char*>(info),
+                       static_cast<int>(info->length)};
+  } else if (type_str->StringEquals(
+                 v8_utils::BindingData::GetTypeName(env_ptr))) {
+    // v8_utils::BindingData has only one slot
+    CHECK_EQ(index, BaseObject::kSlot);
+    per_process::Debug(DebugCategory::MKSNAPSHOT,
+                       "Object %p is %s, ",
+                       *holder,
+                       v8_utils::BindingData::type_name.c_str());
+    v8_utils::BindingData* obj = static_cast<v8_utils::BindingData*>(ptr);
     InternalFieldInfo* info = obj->Serialize();
     per_process::Debug(DebugCategory::MKSNAPSHOT,
                        "payload size=%d\n",

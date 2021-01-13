@@ -8,6 +8,7 @@
 #include "node_main_instance.h"
 #include "node_options-inl.h"
 #include "node_process.h"
+#include "node_v8.h"
 #include "node_v8_platform-inl.h"
 #include "util-inl.h"
 #if defined(LEAK_SANITIZER)
@@ -207,6 +208,18 @@ void DeserializeNodeInternalFields(Local<Object> holder,
                          (*holder),
                          fs::BindingData::type_name.c_str());
       env_ptr->EnqueueDeserializeRequest({fs::BindingData::Deserialize,
+                                          {env_ptr->isolate(), holder},
+                                          info->Copy()});
+      break;
+    }
+    case EmbedderObjectType::k_v8_binding_data: {
+      // fs::BindingData has only one slot
+      CHECK_EQ(index, BaseObject::kSlot);
+      per_process::Debug(DebugCategory::MKSNAPSHOT,
+                         "Object %p is %s\n",
+                         (*holder),
+                         fs::BindingData::type_name.c_str());
+      env_ptr->EnqueueDeserializeRequest({v8_utils::BindingData::Deserialize,
                                           {env_ptr->isolate(), holder},
                                           info->Copy()});
       break;

@@ -67,6 +67,7 @@ class ExternalReferenceRegistry {
   V(trace_events)                                                              \
   V(timers)                                                                    \
   V(types)                                                                     \
+  V(v8)                                                                        \
   V(worker)
 
 #if NODE_HAVE_I18N_SUPPORT

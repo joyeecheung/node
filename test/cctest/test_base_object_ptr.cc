@@ -17,7 +17,7 @@ using v8::Object;
 // Environments may come with existing BaseObject instances.
 // This variable offsets the expected BaseObject counts.
 // Number of BaseObjects in a bootstrapped Environment
-static const int BOOTSTRAP_OBJECT_COUNT = 1;
+static const int BOOTSTRAP_OBJECT_COUNT = 2;
 // Number of BaseObjects in a cleaned up Environment
 static const int CLEAN_OBJECT_COUNT = 0;
 
