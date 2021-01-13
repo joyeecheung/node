@@ -1268,7 +1268,7 @@ EnvSerializeInfo Environment::Serialize(SnapshotCreator* creator) {
                          static_cast<int>(index));
       info.bindings.push_back({key.c_str(), i, index});
       fs::BindingData* ptr = static_cast<fs::BindingData*>(binding.get());
-      ptr->Serialize(ctx, creator);
+      ptr->PrepareForSerialization(ctx, creator);
     } else {
       UNREACHABLE();
     }

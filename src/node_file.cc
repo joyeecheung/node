@@ -2429,8 +2429,8 @@ void BindingData::Deserialize(Local<Context> context,
       bigint_stats_arr.As<BigUint64Array>());
 }
 
-void BindingData::Serialize(Local<Context> context,
-                            v8::SnapshotCreator* creator) {
+void BindingData::PrepareForSerialization(Local<Context> context,
+                                          v8::SnapshotCreator* creator) {
   CHECK(file_handle_read_wrap_freelist.empty());
   HandleScope scope(context->GetIsolate());
 
