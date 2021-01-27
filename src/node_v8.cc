@@ -32,7 +32,6 @@ namespace node {
 namespace v8_utils {
 using v8::Array;
 using v8::Context;
-using v8::Float64Array;
 using v8::FunctionCallbackInfo;
 using v8::HandleScope;
 using v8::HeapCodeStatistics;

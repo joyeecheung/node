@@ -4,7 +4,6 @@
 #include "debug_utils-inl.h"
 #include "node_external_reference.h"
 #include "node_internals.h"
-#include "node_main_instance.h"
 #include "node_options-inl.h"
 #include "node_process.h"
 #include "node_serializable.h"
@@ -25,7 +24,6 @@ using v8::HandleScope;
 using v8::Isolate;
 using v8::Local;
 using v8::Locker;
-using v8::Object;
 
 std::unique_ptr<ExternalReferenceRegistry> NodeMainInstance::registry_ =
     nullptr;

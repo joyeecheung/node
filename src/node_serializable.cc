@@ -11,24 +11,12 @@ using v8::Local;
 using v8::Object;
 using v8::SnapshotCreator;
 using v8::StartupData;
-using v8::String;
 
 SerializableObject::SerializableObject(Environment* env,
                                        Local<Object> wrap,
                                        EmbedderObjectType type)
     : BaseObject(env, wrap), type_(type) {
-}
-
-Local<String> SerializableObject::GetTypeName() const {
-  switch (type_) {
-#define V(PropertyName, NativeTypeName)                                        \
-  case EmbedderObjectType::k_##PropertyName: {                                 \
-    return env()->PropertyName##_string();                                     \
-  }
-    SERIALIZABLE_OBJECT_TYPES(V)
-#undef V
-    default: { UNREACHABLE(); }
-  }
+  set_is_serializable(true);
 }
 
 const char* SerializableObject::GetTypeNameChars() const {
@@ -105,6 +93,7 @@ StartupData SerializeNodeContextInternalFields(Local<Object> holder,
   // TODO(joyeecheung): add more types for other objects with embedder fields.
   CHECK_EQ(index, BaseObject::kSlot);
 
+  DCHECK(static_cast<BaseObject*>(ptr)->is_serializable());
   SerializableObject* obj = static_cast<SerializableObject*>(ptr);
   per_process::Debug(DebugCategory::MKSNAPSHOT,
                      "Object %p is %s, ",

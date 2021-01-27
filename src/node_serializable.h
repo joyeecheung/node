@@ -68,7 +68,6 @@ class SerializableObject : public BaseObject {
   SerializableObject(Environment* env,
                      v8::Local<v8::Object> wrap,
                      EmbedderObjectType type = EmbedderObjectType::k_default);
-  v8::Local<v8::String> GetTypeName() const;
   const char* GetTypeNameChars() const;
 
   virtual void PrepareForSerialization(v8::Local<v8::Context> context,
@@ -84,9 +83,9 @@ class SerializableObject : public BaseObject {
 // TODO(joyeecheung): to deal with multi-slot embedder objects, Serialize()
 // and Deserialize() can take an index as argument.
 #define SERIALIZABLE_OBJECT_METHODS()                                          \
-  virtual void PrepareForSerialization(v8::Local<v8::Context> context,         \
-                                       v8::SnapshotCreator* creator) override; \
-  virtual InternalFieldInfo* Serialize() override;                             \
+  void PrepareForSerialization(v8::Local<v8::Context> context,                 \
+                               v8::SnapshotCreator* creator) override;         \
+  InternalFieldInfo* Serialize() override;                                     \
   static void Deserialize(v8::Local<v8::Context> context,                      \
                           v8::Local<v8::Object> holder,                        \
                           InternalFieldInfo* info);

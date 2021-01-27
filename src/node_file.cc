@@ -53,11 +53,9 @@ namespace fs {
 
 using v8::Array;
 using v8::BigInt;
-using v8::BigUint64Array;
 using v8::Boolean;
 using v8::Context;
 using v8::EscapableHandleScope;
-using v8::Float64Array;
 using v8::Function;
 using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;

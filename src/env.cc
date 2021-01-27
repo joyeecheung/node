@@ -74,15 +74,12 @@ std::vector<size_t> IsolateData::Serialize(SnapshotCreator* creator) {
 #define VP(PropertyName, StringValue) V(Private, PropertyName)
 #define VY(PropertyName, StringValue) V(Symbol, PropertyName)
 #define VS(PropertyName, StringValue) V(String, PropertyName)
-#define VB(PropertyName, _) V(v8::String, PropertyName##_string)
 #define V(TypeName, PropertyName)                                              \
   indexes.push_back(creator->AddData(PropertyName##_.Get(isolate)));
   PER_ISOLATE_PRIVATE_SYMBOL_PROPERTIES(VP)
   PER_ISOLATE_SYMBOL_PROPERTIES(VY)
   PER_ISOLATE_STRING_PROPERTIES(VS)
-  SERIALIZABLE_OBJECT_TYPES(VB)
 #undef V
-#undef VB
 #undef VY
 #undef VS
 #undef VP
@@ -99,7 +96,6 @@ void IsolateData::DeserializeProperties(const std::vector<size_t>* indexes) {
 #define VP(PropertyName, StringValue) V(Private, PropertyName)
 #define VY(PropertyName, StringValue) V(Symbol, PropertyName)
 #define VS(PropertyName, StringValue) V(String, PropertyName)
-#define VB(PropertyName, _) V(v8::String, PropertyName##_string)
 #define V(TypeName, PropertyName)                                              \
   do {                                                                         \
     MaybeLocal<TypeName> maybe_field =                                         \
@@ -113,9 +109,7 @@ void IsolateData::DeserializeProperties(const std::vector<size_t>* indexes) {
   PER_ISOLATE_PRIVATE_SYMBOL_PROPERTIES(VP)
   PER_ISOLATE_SYMBOL_PROPERTIES(VY)
   PER_ISOLATE_STRING_PROPERTIES(VS)
-  SERIALIZABLE_OBJECT_TYPES(VB)
 #undef V
-#undef VB
 #undef VY
 #undef VS
 #undef VP
@@ -180,19 +174,6 @@ void IsolateData::CreateProperties() {
   PER_ISOLATE_STRING_PROPERTIES(V)
 #undef V
 
-  // Add strings of names of serializable object types.
-#define V(PropertyName, NativeTypeName)                                        \
-  PropertyName##_string_.Set(                                                  \
-      isolate_,                                                                \
-      String::NewFromOneByte(                                                  \
-          isolate_,                                                            \
-          reinterpret_cast<const uint8_t*>(NativeTypeName::type_name.c_str()), \
-          v8::NewStringType::kInternalized,                                    \
-          -1)                                                                  \
-          .ToLocalChecked());
-  SERIALIZABLE_OBJECT_TYPES(V)
-#undef V
-
   // Create all the provider strings that will be passed to JS. Place them in
   // an array so the array index matches the PROVIDER id offset. This way the
   // strings can be retrieved quickly.
@@ -234,11 +215,6 @@ void IsolateData::MemoryInfo(MemoryTracker* tracker) const {
   PER_ISOLATE_SYMBOL_PROPERTIES(V)
 
   PER_ISOLATE_STRING_PROPERTIES(V)
-#undef V
-
-#define V(PropertyName, _)                                                     \
-  tracker->TrackField(#PropertyName, PropertyName##_string());
-  SERIALIZABLE_OBJECT_TYPES(V)
 #undef V
 
   tracker->TrackField("async_wrap_providers", async_wrap_providers_);
@@ -539,7 +515,7 @@ Environment::~Environment() {
 
   context()->SetAlignedPointerInEmbedderData(ContextEmbedderIndex::kEnvironment,
                                              nullptr);
- 
+
   if (trace_state_observer_) {
     tracing::AgentWriterHandle* writer = GetTracingAgentWriter();
     CHECK_NOT_NULL(writer);

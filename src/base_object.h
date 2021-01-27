@@ -29,6 +29,7 @@
 #include "v8.h"
 
 namespace node {
+
 class Environment;
 template <typename T, bool kIsWeak>
 class BaseObjectPtrImpl;
@@ -157,6 +158,9 @@ class BaseObject : public MemoryRetainer {
 
   virtual inline void OnGCCollect();
 
+  bool is_serializable() const { return is_serializable_; }
+  void set_is_serializable(bool val) { is_serializable_ = val; }
+
  private:
   v8::Local<v8::Object> WrappedObject() const override;
   bool IsRootNode() const override;
@@ -205,6 +209,7 @@ class BaseObject : public MemoryRetainer {
 
   Environment* env_;
   PointerData* pointer_data_ = nullptr;
+  bool is_serializable_ = false;
 };
 
 // Global alias for FromJSObject() to avoid churn.
