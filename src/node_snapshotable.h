@@ -62,6 +62,22 @@ struct InternalFieldInfo {
   void Delete() { ::operator delete(this); }
 };
 
+// An interface for snapshotable native objects to inherit from.
+// Use the SERIALIZABLE_OBJECT_METHODS() macro in the class to define
+// the following methods to implement:
+//
+// - PrepareForSerialization(): This would be run prior to context
+//   serialization. Use this method to e.g. release references that
+//   can be re-initialized, or perform property store operations
+//   that needs a V8 context.
+// - Serialize(): This would be called during context serialization,
+//   once for each embedder field of the object.
+//   Allocate and construct an InternalFieldInfo object that contains
+//   data that can be used to deserialize native states.
+// - Deserialize(): This would be called after the context is
+//   deserialized and the object graph is complete, once for each
+//   embedder field of the object. Use this to restore native states
+//   in the object.
 class SnapshotableObject : public BaseObject {
  public:
   SnapshotableObject(Environment* env,
@@ -71,7 +87,7 @@ class SnapshotableObject : public BaseObject {
 
   virtual void PrepareForSerialization(v8::Local<v8::Context> context,
                                        v8::SnapshotCreator* creator) = 0;
-  virtual InternalFieldInfo* Serialize() = 0;
+  virtual InternalFieldInfo* Serialize(int index) = 0;
   // We'll make sure that the type is set in the constructor
   EmbedderObjectType type() { return type_; }
 
@@ -79,14 +95,13 @@ class SnapshotableObject : public BaseObject {
   EmbedderObjectType type_;
 };
 
-// TODO(joyeecheung): to deal with multi-slot embedder objects, Serialize()
-// and Deserialize() can take an index as argument.
 #define SERIALIZABLE_OBJECT_METHODS()                                          \
   void PrepareForSerialization(v8::Local<v8::Context> context,                 \
                                v8::SnapshotCreator* creator) override;         \
-  InternalFieldInfo* Serialize() override;                                     \
+  InternalFieldInfo* Serialize(int index) override;                            \
   static void Deserialize(v8::Local<v8::Context> context,                      \
                           v8::Local<v8::Object> holder,                        \
+                          int index,                                           \
                           InternalFieldInfo* info);
 
 v8::StartupData SerializeNodeContextInternalFields(v8::Local<v8::Object> holder,

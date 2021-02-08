@@ -1348,8 +1348,9 @@ std::ostream& operator<<(std::ostream& output, const EnvSerializeInfo& i) {
 
 void Environment::EnqueueDeserializeRequest(DeserializeRequestCallback cb,
                                             Local<Object> holder,
+                                            int index,
                                             InternalFieldInfo* info) {
-  DeserializeRequest request{cb, {isolate(), holder}, info};
+  DeserializeRequest request{cb, {isolate(), holder}, index, info};
   deserialize_requests_.push_back(std::move(request));
 }
 
@@ -1361,7 +1362,7 @@ void Environment::RunDeserializeRequests() {
     DeserializeRequest request(std::move(deserialize_requests_.front()));
     deserialize_requests_.pop_front();
     Local<Object> holder = request.holder.Get(is);
-    request.cb(ctx, holder, request.info);
+    request.cb(ctx, holder, request.index, request.info);
     request.holder.Reset();
     request.info->Delete();
   }

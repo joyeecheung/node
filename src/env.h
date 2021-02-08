@@ -898,12 +898,14 @@ struct PropInfo {
   SnapshotIndex index;  // In the snapshot
 };
 
-typedef void (*DeserializeRequestCallback)(v8::Local<v8::Context>,
+typedef void (*DeserializeRequestCallback)(v8::Local<v8::Context> context,
                                            v8::Local<v8::Object> holder,
+                                           int index,
                                            InternalFieldInfo* info);
 struct DeserializeRequest {
   DeserializeRequestCallback cb;
   v8::Global<v8::Object> holder;
+  int index;
   InternalFieldInfo* info = nullptr;  // Owned by the request
 
   // Move constructor
@@ -948,6 +950,7 @@ class Environment : public MemoryRetainer {
   void VerifyNoStrongBaseObjects();
   void EnqueueDeserializeRequest(DeserializeRequestCallback cb,
                                  v8::Local<v8::Object> holder,
+                                 int index,
                                  InternalFieldInfo* info);
   void RunDeserializeRequests();
   // Should be called before InitializeInspector()

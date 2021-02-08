@@ -56,15 +56,6 @@ void DeserializeNodeInternalFields(Local<Object> holder,
     return;
   }
 
-  // TODO(joyeecheung): here we assume that
-  // 1. the holder is a BaseObject
-  // 2. the slot is the and BaseObject::kSlot and we are reviving
-  //    the BaseObject reference
-  // 3. the payload contains a InternalFieldInfo whose type indicates
-  //    the type of the BaseObject.
-  // Which may be expanded if we want to support non-BaseObject types
-  // or types with more slots.
-  CHECK_EQ(index, BaseObject::kSlot);
   Environment* env_ptr = static_cast<Environment*>(env);
   const InternalFieldInfo* info =
       reinterpret_cast<const InternalFieldInfo*>(payload.data);
@@ -77,7 +68,7 @@ void DeserializeNodeInternalFields(Local<Object> holder,
                        (*holder),                                              \
                        NativeTypeName::type_name.c_str());                     \
     env_ptr->EnqueueDeserializeRequest(                                        \
-        NativeTypeName::Deserialize, holder, info->Copy());                    \
+        NativeTypeName::Deserialize, holder, index, info->Copy());             \
     break;                                                                     \
   }
     SERIALIZABLE_OBJECT_TYPES(V)
@@ -93,15 +84,10 @@ StartupData SerializeNodeContextInternalFields(Local<Object> holder,
                      "Serialize internal field, index=%d, holder=%p\n",
                      static_cast<int>(index),
                      *holder);
-  void* ptr = holder->GetAlignedPointerFromInternalField(index);
+  void* ptr = holder->GetAlignedPointerFromInternalField(BaseObject::kSlot);
   if (ptr == nullptr) {
     return StartupData{nullptr, 0};
   }
-
-  // For now, we just assume that we can only deal with kSlot fields of
-  // BaseObjects.
-  // TODO(joyeecheung): add more types for other objects with embedder fields.
-  CHECK_EQ(index, BaseObject::kSlot);
 
   DCHECK(static_cast<BaseObject*>(ptr)->is_snapshotable());
   SnapshotableObject* obj = static_cast<SnapshotableObject*>(ptr);
@@ -109,7 +95,7 @@ StartupData SerializeNodeContextInternalFields(Local<Object> holder,
                      "Object %p is %s, ",
                      *holder,
                      obj->GetTypeNameChars());
-  InternalFieldInfo* info = obj->Serialize();
+  InternalFieldInfo* info = obj->Serialize(index);
   per_process::Debug(DebugCategory::MKSNAPSHOT,
                      "payload size=%d\n",
                      static_cast<int>(info->length));
