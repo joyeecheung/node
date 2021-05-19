@@ -1,20 +1,23 @@
 'use strict';
-var common = require('../common');
+const common = require('../common');
 
-if (!common.hasCrypto) {
+// This test ensures that a http request callback is called
+// when the agent option is set
+// See https://github.com/nodejs/node-v0.x-archive/issues/1531
+
+if (!common.hasCrypto)
   common.skip('missing crypto');
-  return;
-}
-var https = require('https');
 
-var fs = require('fs');
+const fixtures = require('../common/fixtures');
 
-var options = {
-  key: fs.readFileSync(common.fixturesDir + '/keys/agent1-key.pem'),
-  cert: fs.readFileSync(common.fixturesDir + '/keys/agent1-cert.pem')
+const https = require('https');
+
+const options = {
+  key: fixtures.readKey('agent1-key.pem'),
+  cert: fixtures.readKey('agent1-cert.pem')
 };
 
-var server = https.createServer(options, function(req, res) {
+const server = https.createServer(options, function(req, res) {
   res.writeHead(200);
   res.end('hello world\n');
 });

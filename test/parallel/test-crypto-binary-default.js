@@ -1,3 +1,24 @@
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 'use strict';
 // This is the same as test/simple/test-crypto, but from before the shift
 // to use buffers by default.
@@ -5,44 +26,40 @@
 
 const common = require('../common');
 
-if (!common.hasCrypto) {
+if (!common.hasCrypto)
   common.skip('missing crypto');
-  return;
-}
 
 const assert = require('assert');
 const crypto = require('crypto');
 const fs = require('fs');
-const path = require('path');
 const tls = require('tls');
+const fixtures = require('../common/fixtures');
 const DH_NOT_SUITABLE_GENERATOR = crypto.constants.DH_NOT_SUITABLE_GENERATOR;
 
 crypto.DEFAULT_ENCODING = 'latin1';
 
 // Test Certificates
-const certPem = fs.readFileSync(common.fixturesDir + '/test_cert.pem', 'ascii');
-const certPfx = fs.readFileSync(common.fixturesDir + '/test_cert.pfx');
-const keyPem = fs.readFileSync(common.fixturesDir + '/test_key.pem', 'ascii');
-const rsaPubPem = fs.readFileSync(common.fixturesDir + '/test_rsa_pubkey.pem',
-                                  'ascii');
-const rsaKeyPem = fs.readFileSync(common.fixturesDir + '/test_rsa_privkey.pem',
-                                  'ascii');
+const certPem = fixtures.readSync('test_cert.pem', 'ascii');
+const certPfx = fixtures.readSync('test_cert.pfx');
+const keyPem = fixtures.readSync('test_key.pem', 'ascii');
+const rsaPubPem = fixtures.readSync('test_rsa_pubkey.pem', 'ascii');
+const rsaKeyPem = fixtures.readSync('test_rsa_privkey.pem', 'ascii');
 
 // PFX tests
 assert.doesNotThrow(function() {
-  tls.createSecureContext({pfx: certPfx, passphrase: 'sample'});
+  tls.createSecureContext({ pfx: certPfx, passphrase: 'sample' });
 });
 
 assert.throws(function() {
-  tls.createSecureContext({pfx: certPfx});
+  tls.createSecureContext({ pfx: certPfx });
 }, /^Error: mac verify failure$/);
 
 assert.throws(function() {
-  tls.createSecureContext({pfx: certPfx, passphrase: 'test'});
+  tls.createSecureContext({ pfx: certPfx, passphrase: 'test' });
 }, /^Error: mac verify failure$/);
 
 assert.throws(function() {
-  tls.createSecureContext({pfx: 'sample', passphrase: 'test'});
+  tls.createSecureContext({ pfx: 'sample', passphrase: 'test' });
 }, /^Error: not enough data$/);
 
 // Test HMAC
@@ -53,7 +70,7 @@ const hmacHash = crypto.createHmac('sha1', 'Node')
 assert.strictEqual(hmacHash, '19fd6e1ba73d9ed2224dd5094a71babe85d9a892');
 
 // Test HMAC-SHA-* (rfc 4231 Test Cases)
-var rfc4231 = [
+const rfc4231 = [
   {
     key: Buffer.from('0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b', 'hex'),
     data: Buffer.from('4869205468657265', 'hex'), // 'Hi There'
@@ -200,8 +217,8 @@ var rfc4231 = [
 ];
 
 for (let i = 0, l = rfc4231.length; i < l; i++) {
-  for (var hash in rfc4231[i]['hmac']) {
-    var result = crypto.createHmac(hash, rfc4231[i]['key'])
+  for (const hash in rfc4231[i]['hmac']) {
+    let result = crypto.createHmac(hash, rfc4231[i]['key'])
                      .update(rfc4231[i]['data'])
                      .digest('hex');
     if (rfc4231[i]['truncate']) {
@@ -216,7 +233,7 @@ for (let i = 0, l = rfc4231.length; i < l; i++) {
 }
 
 // Test HMAC-MD5/SHA1 (rfc 2202 Test Cases)
-var rfc2202_md5 = [
+const rfc2202_md5 = [
   {
     key: Buffer.from('0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b', 'hex'),
     data: 'Hi There',
@@ -269,7 +286,7 @@ var rfc2202_md5 = [
     hmac: '6f630fad67cda0ee1fb1f562db3aa53e'
   }
 ];
-var rfc2202_sha1 = [
+const rfc2202_sha1 = [
   {
     key: Buffer.from('0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b', 'hex'),
     data: 'Hi There',
@@ -346,24 +363,22 @@ for (let i = 0, l = rfc2202_sha1.length; i < l; i++) {
 }
 
 // Test hashing
-var a1 = crypto.createHash('sha1').update('Test123').digest('hex');
-var a2 = crypto.createHash('sha256').update('Test123').digest('base64');
-var a3 = crypto.createHash('sha512').update('Test123').digest(); // binary
-var a4 = crypto.createHash('sha1').update('Test123').digest('buffer');
+const a1 = crypto.createHash('sha1').update('Test123').digest('hex');
+const a2 = crypto.createHash('sha256').update('Test123').digest('base64');
+const a3 = crypto.createHash('sha512').update('Test123').digest(); // binary
+const a4 = crypto.createHash('sha1').update('Test123').digest('buffer');
 
 if (!common.hasFipsCrypto) {
-  var a0 = crypto.createHash('md5').update('Test123').digest('latin1');
+  const a0 = crypto.createHash('md5').update('Test123').digest('latin1');
   assert.strictEqual(
     a0,
-    'h\u00ea\u00cb\u0097\u00d8o\fF!\u00fa+\u000e\u0017\u00ca\u00bd\u008c',
-    'Test MD5 as latin1'
+    'h\u00ea\u00cb\u0097\u00d8o\fF!\u00fa+\u000e\u0017\u00ca\u00bd\u008c'
   );
 }
 
-assert.strictEqual(a1, '8308651804facb7b9af8ffc53a33a22d6a1c8ac2', 'Test SHA1');
+assert.strictEqual(a1, '8308651804facb7b9af8ffc53a33a22d6a1c8ac2');
 
-assert.strictEqual(a2, '2bX1jws4GYKTlxhloUB09Z66PoJZW+y+hq5R8dnx9l4=',
-                   'Test SHA256 as base64');
+assert.strictEqual(a2, '2bX1jws4GYKTlxhloUB09Z66PoJZW+y+hq5R8dnx9l4=');
 
 assert.strictEqual(
   a3,
@@ -377,27 +392,25 @@ assert.strictEqual(
 
 assert.deepStrictEqual(
   a4,
-  Buffer.from('8308651804facb7b9af8ffc53a33a22d6a1c8ac2', 'hex'),
-  'Test SHA1'
+  Buffer.from('8308651804facb7b9af8ffc53a33a22d6a1c8ac2', 'hex')
 );
 
 // Test multiple updates to same hash
-var h1 = crypto.createHash('sha1').update('Test123').digest('hex');
-var h2 = crypto.createHash('sha1').update('Test').update('123').digest('hex');
-assert.strictEqual(h1, h2, 'multipled updates');
+const h1 = crypto.createHash('sha1').update('Test123').digest('hex');
+const h2 = crypto.createHash('sha1').update('Test').update('123').digest('hex');
+assert.strictEqual(h1, h2);
 
 // Test hashing for binary files
-var fn = path.join(common.fixturesDir, 'sample.png');
-var sha1Hash = crypto.createHash('sha1');
-var fileStream = fs.createReadStream(fn);
+const fn = fixtures.path('sample.png');
+const sha1Hash = crypto.createHash('sha1');
+const fileStream = fs.createReadStream(fn);
 fileStream.on('data', function(data) {
   sha1Hash.update(data);
 });
 fileStream.on('close', common.mustCall(function() {
   assert.strictEqual(
     sha1Hash.digest('hex'),
-    '22723e553129a336ad96e10f6aecdf0f45e4149e',
-    'Test SHA1 of sample.png'
+    '22723e553129a336ad96e10f6aecdf0f45e4149e'
   );
 }));
 
@@ -407,110 +420,126 @@ assert.throws(function() {
 }, /^Error: Digest method not supported$/);
 
 // Test signing and verifying
-var s1 = crypto.createSign('RSA-SHA1')
+const s1 = crypto.createSign('SHA1')
                .update('Test123')
                .sign(keyPem, 'base64');
-var s1Verified = crypto.createVerify('RSA-SHA1')
+const s1Verified = crypto.createVerify('SHA1')
                        .update('Test')
                        .update('123')
                        .verify(certPem, s1, 'base64');
-assert.strictEqual(s1Verified, true, 'sign and verify (base 64)');
+assert.strictEqual(s1Verified, true);
 
-var s2 = crypto.createSign('RSA-SHA256')
+const s2 = crypto.createSign('SHA256')
                .update('Test123')
                .sign(keyPem); // binary
-var s2Verified = crypto.createVerify('RSA-SHA256')
+const s2Verified = crypto.createVerify('SHA256')
                        .update('Test')
                        .update('123')
                        .verify(certPem, s2); // binary
-assert.strictEqual(s2Verified, true, 'sign and verify (binary)');
+assert.strictEqual(s2Verified, true);
 
-var s3 = crypto.createSign('RSA-SHA1')
+const s3 = crypto.createSign('SHA1')
                .update('Test123')
                .sign(keyPem, 'buffer');
-var s3Verified = crypto.createVerify('RSA-SHA1')
+const s3Verified = crypto.createVerify('SHA1')
                        .update('Test')
                        .update('123')
                        .verify(certPem, s3);
-assert.strictEqual(s3Verified, true, 'sign and verify (buffer)');
+assert.strictEqual(s3Verified, true);
 
 
 function testCipher1(key) {
   // Test encryption and decryption
-  var plaintext = 'Keep this a secret? No! Tell everyone about node.js!';
-  var cipher = crypto.createCipher('aes192', key);
+  const plaintext = 'Keep this a secret? No! Tell everyone about node.js!';
+  const cipher = crypto.createCipher('aes192', key);
 
   // encrypt plaintext which is in utf8 format
   // to a ciphertext which will be in hex
-  var ciph = cipher.update(plaintext, 'utf8', 'hex');
+  let ciph = cipher.update(plaintext, 'utf8', 'hex');
   // Only use binary or hex, not base64.
   ciph += cipher.final('hex');
 
-  var decipher = crypto.createDecipher('aes192', key);
-  var txt = decipher.update(ciph, 'hex', 'utf8');
+  const decipher = crypto.createDecipher('aes192', key);
+  let txt = decipher.update(ciph, 'hex', 'utf8');
   txt += decipher.final('utf8');
 
-  assert.strictEqual(txt, plaintext, 'encryption and decryption');
+  assert.strictEqual(txt, plaintext);
 }
 
 
 function testCipher2(key) {
   // encryption and decryption with Base64
   // reported in https://github.com/joyent/node/issues/738
-  var plaintext =
+  const plaintext =
       '32|RmVZZkFUVmpRRkp0TmJaUm56ZU9qcnJkaXNNWVNpTTU*|iXmckfRWZBGWWELw' +
       'eCBsThSsfUHLeRe0KCsK8ooHgxie0zOINpXxfZi/oNG7uq9JWFVCk70gfzQH8ZUJ' +
       'jAfaFg**';
-  var cipher = crypto.createCipher('aes256', key);
+  const cipher = crypto.createCipher('aes256', key);
 
   // encrypt plaintext which is in utf8 format
   // to a ciphertext which will be in Base64
-  var ciph = cipher.update(plaintext, 'utf8', 'base64');
+  let ciph = cipher.update(plaintext, 'utf8', 'base64');
   ciph += cipher.final('base64');
 
-  var decipher = crypto.createDecipher('aes256', key);
-  var txt = decipher.update(ciph, 'base64', 'utf8');
+  const decipher = crypto.createDecipher('aes256', key);
+  let txt = decipher.update(ciph, 'base64', 'utf8');
   txt += decipher.final('utf8');
 
-  assert.strictEqual(txt, plaintext, 'encryption and decryption with Base64');
+  assert.strictEqual(txt, plaintext);
 }
 
 
 function testCipher3(key, iv) {
-  // Test encyrption and decryption with explicit key and iv
-  var plaintext =
+  // Test encryption and decryption with explicit key and iv
+  const plaintext =
       '32|RmVZZkFUVmpRRkp0TmJaUm56ZU9qcnJkaXNNWVNpTTU*|iXmckfRWZBGWWELw' +
       'eCBsThSsfUHLeRe0KCsK8ooHgxie0zOINpXxfZi/oNG7uq9JWFVCk70gfzQH8ZUJ' +
       'jAfaFg**';
-  var cipher = crypto.createCipheriv('des-ede3-cbc', key, iv);
-  var ciph = cipher.update(plaintext, 'utf8', 'hex');
+  const cipher = crypto.createCipheriv('des-ede3-cbc', key, iv);
+  let ciph = cipher.update(plaintext, 'utf8', 'hex');
   ciph += cipher.final('hex');
 
-  var decipher = crypto.createDecipheriv('des-ede3-cbc', key, iv);
-  var txt = decipher.update(ciph, 'hex', 'utf8');
+  const decipher = crypto.createDecipheriv('des-ede3-cbc', key, iv);
+  let txt = decipher.update(ciph, 'hex', 'utf8');
   txt += decipher.final('utf8');
 
-  assert.strictEqual(txt, plaintext,
-                     'encryption and decryption with key and iv');
+  assert.strictEqual(txt, plaintext);
 }
 
 
 function testCipher4(key, iv) {
-  // Test encyrption and decryption with explicit key and iv
-  var plaintext =
+  // Test encryption and decryption with explicit key and iv
+  const plaintext =
       '32|RmVZZkFUVmpRRkp0TmJaUm56ZU9qcnJkaXNNWVNpTTU*|iXmckfRWZBGWWELw' +
       'eCBsThSsfUHLeRe0KCsK8ooHgxie0zOINpXxfZi/oNG7uq9JWFVCk70gfzQH8ZUJ' +
       'jAfaFg**';
-  var cipher = crypto.createCipheriv('des-ede3-cbc', key, iv);
-  var ciph = cipher.update(plaintext, 'utf8', 'buffer');
+  const cipher = crypto.createCipheriv('des-ede3-cbc', key, iv);
+  let ciph = cipher.update(plaintext, 'utf8', 'buffer');
   ciph = Buffer.concat([ciph, cipher.final('buffer')]);
 
-  var decipher = crypto.createDecipheriv('des-ede3-cbc', key, iv);
-  var txt = decipher.update(ciph, 'buffer', 'utf8');
+  const decipher = crypto.createDecipheriv('des-ede3-cbc', key, iv);
+  let txt = decipher.update(ciph, 'buffer', 'utf8');
   txt += decipher.final('utf8');
 
-  assert.strictEqual(txt, plaintext,
-                     'encryption and decryption with key and iv');
+  assert.strictEqual(txt, plaintext);
+}
+
+
+function testCipher5(key, iv) {
+  // Test encryption and decryption with explicit key with aes128-wrap
+  const plaintext =
+      '32|RmVZZkFUVmpRRkp0TmJaUm56ZU9qcnJkaXNNWVNpTTU*|iXmckfRWZBGWWELw' +
+      'eCBsThSsfUHLeRe0KCsK8ooHgxie0zOINpXxfZi/oNG7uq9JWFVCk70gfzQH8ZUJ' +
+      'jAfaFg**';
+  const cipher = crypto.createCipher('id-aes128-wrap', key);
+  let ciph = cipher.update(plaintext, 'utf8', 'buffer');
+  ciph = Buffer.concat([ciph, cipher.final('buffer')]);
+
+  const decipher = crypto.createDecipher('id-aes128-wrap', key);
+  let txt = decipher.update(ciph, 'buffer', 'utf8');
+  txt += decipher.final('utf8');
+
+  assert.strictEqual(txt, plaintext);
 }
 
 if (!common.hasFipsCrypto) {
@@ -519,6 +548,8 @@ if (!common.hasFipsCrypto) {
 
   testCipher2('0123456789abcdef');
   testCipher2(Buffer.from('0123456789abcdef'));
+
+  testCipher5(Buffer.from('0123456789abcd0123456789'));
 }
 
 testCipher3('0123456789abcd0123456789', '12345678');
@@ -530,27 +561,30 @@ testCipher4(Buffer.from('0123456789abcd0123456789'), Buffer.from('12345678'));
 
 
 // update() should only take buffers / strings
-assert.throws(function() {
-  crypto.createHash('sha1').update({foo: 'bar'});
-}, /^TypeError: Data must be a string or a buffer$/);
+common.expectsError(
+  () => crypto.createHash('sha1').update({ foo: 'bar' }),
+  {
+    code: 'ERR_INVALID_ARG_TYPE',
+    type: TypeError
+  });
 
 
 // Test Diffie-Hellman with two parties sharing a secret,
 // using various encodings as we go along
-var dh1 = crypto.createDiffieHellman(common.hasFipsCrypto ? 1024 : 256);
-var p1 = dh1.getPrime('buffer');
-var dh2 = crypto.createDiffieHellman(p1, 'base64');
-var key1 = dh1.generateKeys();
-var key2 = dh2.generateKeys('hex');
-var secret1 = dh1.computeSecret(key2, 'hex', 'base64');
-var secret2 = dh2.computeSecret(key1, 'latin1', 'buffer');
+const dh1 = crypto.createDiffieHellman(common.hasFipsCrypto ? 1024 : 256);
+const p1 = dh1.getPrime('buffer');
+const dh2 = crypto.createDiffieHellman(p1, 'base64');
+const key1 = dh1.generateKeys();
+const key2 = dh2.generateKeys('hex');
+const secret1 = dh1.computeSecret(key2, 'hex', 'base64');
+const secret2 = dh2.computeSecret(key1, 'latin1', 'buffer');
 
 assert.strictEqual(secret1, secret2.toString('base64'));
 
 // Create "another dh1" using generated keys from dh1,
 // and compute secret again
-var dh3 = crypto.createDiffieHellman(p1, 'buffer');
-var privkey1 = dh1.getPrivateKey();
+const dh3 = crypto.createDiffieHellman(p1, 'buffer');
+const privkey1 = dh1.getPrivateKey();
 dh3.setPublicKey(key1);
 dh3.setPrivateKey(privkey1);
 
@@ -559,26 +593,26 @@ assert.strictEqual(dh1.getGenerator(), dh3.getGenerator());
 assert.strictEqual(dh1.getPublicKey(), dh3.getPublicKey());
 assert.strictEqual(dh1.getPrivateKey(), dh3.getPrivateKey());
 
-var secret3 = dh3.computeSecret(key2, 'hex', 'base64');
+const secret3 = dh3.computeSecret(key2, 'hex', 'base64');
 
 assert.strictEqual(secret1, secret3);
 
 // https://github.com/joyent/node/issues/2338
-var p = 'FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74' +
-        '020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B302B0A6DF25F1437' +
-        '4FE1356D6D51C245E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7ED' +
-        'EE386BFB5A899FA5AE9F24117C4B1FE649286651ECE65381FFFFFFFFFFFFFFFF';
-var d = crypto.createDiffieHellman(p, 'hex');
+const p = 'FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74' +
+          '020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B302B0A6DF25F1437' +
+          '4FE1356D6D51C245E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7ED' +
+          'EE386BFB5A899FA5AE9F24117C4B1FE649286651ECE65381FFFFFFFFFFFFFFFF';
+const d = crypto.createDiffieHellman(p, 'hex');
 assert.strictEqual(d.verifyError, DH_NOT_SUITABLE_GENERATOR);
 
 // Test RSA key signing/verification
-var rsaSign = crypto.createSign('RSA-SHA1');
-var rsaVerify = crypto.createVerify('RSA-SHA1');
+const rsaSign = crypto.createSign('SHA1');
+const rsaVerify = crypto.createVerify('SHA1');
 assert.ok(rsaSign instanceof crypto.Sign);
 assert.ok(rsaVerify instanceof crypto.Verify);
 
 rsaSign.update(rsaPubPem);
-var rsaSignature = rsaSign.sign(rsaKeyPem, 'hex');
+const rsaSignature = rsaSign.sign(rsaKeyPem, 'hex');
 assert.strictEqual(
   rsaSignature,
   '5c50e3145c4e2497aadb0eabc83b342d0b0021ece0d4c4a064b7c' +
@@ -596,11 +630,8 @@ assert.strictEqual(rsaVerify.verify(rsaPubPem, rsaSignature, 'hex'), true);
 // Test RSA signing and verification
 //
 {
-  const privateKey = fs.readFileSync(
-      common.fixturesDir + '/test_rsa_privkey_2.pem');
-
-  const publicKey = fs.readFileSync(
-      common.fixturesDir + '/test_rsa_pubkey_2.pem');
+  const privateKey = fixtures.readSync('test_rsa_privkey_2.pem');
+  const publicKey = fixtures.readSync('test_rsa_pubkey_2.pem');
 
   const input = 'I AM THE WALRUS';
 
@@ -611,13 +642,13 @@ assert.strictEqual(rsaVerify.verify(rsaPubPem, rsaSignature, 'hex'), true);
       '8195e0268da7eda23d9825ac43c724e86ceeee0d0d4465678652ccaf6501' +
       '0ddfb299bedeb1ad';
 
-  const sign = crypto.createSign('RSA-SHA256');
+  const sign = crypto.createSign('SHA256');
   sign.update(input);
 
   const output = sign.sign(privateKey, 'hex');
   assert.strictEqual(output, signature);
 
-  const verify = crypto.createVerify('RSA-SHA256');
+  const verify = crypto.createVerify('SHA256');
   verify.update(input);
 
   assert.strictEqual(verify.verify(publicKey, signature, 'hex'), true);
@@ -628,21 +659,18 @@ assert.strictEqual(rsaVerify.verify(rsaPubPem, rsaSignature, 'hex'), true);
 // Test DSA signing and verification
 //
 {
-  const privateKey = fs.readFileSync(
-      common.fixturesDir + '/test_dsa_privkey.pem');
-
-  const publicKey = fs.readFileSync(
-      common.fixturesDir + '/test_dsa_pubkey.pem');
+  const privateKey = fixtures.readSync('test_dsa_privkey.pem');
+  const publicKey = fixtures.readSync('test_dsa_pubkey.pem');
 
   const input = 'I AM THE WALRUS';
 
   // DSA signatures vary across runs so there is no static string to verify
   // against
-  const sign = crypto.createSign('DSS1');
+  const sign = crypto.createSign('SHA1');
   sign.update(input);
   const signature = sign.sign(privateKey, 'hex');
 
-  const verify = crypto.createVerify('DSS1');
+  const verify = crypto.createVerify('SHA1');
   verify.update(input);
 
   assert.strictEqual(verify.verify(publicKey, signature, 'hex'), true);

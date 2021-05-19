@@ -5,6 +5,8 @@ prefix parallel
 # sample-test                        : PASS,FLAKY
 
 [true] # This section applies to all platforms
+# https://github.com/nodejs/node/issues/16210
+test-async-wrap-uncaughtexception: PASS,FLAKY
 
 [$system==win32]
 
@@ -13,15 +15,10 @@ prefix parallel
 [$system==macos]
 
 [$arch==arm || $arch==arm64]
+test-npm-install:      PASS,FLAKY
 
 [$system==solaris] # Also applies to SmartOS
 
 [$system==freebsd]
 
-# fs-watch currently needs special configuration on AIX and we
-# want to improve under https://github.com/nodejs/node/issues/5085.
-# Tests are disabled so CI can be green and we can spot other
-# regressions until this work is complete
 [$system==aix]
-test-fs-watch-enoent                 : FAIL, PASS
-test-fs-watch-encoding               : FAIL, PASS

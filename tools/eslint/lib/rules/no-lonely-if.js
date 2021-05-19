@@ -45,7 +45,8 @@ module.exports = {
                             const lastIfToken = sourceCode.getLastToken(node.consequent);
                             const sourceText = sourceCode.getText();
 
-                            if (sourceText.slice(openingElseCurly.range[1], node.range[0]).trim() || sourceText.slice(node.range[1], closingElseCurly.range[0]).trim()) {
+                            if (sourceText.slice(openingElseCurly.range[1],
+                                node.range[0]).trim() || sourceText.slice(node.range[1], closingElseCurly.range[0]).trim()) {
 
                                 // Don't fix if there are any non-whitespace characters interfering (e.g. comments)
                                 return null;
@@ -55,7 +56,7 @@ module.exports = {
                                 node.consequent.type !== "BlockStatement" && lastIfToken.value !== ";" && tokenAfterElseBlock &&
                                 (
                                     node.consequent.loc.end.line === tokenAfterElseBlock.loc.start.line ||
-                                    /^[(\[\/+`-]/.test(tokenAfterElseBlock.value) ||
+                                    /^[([/+`-]/.test(tokenAfterElseBlock.value) ||
                                     lastIfToken.value === "++" ||
                                     lastIfToken.value === "--"
                                 )

@@ -1,9 +1,12 @@
 'use strict';
 
-require('../common');
+const common = require('../common');
+
+if (!common.hasIntl)
+  common.skip('missing Intl');
+
 const buffer = require('buffer');
 const assert = require('assert');
-
 const orig = Buffer.from('tést €', 'utf8');
 
 // Test Transcoding
@@ -17,9 +20,9 @@ const tests = {
 
 for (const test in tests) {
   const dest = buffer.transcode(orig, 'utf8', test);
-  assert.strictEqual(dest.length, tests[test].length);
-  for (var n = 0; n < tests[test].length; n++)
-    assert.strictEqual(dest[n], tests[test][n]);
+  assert.strictEqual(dest.length, tests[test].length, `utf8->${test} length`);
+  for (let n = 0; n < tests[test].length; n++)
+    assert.strictEqual(dest[n], tests[test][n], `utf8->${test} char ${n}`);
 }
 
 {
@@ -38,9 +41,14 @@ for (const test in tests) {
                      utf8_to_ucs2.toString('ucs2'));
 }
 
-assert.throws(
+common.expectsError(
   () => buffer.transcode(null, 'utf8', 'ascii'),
-  /^TypeError: "source" argument must be a Buffer or Uint8Array$/
+  {
+    type: TypeError,
+    code: 'ERR_INVALID_ARG_TYPE',
+    message: 'The "source" argument must be one of type Buffer ' +
+             'or Uint8Array. Received type null'
+  }
 );
 
 assert.throws(
@@ -54,21 +62,21 @@ assert.throws(
 );
 
 assert.deepStrictEqual(
-    buffer.transcode(Buffer.from('hi', 'ascii'), 'ascii', 'utf16le'),
-    Buffer.from('hi', 'utf16le'));
+  buffer.transcode(Buffer.from('hi', 'ascii'), 'ascii', 'utf16le'),
+  Buffer.from('hi', 'utf16le'));
 assert.deepStrictEqual(
-    buffer.transcode(Buffer.from('hi', 'latin1'), 'latin1', 'utf16le'),
-    Buffer.from('hi', 'utf16le'));
+  buffer.transcode(Buffer.from('hi', 'latin1'), 'latin1', 'utf16le'),
+  Buffer.from('hi', 'utf16le'));
 assert.deepStrictEqual(
-    buffer.transcode(Buffer.from('hä', 'latin1'), 'latin1', 'utf16le'),
-    Buffer.from('hä', 'utf16le'));
+  buffer.transcode(Buffer.from('hä', 'latin1'), 'latin1', 'utf16le'),
+  Buffer.from('hä', 'utf16le'));
 
 // Test that Uint8Array arguments are okay.
 {
   const uint8array = new Uint8Array([...Buffer.from('hä', 'latin1')]);
   assert.deepStrictEqual(
-      buffer.transcode(uint8array, 'latin1', 'utf16le'),
-      Buffer.from('hä', 'utf16le'));
+    buffer.transcode(uint8array, 'latin1', 'utf16le'),
+    Buffer.from('hä', 'utf16le'));
 }
 
 {

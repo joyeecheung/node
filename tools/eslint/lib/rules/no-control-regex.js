@@ -31,7 +31,8 @@ module.exports = {
         function getRegExp(node) {
             if (node.value instanceof RegExp) {
                 return node.value;
-            } else if (typeof node.value === "string") {
+            }
+            if (typeof node.value === "string") {
 
                 const parent = context.getAncestors().pop();
 
@@ -85,7 +86,7 @@ module.exports = {
                     stringControlChars = regexStr.slice(subStrIndex, -1)
                         .split(consecutiveSlashes)
                         .filter(Boolean)
-                        .map(function(x) {
+                        .map(x => {
                             const match = x.match(stringControlCharWithoutSlash) || [x];
 
                             return `\\${match[0]}`;
@@ -93,7 +94,7 @@ module.exports = {
                 }
             }
 
-            return controlChars.map(function(x) {
+            return controlChars.map(x => {
                 const hexCode = `0${x.charCodeAt(0).toString(16)}`.slice(-2);
 
                 return `\\x${hexCode}`;

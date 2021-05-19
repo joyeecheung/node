@@ -1,10 +1,12 @@
+// Flags: --expose-internals
 'use strict';
 
 require('../common');
-
 const URL = require('url').URL;
 const assert = require('assert');
+const urlToOptions = require('internal/url').urlToOptions;
 
+// Tests below are not from WPT.
 const url = new URL('http://user:pass@foo.bar.com:21/aaa/zzz?l=24#test');
 const oldParams = url.searchParams;  // for test of [SameObject]
 
@@ -19,9 +21,9 @@ for (const prop in url) {
 // https://heycam.github.io/webidl/#es-attributes
 // https://heycam.github.io/webidl/#es-stringifier
 const expected = ['toString',
-  'href', 'origin', 'protocol',
-  'username', 'password', 'host', 'hostname', 'port',
-  'pathname', 'search', 'searchParams', 'hash'];
+                  'href', 'origin', 'protocol',
+                  'username', 'password', 'host', 'hostname', 'port',
+                  'pathname', 'search', 'searchParams', 'hash', 'toJSON'];
 
 assert.deepStrictEqual(props, expected);
 
@@ -41,9 +43,10 @@ assert.strictEqual(url.searchParams, oldParams);  // [SameObject]
 // searchParams is readonly. Under strict mode setting a
 // non-writable property should throw.
 // Note: this error message is subject to change in V8 updates
-assert.throws(() => url.origin = 'http://foo.bar.com:22',
-              new RegExp('TypeError: Cannot set property origin of' +
-                         ' \\[object Object\\] which has only a getter'));
+assert.throws(
+  () => url.origin = 'http://foo.bar.com:22',
+  /^TypeError: Cannot set property origin of \[object URL\] which has only a getter$/
+);
 assert.strictEqual(url.origin, 'http://foo.bar.com:21');
 assert.strictEqual(url.toString(),
                    'http://user:pass@foo.bar.com:21/aaa/zzz?l=25#test');
@@ -117,11 +120,43 @@ assert.strictEqual(url.hash, '#abcd');
 // searchParams is readonly. Under strict mode setting a
 // non-writable property should throw.
 // Note: this error message is subject to change in V8 updates
-assert.throws(() => url.searchParams = '?k=88',
-              new RegExp('TypeError: Cannot set property searchParams of' +
-                         ' \\[object Object\\] which has only a getter'));
+assert.throws(
+  () => url.searchParams = '?k=88',
+  /^TypeError: Cannot set property searchParams of \[object URL\] which has only a getter$/
+);
 assert.strictEqual(url.searchParams, oldParams);
 assert.strictEqual(url.toString(),
                    'https://user2:pass2@foo.bar.org:23/aaa/bbb?k=99#abcd');
 assert.strictEqual((delete url.searchParams), true);
 assert.strictEqual(url.searchParams, oldParams);
+
+// Test urlToOptions
+{
+  const opts =
+    urlToOptions(new URL('http://user:pass@foo.bar.com:21/aaa/zzz?l=24#test'));
+  assert.strictEqual(opts instanceof URL, false);
+  assert.strictEqual(opts.protocol, 'http:');
+  assert.strictEqual(opts.auth, 'user:pass');
+  assert.strictEqual(opts.hostname, 'foo.bar.com');
+  assert.strictEqual(opts.port, 21);
+  assert.strictEqual(opts.path, '/aaa/zzz?l=24');
+  assert.strictEqual(opts.pathname, '/aaa/zzz');
+  assert.strictEqual(opts.search, '?l=24');
+  assert.strictEqual(opts.hash, '#test');
+}
+
+// Test special origins
+[
+  { expected: 'https://whatwg.org',
+    url: 'blob:https://whatwg.org/d0360e2f-caee-469f-9a2f-87d5b0456f6f' },
+  { expected: 'ftp://example.org', url: 'ftp://example.org/foo' },
+  { expected: 'gopher://gopher.quux.org', url: 'gopher://gopher.quux.org/1/' },
+  { expected: 'http://example.org', url: 'http://example.org/foo' },
+  { expected: 'https://example.org', url: 'https://example.org/foo' },
+  { expected: 'ws://example.org', url: 'ws://example.org/foo' },
+  { expected: 'wss://example.org', url: 'wss://example.org/foo' },
+  { expected: 'null', url: 'file:///tmp/mock/path' },
+  { expected: 'null', url: 'npm://nodejs/rules' }
+].forEach((test) => {
+  assert.strictEqual(new URL(test.url).origin, test.expected);
+});

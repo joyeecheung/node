@@ -1,17 +1,38 @@
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 'use strict';
 require('../common');
-var assert = require('assert');
-var net = require('net');
-var http = require('http');
-var url = require('url');
-var qs = require('querystring');
+const assert = require('assert');
+const net = require('net');
+const http = require('http');
+const url = require('url');
+const qs = require('querystring');
 
-var request_number = 0;
-var requests_sent = 0;
-var server_response = '';
-var client_got_eof = false;
+let request_number = 0;
+let requests_sent = 0;
+let server_response = '';
+let client_got_eof = false;
 
-var server = http.createServer(function(req, res) {
+const server = http.createServer(function(req, res) {
   res.id = request_number;
   req.id = request_number++;
 
@@ -37,7 +58,7 @@ var server = http.createServer(function(req, res) {
   }
 
   setTimeout(function() {
-    res.writeHead(200, {'Content-Type': 'text/plain'});
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.write(url.parse(req.url).pathname);
     res.end();
   }, 1);
@@ -48,7 +69,7 @@ server.listen(0);
 server.httpAllowHalfOpen = true;
 
 server.on('listening', function() {
-  var c = net.createConnection(this.address().port);
+  const c = net.createConnection(this.address().port);
 
   c.setEncoding('utf8');
 
@@ -94,11 +115,11 @@ process.on('exit', function() {
   assert.strictEqual(4, request_number);
   assert.strictEqual(4, requests_sent);
 
-  var hello = new RegExp('/hello');
-  assert.notStrictEqual(null, hello.exec(server_response));
+  const hello = new RegExp('/hello');
+  assert.ok(hello.test(server_response));
 
-  var quit = new RegExp('/quit');
-  assert.notStrictEqual(null, quit.exec(server_response));
+  const quit = new RegExp('/quit');
+  assert.ok(quit.test(server_response));
 
   assert.strictEqual(true, client_got_eof);
 });

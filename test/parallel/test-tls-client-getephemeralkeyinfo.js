@@ -1,38 +1,37 @@
 'use strict';
 const common = require('../common');
-const assert = require('assert');
-
-if (!common.hasCrypto) {
+if (!common.hasCrypto)
   common.skip('missing crypto');
-  process.exit();
-}
+const fixtures = require('../common/fixtures');
+
+const assert = require('assert');
 const tls = require('tls');
-
 const fs = require('fs');
-const key = fs.readFileSync(common.fixturesDir + '/keys/agent2-key.pem');
-const cert = fs.readFileSync(common.fixturesDir + '/keys/agent2-cert.pem');
 
-var ntests = 0;
-var nsuccess = 0;
+const key = fixtures.readKey('agent2-key.pem');
+const cert = fixtures.readKey('agent2-cert.pem');
+
+let ntests = 0;
+let nsuccess = 0;
 
 function loadDHParam(n) {
-  var path = common.fixturesDir;
+  let path = fixtures.fixturesDir;
   if (n !== 'error') path += '/keys';
-  return fs.readFileSync(path + '/dh' + n + '.pem');
+  return fs.readFileSync(`${path}/dh${n}.pem`);
 }
 
-var cipherlist = {
+const cipherlist = {
   'NOT_PFS': 'AES128-SHA256',
   'DH': 'DHE-RSA-AES128-GCM-SHA256',
   'ECDH': 'ECDHE-RSA-AES128-GCM-SHA256'
 };
 
 function test(size, type, name, next) {
-  var cipher = type ? cipherlist[type] : cipherlist['NOT_PFS'];
+  const cipher = type ? cipherlist[type] : cipherlist['NOT_PFS'];
 
   if (name) tls.DEFAULT_ECDH_CURVE = name;
 
-  var options = {
+  const options = {
     key: key,
     cert: cert,
     ciphers: cipher
@@ -40,22 +39,22 @@ function test(size, type, name, next) {
 
   if (type === 'DH') options.dhparam = loadDHParam(size);
 
-  var server = tls.createServer(options, function(conn) {
+  const server = tls.createServer(options, function(conn) {
     assert.strictEqual(conn.getEphemeralKeyInfo(), null);
     conn.end();
   });
 
   server.on('close', common.mustCall(function(err) {
-    assert(!err);
+    assert.ifError(err);
     if (next) next();
   }));
 
   server.listen(0, '127.0.0.1', common.mustCall(function() {
-    var client = tls.connect({
+    const client = tls.connect({
       port: this.address().port,
       rejectUnauthorized: false
     }, function() {
-      var ekeyinfo = client.getEphemeralKeyInfo();
+      const ekeyinfo = client.getEphemeralKeyInfo();
       assert.strictEqual(ekeyinfo.type, type);
       assert.strictEqual(ekeyinfo.size, size);
       assert.strictEqual(ekeyinfo.name, name);
@@ -93,6 +92,6 @@ function testECDHE512() {
 testNOT_PFS();
 
 process.on('exit', function() {
-  assert.equal(ntests, nsuccess);
-  assert.equal(ntests, 5);
+  assert.strictEqual(ntests, nsuccess);
+  assert.strictEqual(ntests, 5);
 });

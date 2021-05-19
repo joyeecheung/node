@@ -1,16 +1,59 @@
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 #ifndef SRC_NODE_INTERNALS_H_
 #define SRC_NODE_INTERNALS_H_
 
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
 #include "node.h"
-#include "util.h"
 #include "util-inl.h"
+#include "env-inl.h"
 #include "uv.h"
 #include "v8.h"
+#include "tracing/trace_event.h"
+#include "node_perf_common.h"
+#include "node_debug_options.h"
 
 #include <stdint.h>
 #include <stdlib.h>
+
+#include <string>
+
+// Custom constants used by both node_constants.cc and node_zlib.cc
+#define Z_MIN_WINDOWBITS 8
+#define Z_MAX_WINDOWBITS 15
+#define Z_DEFAULT_WINDOWBITS 15
+// Fewer than 64 bytes per chunk is not recommended.
+// Technically it could work with as few as 8, but even 64 bytes
+// is low.  Usually a MB or more is best.
+#define Z_MIN_CHUNK 64
+#define Z_MAX_CHUNK std::numeric_limits<double>::infinity()
+#define Z_DEFAULT_CHUNK (16 * 1024)
+#define Z_MIN_MEMLEVEL 1
+#define Z_MAX_MEMLEVEL 9
+#define Z_DEFAULT_MEMLEVEL 8
+#define Z_MIN_LEVEL -1
+#define Z_MAX_LEVEL 9
+#define Z_DEFAULT_LEVEL Z_DEFAULT_COMPRESSION
 
 struct sockaddr;
 
@@ -34,15 +77,45 @@ namespace node {
 
 // Set in node.cc by ParseArgs with the value of --openssl-config.
 // Used in node_crypto.cc when initializing OpenSSL.
-extern const char* openssl_config;
+extern std::string openssl_config;
 
 // Set in node.cc by ParseArgs when --preserve-symlinks is used.
 // Used in node_config.cc to set a constant on process.binding('config')
 // that is used by lib/module.js
 extern bool config_preserve_symlinks;
 
+// Set in node.cc by ParseArgs when --experimental-modules is used.
+// Used in node_config.cc to set a constant on process.binding('config')
+// that is used by lib/module.js
+extern bool config_experimental_modules;
+
+// Set in node.cc by ParseArgs when --loader is used.
+// Used in node_config.cc to set a constant on process.binding('config')
+// that is used by lib/internal/bootstrap_node.js
+extern std::string config_userland_loader;
+
+// Set in node.cc by ParseArgs when --expose-internals or --expose_internals is
+// used.
+// Used in node_config.cc to set a constant on process.binding('config')
+// that is used by lib/internal/bootstrap_node.js
+extern bool config_expose_internals;
+
+// Set in node.cc by ParseArgs when --redirect-warnings= is used.
+// Used to redirect warning output to a file rather than sending
+// it to stderr.
+extern std::string config_warning_file;  // NOLINT(runtime/string)
+
+// Set in node.cc by ParseArgs when --pending-deprecation or
+// NODE_PENDING_DEPRECATION is used
+extern bool config_pending_deprecation;
+
 // Tells whether it is safe to call v8::Isolate::GetCurrent().
 extern bool v8_initialized;
+
+// Contains initial debug options.
+// Set in node.cc.
+// Used in node_config.cc.
+extern node::DebugOptions debug_options;
 
 // Forward declaration
 class Environment;
@@ -55,26 +128,13 @@ inline v8::Local<TypeName> PersistentToLocal(
     v8::Isolate* isolate,
     const v8::Persistent<TypeName>& persistent);
 
-// Call with valid HandleScope and while inside Context scope.
-v8::Local<v8::Value> MakeCallback(Environment* env,
-                                   v8::Local<v8::Object> recv,
-                                   const char* method,
-                                   int argc = 0,
-                                   v8::Local<v8::Value>* argv = nullptr);
-
-// Call with valid HandleScope and while inside Context scope.
-v8::Local<v8::Value> MakeCallback(Environment* env,
-                                   v8::Local<v8::Object> recv,
-                                   v8::Local<v8::String> symbol,
-                                   int argc = 0,
-                                   v8::Local<v8::Value>* argv = nullptr);
-
-// Call with valid HandleScope and while inside Context scope.
-v8::Local<v8::Value> MakeCallback(Environment* env,
-                                   v8::Local<v8::Value> recv,
-                                   v8::Local<v8::Function> callback,
-                                   int argc = 0,
-                                   v8::Local<v8::Value>* argv = nullptr);
+// Creates a new context with Node.js-specific tweaks.  Currently, it removes
+// the `v8BreakIterator` property from the global `Intl` object if present.
+// See https://github.com/nodejs/node/issues/14909 for more info.
+v8::Local<v8::Context> NewContext(
+    v8::Isolate* isolate,
+    v8::Local<v8::ObjectTemplate> object_template =
+        v8::Local<v8::ObjectTemplate>());
 
 // Convert a struct sockaddr to a { address: '1.2.3.4', port: 1234 } JS object.
 // Sets address and port properties on the info object and returns it.
@@ -106,6 +166,8 @@ void RegisterSignalHandler(int signal,
                            bool reset_handler = false);
 #endif
 
+bool SafeGetenv(const char* key, std::string* text);
+
 template <typename T, size_t N>
 constexpr size_t arraysize(const T(&)[N]) { return N; }
 
@@ -131,7 +193,7 @@ NO_RETURN void FatalError(const char* location, const char* message);
 
 void ProcessEmitWarning(Environment* env, const char* fmt, ...);
 
-v8::Local<v8::Value> BuildStatsObject(Environment* env, const uv_stat_t* s);
+void FillStatsArray(double* fields, const uv_stat_t* s);
 
 void SetupProcessObject(Environment* env,
                         int argc,
@@ -194,9 +256,405 @@ v8::MaybeLocal<v8::Object> New(Environment* env,
 // because ArrayBufferAllocator::Free() deallocates it again with free().
 // Mixing operator new and free() is undefined behavior so don't do that.
 v8::MaybeLocal<v8::Object> New(Environment* env, char* data, size_t length);
+
+// Construct a Buffer from a MaybeStackBuffer (and also its subclasses like
+// Utf8Value and TwoByteValue).
+// If |buf| is invalidated, an empty MaybeLocal is returned, and nothing is
+// changed.
+// If |buf| contains actual data, this method takes ownership of |buf|'s
+// underlying buffer. However, |buf| itself can be reused even after this call,
+// but its capacity, if increased through AllocateSufficientStorage, is not
+// guaranteed to stay the same.
+template <typename T>
+static v8::MaybeLocal<v8::Object> New(Environment* env,
+                                      MaybeStackBuffer<T>* buf) {
+  v8::MaybeLocal<v8::Object> ret;
+  char* src = reinterpret_cast<char*>(buf->out());
+  const size_t len_in_bytes = buf->length() * sizeof(buf->out()[0]);
+
+  if (buf->IsAllocated())
+    ret = New(env, src, len_in_bytes);
+  else if (!buf->IsInvalidated())
+    ret = Copy(env, src, len_in_bytes);
+
+  if (ret.IsEmpty())
+    return ret;
+
+  if (buf->IsAllocated())
+    buf->Release();
+
+  return ret;
+}
 }  // namespace Buffer
 
+v8::MaybeLocal<v8::Value> InternalMakeCallback(
+    Environment* env,
+    v8::Local<v8::Object> recv,
+    const v8::Local<v8::Function> callback,
+    int argc,
+    v8::Local<v8::Value> argv[],
+    async_context asyncContext);
+
+class InternalCallbackScope {
+ public:
+  // Tell the constructor whether its `object` parameter may be empty or not.
+  enum ResourceExpectation { kRequireResource, kAllowEmptyResource };
+  InternalCallbackScope(Environment* env,
+                        v8::Local<v8::Object> object,
+                        const async_context& asyncContext,
+                        ResourceExpectation expect = kRequireResource);
+  // Utility that can be used by AsyncWrap classes.
+  explicit InternalCallbackScope(AsyncWrap* async_wrap);
+  ~InternalCallbackScope();
+  void Close();
+
+  inline bool Failed() const { return failed_; }
+  inline void MarkAsFailed() { failed_ = true; }
+  inline bool IsInnerMakeCallback() const {
+    return callback_scope_.in_makecallback();
+  }
+
+ private:
+  Environment* env_;
+  async_context async_context_;
+  v8::Local<v8::Object> object_;
+  Environment::AsyncCallbackScope callback_scope_;
+  bool failed_ = false;
+  bool pushed_ids_ = false;
+  bool closed_ = false;
+};
+
+static inline const char *errno_string(int errorno) {
+#define ERRNO_CASE(e)  case e: return #e;
+  switch (errorno) {
+#ifdef EACCES
+  ERRNO_CASE(EACCES);
+#endif
+
+#ifdef EADDRINUSE
+  ERRNO_CASE(EADDRINUSE);
+#endif
+
+#ifdef EADDRNOTAVAIL
+  ERRNO_CASE(EADDRNOTAVAIL);
+#endif
+
+#ifdef EAFNOSUPPORT
+  ERRNO_CASE(EAFNOSUPPORT);
+#endif
+
+#ifdef EAGAIN
+  ERRNO_CASE(EAGAIN);
+#endif
+
+#ifdef EWOULDBLOCK
+# if EAGAIN != EWOULDBLOCK
+  ERRNO_CASE(EWOULDBLOCK);
+# endif
+#endif
+
+#ifdef EALREADY
+  ERRNO_CASE(EALREADY);
+#endif
+
+#ifdef EBADF
+  ERRNO_CASE(EBADF);
+#endif
+
+#ifdef EBADMSG
+  ERRNO_CASE(EBADMSG);
+#endif
+
+#ifdef EBUSY
+  ERRNO_CASE(EBUSY);
+#endif
+
+#ifdef ECANCELED
+  ERRNO_CASE(ECANCELED);
+#endif
+
+#ifdef ECHILD
+  ERRNO_CASE(ECHILD);
+#endif
+
+#ifdef ECONNABORTED
+  ERRNO_CASE(ECONNABORTED);
+#endif
+
+#ifdef ECONNREFUSED
+  ERRNO_CASE(ECONNREFUSED);
+#endif
+
+#ifdef ECONNRESET
+  ERRNO_CASE(ECONNRESET);
+#endif
+
+#ifdef EDEADLK
+  ERRNO_CASE(EDEADLK);
+#endif
+
+#ifdef EDESTADDRREQ
+  ERRNO_CASE(EDESTADDRREQ);
+#endif
+
+#ifdef EDOM
+  ERRNO_CASE(EDOM);
+#endif
+
+#ifdef EDQUOT
+  ERRNO_CASE(EDQUOT);
+#endif
+
+#ifdef EEXIST
+  ERRNO_CASE(EEXIST);
+#endif
+
+#ifdef EFAULT
+  ERRNO_CASE(EFAULT);
+#endif
+
+#ifdef EFBIG
+  ERRNO_CASE(EFBIG);
+#endif
+
+#ifdef EHOSTUNREACH
+  ERRNO_CASE(EHOSTUNREACH);
+#endif
+
+#ifdef EIDRM
+  ERRNO_CASE(EIDRM);
+#endif
+
+#ifdef EILSEQ
+  ERRNO_CASE(EILSEQ);
+#endif
+
+#ifdef EINPROGRESS
+  ERRNO_CASE(EINPROGRESS);
+#endif
+
+#ifdef EINTR
+  ERRNO_CASE(EINTR);
+#endif
+
+#ifdef EINVAL
+  ERRNO_CASE(EINVAL);
+#endif
+
+#ifdef EIO
+  ERRNO_CASE(EIO);
+#endif
+
+#ifdef EISCONN
+  ERRNO_CASE(EISCONN);
+#endif
+
+#ifdef EISDIR
+  ERRNO_CASE(EISDIR);
+#endif
+
+#ifdef ELOOP
+  ERRNO_CASE(ELOOP);
+#endif
+
+#ifdef EMFILE
+  ERRNO_CASE(EMFILE);
+#endif
+
+#ifdef EMLINK
+  ERRNO_CASE(EMLINK);
+#endif
+
+#ifdef EMSGSIZE
+  ERRNO_CASE(EMSGSIZE);
+#endif
+
+#ifdef EMULTIHOP
+  ERRNO_CASE(EMULTIHOP);
+#endif
+
+#ifdef ENAMETOOLONG
+  ERRNO_CASE(ENAMETOOLONG);
+#endif
+
+#ifdef ENETDOWN
+  ERRNO_CASE(ENETDOWN);
+#endif
+
+#ifdef ENETRESET
+  ERRNO_CASE(ENETRESET);
+#endif
+
+#ifdef ENETUNREACH
+  ERRNO_CASE(ENETUNREACH);
+#endif
+
+#ifdef ENFILE
+  ERRNO_CASE(ENFILE);
+#endif
+
+#ifdef ENOBUFS
+  ERRNO_CASE(ENOBUFS);
+#endif
+
+#ifdef ENODATA
+  ERRNO_CASE(ENODATA);
+#endif
+
+#ifdef ENODEV
+  ERRNO_CASE(ENODEV);
+#endif
+
+#ifdef ENOENT
+  ERRNO_CASE(ENOENT);
+#endif
+
+#ifdef ENOEXEC
+  ERRNO_CASE(ENOEXEC);
+#endif
+
+#ifdef ENOLINK
+  ERRNO_CASE(ENOLINK);
+#endif
+
+#ifdef ENOLCK
+# if ENOLINK != ENOLCK
+  ERRNO_CASE(ENOLCK);
+# endif
+#endif
+
+#ifdef ENOMEM
+  ERRNO_CASE(ENOMEM);
+#endif
+
+#ifdef ENOMSG
+  ERRNO_CASE(ENOMSG);
+#endif
+
+#ifdef ENOPROTOOPT
+  ERRNO_CASE(ENOPROTOOPT);
+#endif
+
+#ifdef ENOSPC
+  ERRNO_CASE(ENOSPC);
+#endif
+
+#ifdef ENOSR
+  ERRNO_CASE(ENOSR);
+#endif
+
+#ifdef ENOSTR
+  ERRNO_CASE(ENOSTR);
+#endif
+
+#ifdef ENOSYS
+  ERRNO_CASE(ENOSYS);
+#endif
+
+#ifdef ENOTCONN
+  ERRNO_CASE(ENOTCONN);
+#endif
+
+#ifdef ENOTDIR
+  ERRNO_CASE(ENOTDIR);
+#endif
+
+#ifdef ENOTEMPTY
+# if ENOTEMPTY != EEXIST
+  ERRNO_CASE(ENOTEMPTY);
+# endif
+#endif
+
+#ifdef ENOTSOCK
+  ERRNO_CASE(ENOTSOCK);
+#endif
+
+#ifdef ENOTSUP
+  ERRNO_CASE(ENOTSUP);
+#else
+# ifdef EOPNOTSUPP
+  ERRNO_CASE(EOPNOTSUPP);
+# endif
+#endif
+
+#ifdef ENOTTY
+  ERRNO_CASE(ENOTTY);
+#endif
+
+#ifdef ENXIO
+  ERRNO_CASE(ENXIO);
+#endif
+
+
+#ifdef EOVERFLOW
+  ERRNO_CASE(EOVERFLOW);
+#endif
+
+#ifdef EPERM
+  ERRNO_CASE(EPERM);
+#endif
+
+#ifdef EPIPE
+  ERRNO_CASE(EPIPE);
+#endif
+
+#ifdef EPROTO
+  ERRNO_CASE(EPROTO);
+#endif
+
+#ifdef EPROTONOSUPPORT
+  ERRNO_CASE(EPROTONOSUPPORT);
+#endif
+
+#ifdef EPROTOTYPE
+  ERRNO_CASE(EPROTOTYPE);
+#endif
+
+#ifdef ERANGE
+  ERRNO_CASE(ERANGE);
+#endif
+
+#ifdef EROFS
+  ERRNO_CASE(EROFS);
+#endif
+
+#ifdef ESPIPE
+  ERRNO_CASE(ESPIPE);
+#endif
+
+#ifdef ESRCH
+  ERRNO_CASE(ESRCH);
+#endif
+
+#ifdef ESTALE
+  ERRNO_CASE(ESTALE);
+#endif
+
+#ifdef ETIME
+  ERRNO_CASE(ETIME);
+#endif
+
+#ifdef ETIMEDOUT
+  ERRNO_CASE(ETIMEDOUT);
+#endif
+
+#ifdef ETXTBSY
+  ERRNO_CASE(ETXTBSY);
+#endif
+
+#ifdef EXDEV
+  ERRNO_CASE(EXDEV);
+#endif
+
+  default: return "";
+  }
+}
+
+#define NODE_MODULE_CONTEXT_AWARE_INTERNAL(modname, regfunc)          \
+  NODE_MODULE_CONTEXT_AWARE_X(modname, regfunc, NULL, NM_F_INTERNAL)  \
+
 }  // namespace node
+
 
 #endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
