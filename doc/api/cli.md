@@ -100,6 +100,34 @@ If this flag is passed, the behavior can still be set to not abort through
 [`process.setUncaughtExceptionCaptureCallback()`][] (and through usage of the
 `node:domain` module that uses it).
 
+### `--build-snapshot`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+Generates a snapshot blob when the process exits and writes it to
+disk, which can be loaded later with `--snapshot-blob`.
+
+When building the snapshot, if `--snapshot-blob` is not specified,
+the generated blob will be written, by default, to `snapshot.blob`
+in the current working directory. Otherwise it will be written to
+the path specified by `--snapshot-blob`.
+
+```console
+$ echo "globalThis.foo = 'I am from the snapshot'" > snapshot.js
+
+# Run snapshot.js to intialize the application and snapshot the
+# state of it into snapshot.blob.
+$ node --snapshot-blob snapshot.blob --build-snapshot snapshot.js
+
+$ echo "console.log(globalThis.foo)" > index.js
+
+# Load the generated snapshot and start the application from index.js.
+$ node --snapshot-blob snapshot.blob index.js
+I am from the snapshot
+```
+
 ### `--completion-bash`
 
 <!-- YAML
@@ -1106,6 +1134,20 @@ minimum allocation from the secure heap. The minimum value is `2`.
 The maximum value is the lesser of `--secure-heap` or `2147483647`.
 The value given must be a power of two.
 
+### `--snapshot-blob=path`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+When used with `--build-snapshot`, `--snapshot-blob` specifies the path
+where the generated snapshot blob will be written to. If not specified,
+the generated blob will be written, by default, to `snapshot.blob`
+in the current working directory.
+
+When used without `--build-snapshot`, `--snapshot-blob` specifies the
+path to the blob that will be used to restore the application state.
+
 ### `--test`
 
 <!-- YAML
@@ -1718,6 +1760,7 @@ Node.js options that are allowed are:
 * `--require`, `-r`
 * `--secure-heap-min`
 * `--secure-heap`
+* `--snapshot-blob`
 * `--test-only`
 * `--throw-deprecation`
 * `--title`
