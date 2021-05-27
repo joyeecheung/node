@@ -1351,10 +1351,15 @@ std::ostream& operator<<(std::ostream& output,
                          const std::vector<PropInfo>& vec) {
   output << "{\n";
   for (const auto& info : vec) {
-    output << "  { \"" << info.name << "\", " << std::to_string(info.id) << ", "
-           << std::to_string(info.index) << " },\n";
+    output << "  " << info << ",\n";
   }
   output << "}";
+  return output;
+}
+
+std::ostream& operator<<(std::ostream& output, const PropInfo& info) {
+  output << "{ \"" << info.name << "\", " << std::to_string(info.id) << ", "
+         << std::to_string(info.index) << " }";
   return output;
 }
 
