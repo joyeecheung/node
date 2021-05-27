@@ -228,6 +228,8 @@ class PerProcessOptions : public Options {
   bool zero_fill_all_buffers = false;
   bool debug_arraybuffer_allocations = false;
   std::string disable_proto;
+  std::string snapshot_main;
+  std::string snapshot_blob;
 
   std::vector<std::string> security_reverts;
   bool print_bash_completion = false;
@@ -281,7 +283,6 @@ namespace options_parser {
 
 HostPort SplitHostPort(const std::string& arg,
     std::vector<std::string>* errors);
-void GetOptions(const v8::FunctionCallbackInfo<v8::Value>& args);
 std::string GetBashCompletion();
 
 enum OptionType {
