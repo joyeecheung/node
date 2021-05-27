@@ -991,6 +991,7 @@ struct EnvSerializeInfo {
 struct SnapshotData {
   enum class DataOwnership { kOwned, kNotOwned };
 
+  static const uint64_t kMagic = 0x143da19;
   static const size_t kNodeBaseContextIndex = 0;
   static const size_t kNodeMainContextIndex = kNodeBaseContextIndex + 1;
 
@@ -1004,11 +1005,15 @@ struct SnapshotData {
   // TODO(joyeecheung): there should be a vector of env_info once we snapshot
   // the worker environments.
   EnvSerializeInfo env_info;
+
   // A vector of built-in ids and v8::ScriptCompiler::CachedData, this can be
   // shared across Node.js instances because they are supposed to share the
   // read only space. We use native_module::CodeCacheInfo because
   // v8::ScriptCompiler::CachedData is not copyable.
   std::vector<native_module::CodeCacheInfo> code_cache;
+
+  void ToBlob(FILE* out) const;
+  static void FromBlob(SnapshotData* out, FILE* in);
 
   static std::unique_ptr<SnapshotData> New();
   ~SnapshotData();
