@@ -201,10 +201,10 @@ NodeMainInstance::CreateMainEnvironment(int* exit_code,
     CHECK(InitializeContextRuntime(context).IsJust());
     SetIsolateErrorHandlers(isolate_, {});
     env->InitializeMainContext(context, env_info);
+    env->DoneBootstrapping();
 #if HAVE_INSPECTOR
     env->InitializeInspector({});
 #endif
-    env->DoneBootstrapping();
   } else {
     context = NewContext(isolate_);
     CHECK(!context.IsEmpty());
