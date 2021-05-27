@@ -1162,17 +1162,73 @@ int Start(int argc, char** argv) {
     return result.exit_code;
   }
 
-  if (per_process::cli_options->build_snapshot) {
-    fprintf(stderr,
-            "--build-snapshot is not yet supported in the node binary\n");
-    return 1;
-  }
+  const SnapshotData* snapshot_data = nullptr;
+  // When this is false, the data comes from the embedded snapshot blob,
+  // otherwise we'd need to clean it up.
+  bool should_cleanup_snapshot_data = false;
 
-  {
-    bool use_node_snapshot = per_process::cli_options->node_snapshot;
-    const SnapshotData* snapshot_data =
-        use_node_snapshot ? SnapshotBuilder::GetEmbeddedSnapshotData()
-                          : nullptr;
+  // --build-snapshot indicates that we are in snapshot building mode.
+  if (per_process::cli_options->build_snapshot) {
+    if (result.args.size() < 1) {
+      fprintf(stderr,
+              "--build-snapshot must be used with an entry point script.\n"
+              "Usage: node --build-snapshot /path/to/entry.js\n");
+      return 1;
+    }
+    // node:embedded_snapshot_main indicates that we are using the
+    // embedded snapshot and we are not supposed to clean it up.
+    if (result.args[1] == "node:embedded_snapshot_main") {
+      snapshot_data = SnapshotBuilder::GetEmbeddedSnapshotData();
+    } else {
+      // Otherwise, load and run the specified main script.
+      std::unique_ptr<SnapshotData> generated_data =
+          std::make_unique<SnapshotData>();
+      node::SnapshotBuilder::Generate(
+          generated_data.get(), result.args, result.exec_args);
+      snapshot_data = generated_data.release();
+      should_cleanup_snapshot_data = true;
+    }
+
+    // Get the path to write the snapshot blob to.
+    std::string snapshot_blob_path;
+    if (!per_process::cli_options->snapshot_blob.empty()) {
+      snapshot_blob_path = per_process::cli_options->snapshot_blob;
+    } else {
+      // Defaults to snapshot.blob in the current working directory.
+      snapshot_blob_path = std::string("snapshot.blob");
+    }
+
+    FILE* fp = fopen(snapshot_blob_path.c_str(), "wb");
+    if (fp != nullptr) {
+      snapshot_data->ToBlob(fp);
+      fclose(fp);
+    } else {
+      fprintf(stderr, "Cannot open %s", snapshot_blob_path.c_str());
+      result.exit_code = 1;
+    }
+  } else {
+    // Without --build-snapshot, we are in snapshot loading mode.
+    // --snapshot-blob indicates that we are reading a customized snapshot.
+    if (!per_process::cli_options->snapshot_blob.empty()) {
+      std::string filename = per_process::cli_options->snapshot_blob;
+      FILE* fp = fopen(filename.c_str(), "rb");
+      if (fp != nullptr) {
+        std::unique_ptr<SnapshotData> read_data =
+            std::make_unique<SnapshotData>();
+        SnapshotData::FromBlob(read_data.get(), fp);
+        snapshot_data = read_data.release();
+        should_cleanup_snapshot_data = true;
+        fclose(fp);
+      } else {
+        fprintf(stderr, "Cannot open %s", filename.c_str());
+        result.exit_code = 1;
+      }
+      // Otherwise we are reading the embedded snapshot, but we will skip
+      // it if --no-node-snapshot is specified.
+    } else if (per_process::cli_options->node_snapshot) {
+      snapshot_data = SnapshotBuilder::GetEmbeddedSnapshotData();
+    }
+
     uv_loop_configure(uv_default_loop(), UV_METRICS_IDLE_TIME);
 
     NodeMainInstance main_instance(snapshot_data,
@@ -1184,6 +1240,12 @@ int Start(int argc, char** argv) {
   }
 
   TearDownOncePerProcess();
+
+  if (should_cleanup_snapshot_data) {
+    delete[] snapshot_data->blob.data;
+    delete snapshot_data;
+  }
+
   return result.exit_code;
 }
 
