@@ -973,10 +973,14 @@ struct EnvSerializeInfo {
 };
 
 struct SnapshotData {
+  static const uint64_t kMagic = 0x143da19;
   v8::StartupData blob;
   std::vector<size_t> isolate_data_indices;
   EnvSerializeInfo env_info;
   std::vector<native_module::CodeCacheInfo> code_cache;
+
+  void ToBlob(FILE* out);
+  static void FromBlob(SnapshotData* out, FILE* in);
 };
 
 class Environment : public MemoryRetainer {

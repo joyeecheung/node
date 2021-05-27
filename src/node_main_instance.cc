@@ -208,11 +208,13 @@ NodeMainInstance::CreateMainEnvironment(int* exit_code) {
         snapshot_data_->code_cache);
     CHECK(InitializeContextRuntime(context).IsJust());
     SetIsolateErrorHandlers(isolate_, {});
+
     env->InitializeMainContext(context, &(snapshot_data_->env_info));
+    env->DoneBootstrapping();
+
 #if HAVE_INSPECTOR
     env->InitializeInspector({});
 #endif
-    env->DoneBootstrapping();
 
 #if HAVE_OPENSSL
     crypto::InitCryptoOnce(isolate_);

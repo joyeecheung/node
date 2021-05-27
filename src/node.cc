@@ -486,6 +486,10 @@ MaybeLocal<Value> StartExecution(Environment* env, StartExecutionCallback cb) {
     return StartExecution(env, "internal/main/worker_thread");
   }
 
+  if (!per_process::cli_options->snapshot_main.empty()) {
+    return StartExecution(env, "internal/main/mksnapshot");
+  }
+
   std::string first_argv;
   if (env->argv().size() > 1) {
     first_argv = env->argv()[1];
@@ -1153,12 +1157,52 @@ int Start(int argc, char** argv) {
     return result.exit_code;
   }
 
-  {
+  if (!per_process::cli_options->snapshot_main.empty()) {
+    SnapshotData data;
+    node::SnapshotBuilder::Generate(&data,
+                                    per_process::cli_options->snapshot_main,
+                                    result.args,
+                                    result.exec_args);
+
+    std::string snapshot_blob_path;
+    if (!per_process::cli_options->snapshot_blob.empty()) {
+      snapshot_blob_path = per_process::cli_options->snapshot_blob;
+    } else {
+      snapshot_blob_path = std::string("snapshot.blob");
+    }
+
+    FILE* fp = fopen(snapshot_blob_path.c_str(), "w");
+    if (fp != nullptr) {
+      data.ToBlob(fp);
+      fclose(fp);
+    } else {
+      fprintf(stderr, "Cannot open %s", snapshot_blob_path.c_str());
+      result.exit_code = 1;
+    }
+  } else {
+    const SnapshotData* snapshot_data = nullptr;
+    bool should_cleanup_snapshot = false;
     bool use_node_snapshot =
         per_process::cli_options->per_isolate->node_snapshot;
-    const SnapshotData* snapshot_data =
-        use_node_snapshot ? NodeMainInstance::GetEmbeddedSnapshotData()
-                          : nullptr;
+    if (use_node_snapshot) {
+      if (per_process::cli_options->snapshot_blob.empty()) {
+        snapshot_data = NodeMainInstance::GetEmbeddedSnapshotData();
+      } else {
+        std::string filename = per_process::cli_options->snapshot_blob;
+        FILE* fp = fopen(filename.c_str(), "r");
+        if (fp != nullptr) {
+          std::unique_ptr<SnapshotData> snapshot_data_ptr =
+              std::make_unique<SnapshotData>();
+          SnapshotData::FromBlob(snapshot_data_ptr.get(), fp);
+          fclose(fp);
+          snapshot_data = snapshot_data_ptr.release();
+          should_cleanup_snapshot = true;
+        } else {
+          fprintf(stderr, "Cannot open %s", filename.c_str());
+          result.exit_code = 1;
+        }
+      }
+    }
     uv_loop_configure(uv_default_loop(), UV_METRICS_IDLE_TIME);
 
     NodeMainInstance main_instance(snapshot_data,
@@ -1167,6 +1211,10 @@ int Start(int argc, char** argv) {
                                    result.args,
                                    result.exec_args);
     result.exit_code = main_instance.Run();
+    if (should_cleanup_snapshot) {
+      delete snapshot_data->blob.data;
+      delete snapshot_data;
+    }
   }
 
   TearDownOncePerProcess();
