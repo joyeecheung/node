@@ -123,6 +123,8 @@ bool IsSnapshotableType(FastStringKey key);
 
 class SnapshotBuilder {
  public:
+  static v8::MaybeLocal<v8::Value> RunEntry(Environment* env,
+                                            const std::string& entry);
   static std::string Generate(const std::vector<std::string> args,
                               const std::vector<std::string> exec_args);
   // Generate the snapshot into out.
