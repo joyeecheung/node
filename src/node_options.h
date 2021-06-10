@@ -283,7 +283,6 @@ namespace options_parser {
 
 HostPort SplitHostPort(const std::string& arg,
     std::vector<std::string>* errors);
-void GetOptions(const v8::FunctionCallbackInfo<v8::Value>& args);
 std::string GetBashCompletion();
 
 enum OptionType {

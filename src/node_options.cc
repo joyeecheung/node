@@ -3,6 +3,7 @@
 
 #include "env-inl.h"
 #include "node_binding.h"
+#include "node_external_reference.h"
 #include "node_internals.h"
 #if HAVE_OPENSSL
 #include "openssl/opensslv.h"
@@ -1136,6 +1137,11 @@ void Initialize(Local<Object> target,
       .Check();
 }
 
+static void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
+  registry->Register(GetCLIOptions);
+  registry->Register(GetEmbedderOptions);
+}
+
 }  // namespace options_parser
 
 void HandleEnvOptions(std::shared_ptr<EnvironmentOptions> env_options) {
@@ -1199,6 +1205,9 @@ std::vector<std::string> ParseNodeOptionsEnvVar(
   }
   return env_argv;
 }
+
 }  // namespace node
 
 NODE_MODULE_CONTEXT_AWARE_INTERNAL(options, node::options_parser::Initialize)
+NODE_MODULE_EXTERNAL_REFERENCE(options,
+                               node::options_parser::RegisterExternalReferences)
