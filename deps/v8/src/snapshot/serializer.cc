@@ -878,14 +878,18 @@ void Serializer::ObjectSerializer::OutputExternalReference(Address target,
                                                            bool sandboxify) {
   DCHECK_LE(target_size, sizeof(target));  // Must fit in Address.
   ExternalReferenceEncoder::Value encoded_reference;
-  bool encoded_successfully;
-
-  if (serializer_->allow_unknown_external_references_for_testing()) {
-    encoded_successfully =
+  bool encoded_successfully =
         serializer_->TryEncodeExternalReference(target).To(&encoded_reference);
-  } else {
-    encoded_reference = serializer_->EncodeExternalReference(target);
-    encoded_successfully = true;
+
+  if (!serializer_->allow_unknown_external_references_for_testing() && !encoded_successfully) {
+#ifdef DEBUG
+    serializer_->PrintStack(std::cerr);
+#endif
+    void* addr = reinterpret_cast<void*>(target);
+    v8::base::OS::PrintError("Unknown external reference %p.\n", addr);
+    v8::base::OS::PrintError("%s\n",
+                             ExternalReferenceTable::ResolveSymbol(addr));
+    v8::base::OS::Abort();
   }
 
   if (!encoded_successfully) {
