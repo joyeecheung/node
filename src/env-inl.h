@@ -232,11 +232,6 @@ void AsyncHooks::clear_async_id_stack() {
 }
 
 inline void AsyncHooks::AddContext(v8::Local<v8::Context> ctx) {
-  if (js_promise_hooks_[0].IsEmpty() && js_promise_hooks_[1].IsEmpty() &&
-      js_promise_hooks_[2].IsEmpty() && js_promise_hooks_[3].IsEmpty()) {
-    return;
-  }
-
   ctx->SetPromiseHooks(
     js_promise_hooks_[0].IsEmpty() ?
       v8::Local<v8::Function>() :
