@@ -3,6 +3,7 @@
 
 #include "env-inl.h"
 #include "node_binding.h"
+#include "node_external_reference.h"
 #include "node_internals.h"
 
 #include <errno.h>
@@ -1017,10 +1018,6 @@ void GetOptions(const FunctionCallbackInfo<Value>& args) {
                    env->type_string(),
                    Integer::New(isolate, static_cast<int>(option_info.type)))
              .FromMaybe(false) ||
-        !info->Set(context,
-                   env->default_is_true_string(),
-                   Boolean::New(isolate, option_info.default_is_true))
-             .FromMaybe(false) ||
         info->Set(context, env->value_string(), value).IsNothing() ||
         options->Set(context, name, info).IsEmpty()) {
       return;
@@ -1078,6 +1075,10 @@ void Initialize(Local<Object> target,
   NODE_DEFINE_CONSTANT(types, kStringList);
   target->Set(context, FIXED_ONE_BYTE_STRING(isolate, "types"), types)
       .Check();
+}
+
+static void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
+  registry->Register(GetOptions);
 }
 
 }  // namespace options_parser
@@ -1143,6 +1144,9 @@ std::vector<std::string> ParseNodeOptionsEnvVar(
   }
   return env_argv;
 }
+
 }  // namespace node
 
 NODE_MODULE_CONTEXT_AWARE_INTERNAL(options, node::options_parser::Initialize)
+NODE_MODULE_EXTERNAL_REFERENCE(options,
+                               node::options_parser::RegisterExternalReferences)
