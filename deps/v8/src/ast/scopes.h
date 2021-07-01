@@ -200,11 +200,25 @@ class V8_EXPORT_PRIVATE Scope : public NON_EXPORTED_BASE(ZoneObject) {
 
   // Lookup a variable in this scope. Returns the variable or nullptr if not
   // found.
-  Variable* LookupLocal(const AstRawString* name) {
-    DCHECK(scope_info_.is_null());
-    return variables_.Lookup(name);
-  }
+  Variable* LookupLocal(const AstRawString* name);
 
+  enum VariableNameInternalizeMode {
+    kVariableNameAlreadyInternalized,
+    kInternalizeVariableName,
+  };
+  template <VariableNameInternalizeMode mode>
+  Handle<String> GetVariableNameForLookup(Isolate* isolate,
+                                          const AstRawString* name) const;
+  // Look up a variable from the scope info, assuming the name is already
+  // internalized. If the variable is found, put it into the cache scope,
+  // otherwise return nullptr. If mode is kInternalizeVariableName, the
+  // an internalized copy of the name may be created using the isolate if
+  // it's not yet internalized.
+  template <VariableNameInternalizeMode internalize_mode>
+  Variable* LookupInScopeInfo(Isolate* isolate, const AstRawString* name,
+                              Scope* cache);
+  // Look up a variable from the scope info, assuming the name is already
+  // internalized.
   Variable* LookupInScopeInfo(const AstRawString* name, Scope* cache);
 
   // Declare a local variable in this scope. If the variable has been
@@ -413,13 +427,17 @@ class V8_EXPORT_PRIVATE Scope : public NON_EXPORTED_BASE(ZoneObject) {
     return (language_mode() > outer_scope_->language_mode());
   }
 
+  // Only returns a pointer if it's a class scope and has initializers,
+  // otherwise returns nullptr.
+  DeclarationScope* GetClassInitializerScope() const;
+
   // Whether this needs to be represented by a runtime context.
   bool NeedsContext() const {
     // Catch scopes always have heap slots.
     DCHECK_IMPLIES(is_catch_scope(), num_heap_slots() > 0);
     DCHECK_IMPLIES(is_with_scope(), num_heap_slots() > 0);
     DCHECK_IMPLIES(ForceContextForLanguageMode(), num_heap_slots() > 0);
-    return num_heap_slots() > 0;
+    return num_heap_slots() > 0 || GetClassInitializerScope() != nullptr;
   }
 
   // Use Scope::ForEach for depth first traversal of scopes.
@@ -575,6 +593,8 @@ class V8_EXPORT_PRIVATE Scope : public NON_EXPORTED_BASE(ZoneObject) {
   // Check that all Scopes in the scope tree use the same Zone.
   void CheckZones();
 #endif
+
+  bool IsReparsedClassScope() const;
 
   // Retrieve `IsSimpleParameterList` of current or outer function.
   bool HasSimpleParameters();
@@ -1472,6 +1492,26 @@ class V8_EXPORT_PRIVATE ClassScope : public Scope {
     should_save_class_variable_index_ = true;
   }
 
+  // Used by the parser to rebind variables declared in the class scope.
+  // When reparsing the class for the instance initialization, we
+  // do not declare these variables but instead restore them from the
+  // scope info.
+  Variable* DeserializeVariable(Isolate* isolate, const AstRawString* name);
+  void RestoreHomeVariables(Isolate* isolate,
+                            AstValueFactory* ast_value_factory);
+  void PrepareForReparseForInitialization();
+  // Called after the class is reparsed for instance member initialization.
+  void DoneReparseForInitialization(ParseInfo* info);
+
+  DeclarationScope* initializer_scope() const { return initializer_scope_; }
+  void set_initializer_scope(DeclarationScope* scope) {
+    initializer_scope_ = scope;
+  }
+
+  bool is_being_reparsed_for_initialization() const {
+    return is_being_reparsed_for_initialization_;
+  }
+
  private:
   friend class Scope;
   friend class PrivateNameScopeIterator;
@@ -1483,9 +1523,11 @@ class V8_EXPORT_PRIVATE ClassScope : public Scope {
   // Lookup a private name from the local private name map of the current
   // scope.
   Variable* LookupLocalPrivateName(const AstRawString* name);
-  // Lookup a private name from the scope info of the current scope.
+  // Similar to Scope::LookupInScopeInfo but it is used with private names.
+  template <Scope::VariableNameInternalizeMode internalize_mode>
+  Variable* LookupPrivateNameInScopeInfo(Isolate* isolate,
+                                         const AstRawString* name);
   Variable* LookupPrivateNameInScopeInfo(const AstRawString* name);
-
   struct RareData : public ZoneObject {
     explicit RareData(Zone* zone) : private_name_map(zone) {}
     UnresolvedList unresolved_private_names;
@@ -1517,6 +1559,10 @@ class V8_EXPORT_PRIVATE ClassScope : public Scope {
   // This is only maintained during reparsing, restored from the
   // preparsed data.
   bool should_save_class_variable_index_ = false;
+  // These are only maintained when reparsing the class body for
+  // instance initialization.
+  bool is_being_reparsed_for_initialization_ = false;
+  DeclarationScope* initializer_scope_ = nullptr;
 };
 
 // Iterate over the private name scope chain. The iteration proceeds from the

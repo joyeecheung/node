@@ -67,7 +67,12 @@ class AstRawString final : public ZoneObject {
 
   template <typename LocalIsolate>
   void Internalize(LocalIsolate* isolate);
-
+  // Return an internalized copy of the AstRawString.
+  template <typename IsolateT>
+  Handle<String> GetInternalized(IsolateT* isolate) const;
+#ifdef DEBUG
+  bool is_internalized() const { return has_string_; }
+#endif
   // Access the physical representation:
   bool is_one_byte() const { return is_one_byte_; }
   int byte_length() const { return literal_bytes_.length(); }
@@ -85,7 +90,7 @@ class AstRawString final : public ZoneObject {
 
   // This function can be called after internalizing.
   V8_INLINE Handle<String> string() const {
-    DCHECK(has_string_);
+    DCHECK(is_internalized());
     return string_;
   }
 
@@ -103,17 +108,17 @@ class AstRawString final : public ZoneObject {
         raw_hash_field_(raw_hash_field),
         is_one_byte_(is_one_byte) {}
   AstRawString* next() {
-    DCHECK(!has_string_);
+    DCHECK(!is_internalized());
     return next_;
   }
   AstRawString** next_location() {
-    DCHECK(!has_string_);
+    DCHECK(!is_internalized());
     return &next_;
   }
 
   void set_string(Handle<String> string) {
     DCHECK(!string.is_null());
-    DCHECK(!has_string_);
+    DCHECK(!is_internalized());
     string_ = string;
 #ifdef DEBUG
     has_string_ = true;
@@ -140,6 +145,11 @@ extern template EXPORT_TEMPLATE_DECLARE(
     V8_EXPORT_PRIVATE) void AstRawString::Internalize(Isolate* isolate);
 extern template EXPORT_TEMPLATE_DECLARE(
     V8_EXPORT_PRIVATE) void AstRawString::Internalize(LocalIsolate* isolate);
+
+extern template EXPORT_TEMPLATE_DECLARE(V8_EXPORT_PRIVATE)
+    Handle<String> AstRawString::GetInternalized(Isolate* isolate) const;
+extern template EXPORT_TEMPLATE_DECLARE(V8_EXPORT_PRIVATE)
+    Handle<String> AstRawString::GetInternalized(LocalIsolate* isolate) const;
 
 class AstConsString final : public ZoneObject {
  public:

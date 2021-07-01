@@ -427,7 +427,6 @@ Parser::Parser(ParseInfo* info)
       scanner_(info->character_stream(), flags()),
       preparser_zone_(info->zone()->allocator(), "pre-parser-zone"),
       reusable_preparser_(nullptr),
-      mode_(PARSE_EAGERLY),  // Lazy mode must be set explicitly.
       source_range_map_(info->source_range_map()),
       total_preparse_skipped_(0),
       consumed_preparse_data_(info->consumed_preparse_data()),
@@ -854,11 +853,13 @@ void Parser::ParseFunction(Isolate* isolate, ParseInfo* info,
     // function is in heritage position. Otherwise the function scope's skip bit
     // will be correctly inherited from the outer scope.
     ClassScope::HeritageParsingScope heritage(original_scope_->AsClassScope());
-    result = DoParseFunction(isolate, info, start_position, end_position,
-                             function_literal_id, info->function_name());
+    result = DoParseDeserializedFunction(
+        isolate, shared_info, info, start_position, end_position,
+        function_literal_id, info->function_name());
   } else {
-    result = DoParseFunction(isolate, info, start_position, end_position,
-                             function_literal_id, info->function_name());
+    result = DoParseDeserializedFunction(
+        isolate, shared_info, info, start_position, end_position,
+        function_literal_id, info->function_name());
   }
   MaybeResetCharacterStream(info, result);
   MaybeProcessSourceRanges(info, result, stack_limit_);
@@ -1018,6 +1019,97 @@ FunctionLiteral* Parser::DoParseFunction(Isolate* isolate, ParseInfo* info,
 
   DCHECK_IMPLIES(result, function_literal_id == result->function_literal_id());
   return result;
+}
+
+FunctionLiteral* Parser::DoParseDeserializedFunction(
+    Isolate* isolate, Handle<SharedFunctionInfo> shared_info, ParseInfo* info,
+    int start_position, int end_position, int function_literal_id,
+    const AstRawString* raw_name) {
+  if (flags().function_kind() !=
+      FunctionKind::kClassMembersInitializerFunction) {
+    return DoParseFunction(isolate, info, start_position, end_position,
+                           function_literal_id, raw_name);
+  }
+
+  // Reparse the outer class while skipping the non-fields to get a list of
+  // ClassLiteralProperty and create a InitializeClassMembersStatement for
+  // the synthetic instance initializer function.
+  FunctionLiteral* result = ParseClassForInstanceMemberInitialization(
+      isolate, original_scope_->AsClassScope(), start_position,
+      function_literal_id);
+  DCHECK_EQ(result->kind(), FunctionKind::kClassMembersInitializerFunction);
+  DCHECK_EQ(result->function_literal_id(), function_literal_id);
+  DCHECK_EQ(result->end_position(), shared_info->EndPosition());
+
+  // The private_name_lookup_skips_outer_class bit should be set by
+  // PostProcessParseResult() during scope analysis later.
+  return result;
+}
+
+FunctionLiteral* Parser::ParseClassForInstanceMemberInitialization(
+    Isolate* isolate, ClassScope* class_scope, int initializer_pos,
+    int initializer_id) {
+  class_scope->PrepareForReparseForInitialization();
+  int class_token_pos = initializer_pos;
+
+  // Insert a FunctionState with the closest outer Declaration scope
+  DeclarationScope* nearest_decl_scope = nullptr;
+  Scope* scope = class_scope;
+  while (nearest_decl_scope == nullptr && scope->outer_scope() != nullptr) {
+    if (scope->outer_scope()->is_declaration_scope()) {
+      nearest_decl_scope = scope->outer_scope()->AsDeclarationScope();
+    } else {
+      scope = scope->outer_scope();
+    }
+  }
+  DCHECK_NOT_NULL(nearest_decl_scope);
+  FunctionState function_state(&function_state_, &scope_, nearest_decl_scope);
+  // We will reindex the function literals later.
+  ResetFunctionLiteralId();
+
+  // Start lazily, and change to eager when we encounter field initializers.
+  ClassLiteralParsingScope class_literal_parsing(
+      this, ParsingClassLiteralFlag::kParseForInstanceInitialization, isolate);
+  // We preparse the class members that are not fields with initializers
+  // in order to collect the function literal ids.
+  ParsingModeScope mode(this, PARSE_LAZILY);
+
+  ExpressionParsingScope no_expression_scope(impl());
+
+  // We will reparse the entire class because we want to know if
+  // the class is anonymous.
+  // When the function is a kClassMembersInitializerFunction, we record the
+  // source range of the entire class as its positions in its SFI, so at this
+  // point the scanner should be rewound to the position of the class token.
+  DCHECK_EQ(peek(), Token::CLASS);
+  Expect(Token::CLASS);
+
+  const AstRawString* class_name = NullIdentifier();
+  const AstRawString* variable_name = NullIdentifier();
+  // It's a reparse so we don't need to check for default export or
+  // whether the names are reserved.
+  if (peek() == Token::EXTENDS || peek() == Token::LBRACE) {
+    GetDefaultStrings(&class_name, &variable_name);
+  } else {
+    class_name = ParseIdentifier();
+    variable_name = class_name;
+  }
+  bool is_anonymous = class_name == nullptr || class_name->IsEmpty();
+
+  Expression* expr =
+      DoParseClassLiteral(class_scope, class_name, scanner()->location(),
+                          is_anonymous, class_token_pos);
+  DCHECK(expr->IsClassLiteral());
+  FunctionLiteral* initializer =
+      expr->AsClassLiteral()->instance_members_initializer_function();
+
+  // Reindex so that the function literal ids match.
+  AstFunctionLiteralIdReindexer reindexer(
+      stack_limit_, initializer_id - initializer->function_literal_id());
+  reindexer.Reindex(expr);
+
+  no_expression_scope.ValidateExpression();
+  return initializer;
 }
 
 Statement* Parser::ParseModuleItem() {
@@ -2697,6 +2789,30 @@ FunctionLiteral* Parser::ParseFunctionLiteral(
   return function_literal;
 }
 
+FunctionLiteral* Parser::ParseClassMethodOrAccessor(
+    const AstRawString* prop_name, FunctionKind function_kind,
+    int name_token_position) {
+  // If we are reparsing class body for the instance member initializer,
+  // there is no need to parse the entire method.
+  DCHECK_IMPLIES(parse_for_instance_initialization(), parse_lazily());
+
+  return ParseFunctionLiteral(
+      prop_name, scanner()->location(), kSkipFunctionNameCheck, function_kind,
+      name_token_position, FunctionSyntaxKind::kAccessorOrMethod,
+      language_mode(), nullptr);
+}
+
+Expression* Parser::ParseClassMemberInitializerAssignment() {
+  if (parse_for_instance_initialization()) {
+    // Revert to the original mode.
+    ParsingModeScope mode(
+        this, class_literal_parsing_scope()->original_parsing_mode());
+    return ParseAssignmentExpression();
+  } else {
+    return ParseAssignmentExpression();
+  }
+}
+
 bool Parser::SkipFunction(const AstRawString* function_name, FunctionKind kind,
                           FunctionSyntaxKind function_syntax_kind,
                           DeclarationScope* function_scope, int* num_parameters,
@@ -2763,7 +2879,7 @@ bool Parser::SkipFunction(const AstRawString* function_name, FunctionKind kind,
     // Make sure we don't re-preparse inner functions of the aborted function.
     // The error might be in an inner function.
     allow_lazy_ = false;
-    mode_ = PARSE_EAGERLY;
+    set_parsing_mode(PARSE_EAGERLY);
     DCHECK(!pending_error_handler()->stack_overflow());
     // If we encounter an error that the preparser can not identify we reset to
     // the state before preparsing. The caller may then fully parse the function
@@ -3038,9 +3154,17 @@ void Parser::DeclarePublicClassField(ClassScope* scope,
   if (is_computed_name) {
     // We create a synthetic variable name here so that scope
     // analysis doesn't dedupe the vars.
-    Variable* computed_name_var =
-        CreateSyntheticContextVariable(ClassFieldVariableName(
-            ast_value_factory(), class_info->computed_field_count));
+    Variable* computed_name_var = nullptr;
+    const AstRawString* property_name = ClassFieldVariableName(
+        ast_value_factory(), class_info->computed_field_count);
+    if (parse_for_instance_initialization()) {
+      computed_name_var = scope->DeserializeVariable(
+          class_literal_parsing_scope()->isolate(), property_name);
+    }
+    if (computed_name_var == nullptr) {
+      computed_name_var = CreateSyntheticContextVariable(property_name);
+    }
+
     property->set_computed_name_var(computed_name_var);
     class_info->public_members->Add(property, zone());
   }
@@ -3060,10 +3184,18 @@ void Parser::DeclarePrivateClassMember(ClassScope* scope,
     }
   }
 
-  Variable* private_name_var = CreatePrivateNameVariable(
-      scope, GetVariableMode(kind),
-      is_static ? IsStaticFlag::kStatic : IsStaticFlag::kNotStatic,
-      property_name);
+  Variable* private_name_var = nullptr;
+  if (parse_for_instance_initialization()) {
+    private_name_var = scope->DeserializeVariable(
+        class_literal_parsing_scope()->isolate(), property_name);
+  }
+
+  if (private_name_var == nullptr) {
+    private_name_var = CreatePrivateNameVariable(
+        scope, GetVariableMode(kind),
+        is_static ? IsStaticFlag::kStatic : IsStaticFlag::kNotStatic,
+        property_name);
+  }
   int pos = property->value()->position();
   if (pos == kNoSourcePosition) {
     pos = property->key()->position();
@@ -3141,8 +3273,7 @@ Expression* Parser::RewriteClassLiteral(ClassScope* block_scope,
         DefaultConstructor(name, has_extends, pos, end_pos);
   }
 
-  if (name != nullptr) {
-    DCHECK_NOT_NULL(block_scope->class_variable());
+  if (block_scope->class_variable() != nullptr) {
     block_scope->class_variable()->set_initializer_position(end_pos);
   }
 
@@ -3160,6 +3291,7 @@ Expression* Parser::RewriteClassLiteral(ClassScope* block_scope,
         "<instance_members_initializer>", class_info->instance_members_scope,
         factory()->NewInitializeClassMembersStatement(
             class_info->instance_fields, kNoSourcePosition));
+    block_scope->set_initializer_scope(class_info->instance_members_scope);
     class_info->constructor->set_requires_instance_members_initializer(true);
     class_info->constructor->add_expected_properties(
         class_info->instance_fields->length());

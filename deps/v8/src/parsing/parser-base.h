@@ -53,6 +53,11 @@ enum class ParseFunctionFlag : uint8_t {
 
 using ParseFunctionFlags = base::Flags<ParseFunctionFlag>;
 
+enum class ParsingClassLiteralFlag {
+  kParseAll,
+  kParseForInstanceInitialization
+};
+
 struct FormalParametersBase {
   explicit FormalParametersBase(DeclarationScope* scope) : scope(scope) {}
 
@@ -295,6 +300,72 @@ class ParserBase {
   void SkipFunctionLiterals(int delta) { function_literal_id_ += delta; }
 
   void ResetFunctionLiteralId() { function_literal_id_ = 0; }
+
+  enum ParsingMode { PARSE_LAZILY, PARSE_EAGERLY };
+  class V8_NODISCARD ParsingModeScope {
+   public:
+    ParsingModeScope(ParserBase* parser, ParsingMode mode)
+        : parser_(parser), old_mode_(parser->parsing_mode_) {
+      parser_->parsing_mode_ = mode;
+    }
+    ~ParsingModeScope() { parser_->parsing_mode_ = old_mode_; }
+
+   private:
+    ParserBase* parser_;
+    ParsingMode old_mode_;
+  };
+  bool parse_lazily() const { return parsing_mode_ == PARSE_LAZILY; }
+  void set_parsing_mode(ParsingMode mode) { parsing_mode_ = mode; }
+
+  // ClassLiteralParsingScope forms a stack of class literal parsing
+  // states. It is used to keep track of the parsing modes so that
+  // we can preparse the non-field-initializers when reparsing the
+  // class body for the synthetic instance initialzer function.
+  class V8_NODISCARD ClassLiteralParsingScope final {
+   public:
+    ClassLiteralParsingScope(ParserBase* parser,
+                             ParsingClassLiteralFlag class_literal_flag,
+                             Isolate* isolate)
+        : parser_(parser),
+          class_literal_flag_(class_literal_flag),
+          isolate_(isolate),
+          previous_class_literal_parsing_scope_(
+              parser->class_literal_parsing_scope_),
+          original_parsing_mode_(parser->parsing_mode_) {
+      parser_->class_literal_parsing_scope_ = this;
+    }
+
+    ~ClassLiteralParsingScope() {
+      parser_->class_literal_parsing_scope_ =
+          previous_class_literal_parsing_scope_;
+    }
+
+    Isolate* isolate() const { return isolate_; }
+    ParsingClassLiteralFlag class_literal_flag() const {
+      return class_literal_flag_;
+    }
+    ParsingMode original_parsing_mode() const { return original_parsing_mode_; }
+
+   private:
+    ParserBase* parser_;
+    ParsingClassLiteralFlag class_literal_flag_;
+    // It's necessary to keep a pointer to the current isolate to internalize
+    // strings of variable names so that we can look them up from the scope
+    // info when reparsing the class body to collect the instance initializers.
+    Isolate* isolate_;
+    ClassLiteralParsingScope* previous_class_literal_parsing_scope_;
+    ParsingMode original_parsing_mode_;
+  };
+
+  ClassLiteralParsingScope* class_literal_parsing_scope() const {
+    return class_literal_parsing_scope_;
+  }
+
+  bool parse_for_instance_initialization() const {
+    DCHECK_NOT_NULL(class_literal_parsing_scope_);
+    return class_literal_parsing_scope_->class_literal_flag() ==
+           ParsingClassLiteralFlag::kParseForInstanceInitialization;
+  }
 
   // The Zone where the parsing outputs are stored.
   Zone* main_zone() const { return ast_value_factory()->zone(); }
@@ -1218,10 +1289,15 @@ class ParserBase {
   ExpressionT ParseArrowFunctionLiteral(const FormalParametersT& parameters);
   void ParseAsyncFunctionBody(Scope* scope, StatementListT* body);
   ExpressionT ParseAsyncFunctionLiteral();
+
   ExpressionT ParseClassLiteral(IdentifierT name,
                                 Scanner::Location class_name_location,
                                 bool name_is_strict_reserved,
                                 int class_token_pos);
+  ExpressionT DoParseClassLiteral(ClassScope* class_scope, IdentifierT name,
+                                  Scanner::Location class_name_location,
+                                  bool is_anonymous, int class_token_pos);
+
   ExpressionT ParseTemplateLiteral(ExpressionT tag, int start, bool tagged);
   ExpressionT ParseSuperExpression();
   ExpressionT ParseImportExpressions();
@@ -1602,6 +1678,10 @@ class ParserBase {
   bool accept_IN_ = true;
 
   bool allow_eval_cache_ = true;
+
+  ParsingMode parsing_mode_ =
+      PARSE_EAGERLY;  // Lazy mode must be set explicitly.
+  ClassLiteralParsingScope* class_literal_parsing_scope_ = nullptr;
 };
 
 template <typename Impl>
@@ -2376,10 +2456,8 @@ ParserBase<Impl>::ParseClassPropertyDefinition(ClassInfo* class_info,
                            : FunctionKind::kBaseConstructor;
       }
 
-      ExpressionT value = impl()->ParseFunctionLiteral(
-          prop_info->name, scanner()->location(), kSkipFunctionNameCheck, kind,
-          name_token_position, FunctionSyntaxKind::kAccessorOrMethod,
-          language_mode(), nullptr);
+      ExpressionT value = impl()->ParseClassMethodOrAccessor(
+          prop_info->name, kind, name_token_position);
 
       ClassLiteralPropertyT result = factory()->NewClassLiteralProperty(
           name_expression, value, ClassLiteralProperty::METHOD,
@@ -2414,10 +2492,8 @@ ParserBase<Impl>::ParseClassPropertyDefinition(ClassInfo* class_info,
                       : FunctionKind::kSetterFunction;
       }
 
-      FunctionLiteralT value = impl()->ParseFunctionLiteral(
-          prop_info->name, scanner()->location(), kSkipFunctionNameCheck, kind,
-          name_token_position, FunctionSyntaxKind::kAccessorOrMethod,
-          language_mode(), nullptr);
+      FunctionLiteralT value = impl()->ParseClassMethodOrAccessor(
+          prop_info->name, kind, name_token_position);
 
       ClassLiteralProperty::Kind property_kind =
           is_get ? ClassLiteralProperty::GETTER : ClassLiteralProperty::SETTER;
@@ -2454,8 +2530,6 @@ typename ParserBase<Impl>::ExpressionT ParserBase<Impl>::ParseMemberInitializer(
 
   if (initializer_scope == nullptr) {
     initializer_scope = NewFunctionScope(function_kind);
-    // TODO(gsathya): Make scopes be non contiguous.
-    initializer_scope->set_start_position(beg_pos);
     initializer_scope->SetLanguageMode(LanguageMode::kStrict);
   }
 
@@ -2465,13 +2539,18 @@ typename ParserBase<Impl>::ExpressionT ParserBase<Impl>::ParseMemberInitializer(
                                     initializer_scope);
 
     AcceptINScope scope(this, true);
-    initializer = ParseAssignmentExpression();
+    initializer = impl()->ParseClassMemberInitializerAssignment();
   } else {
     initializer = factory()->NewUndefinedLiteral(kNoSourcePosition);
   }
 
-  initializer_scope->set_end_position(end_position());
   if (is_static) {
+    // For the instance initializer, we will save the positions
+    // later with the positions of the class body so that we can reparse
+    // it later.
+    // TODO(gsathya): Make scopes be non contiguous.
+    initializer_scope->set_start_position(beg_pos);
+    initializer_scope->set_end_position(end_position());
     class_info->static_elements_scope = initializer_scope;
     class_info->has_static_elements = true;
   } else {
@@ -4607,7 +4686,6 @@ typename ParserBase<Impl>::ExpressionT ParserBase<Impl>::ParseClassLiteral(
     IdentifierT name, Scanner::Location class_name_location,
     bool name_is_strict_reserved, int class_token_pos) {
   bool is_anonymous = impl()->IsNull(name);
-
   // All parts of a ClassDeclaration and ClassExpression are strict code.
   if (!impl()->HasCheckedSyntax() && !is_anonymous) {
     if (name_is_strict_reserved) {
@@ -4623,6 +4701,17 @@ typename ParserBase<Impl>::ExpressionT ParserBase<Impl>::ParseClassLiteral(
   }
 
   ClassScope* class_scope = NewClassScope(scope(), is_anonymous);
+  ClassLiteralParsingScope class_literal_parsing(
+      this, ParsingClassLiteralFlag::kParseAll, nullptr);
+  return DoParseClassLiteral(class_scope, name, class_name_location,
+                             is_anonymous, class_token_pos);
+}
+
+template <typename Impl>
+typename ParserBase<Impl>::ExpressionT ParserBase<Impl>::DoParseClassLiteral(
+    ClassScope* class_scope, IdentifierT name,
+    Scanner::Location class_name_location, bool is_anonymous,
+    int class_token_pos) {
   BlockState block_state(&scope_, class_scope);
   RaiseLanguageMode(LanguageMode::kStrict);
 
@@ -4709,6 +4798,12 @@ typename ParserBase<Impl>::ExpressionT ParserBase<Impl>::ParseClassLiteral(
   Expect(Token::RBRACE);
   int end_pos = end_position();
   class_scope->set_end_position(end_pos);
+  if (class_info.instance_members_scope != nullptr) {
+    // Use the positions of the class body for the instance initializer
+    // function so that we can reparse it later.
+    class_info.instance_members_scope->set_start_position(class_token_pos);
+    class_info.instance_members_scope->set_end_position(end_pos);
+  }
 
   VariableProxy* unresolvable = class_scope->ResolvePrivateNamesPartially();
   if (unresolvable != nullptr) {
@@ -4719,24 +4814,39 @@ typename ParserBase<Impl>::ExpressionT ParserBase<Impl>::ParseClassLiteral(
     return impl()->FailureExpression();
   }
 
+  bool reparsing = parse_for_instance_initialization();
   if (class_info.requires_brand) {
-    class_scope->DeclareBrandVariable(
-        ast_value_factory(), IsStaticFlag::kNotStatic, kNoSourcePosition);
+    if (reparsing) {
+      DCHECK_NOT_NULL(class_scope->brand());
+    } else {
+      class_scope->DeclareBrandVariable(
+          ast_value_factory(), IsStaticFlag::kNotStatic, kNoSourcePosition);
+    }
   }
 
   if (class_scope->needs_home_object()) {
-    class_info.home_object_variable =
-        class_scope->DeclareHomeObjectVariable(ast_value_factory());
-    class_info.static_home_object_variable =
-        class_scope->DeclareStaticHomeObjectVariable(ast_value_factory());
+    if (reparsing) {
+      class_scope->RestoreHomeVariables(
+          class_literal_parsing_scope()->isolate(), ast_value_factory());
+    } else {
+      class_info.home_object_variable =
+          class_scope->DeclareHomeObjectVariable(ast_value_factory());
+      class_info.static_home_object_variable =
+          class_scope->DeclareStaticHomeObjectVariable(ast_value_factory());
+    }
   }
 
   bool should_save_class_variable_index =
       class_scope->should_save_class_variable_index();
   if (!is_anonymous || should_save_class_variable_index) {
-    impl()->DeclareClassVariable(class_scope, name, &class_info,
-                                 class_token_pos);
+    if (class_scope->class_variable() == nullptr) {
+      impl()->DeclareClassVariable(class_scope, name, &class_info,
+                                   class_token_pos);
+    } else {
+      DCHECK(reparsing);
+    }
     if (should_save_class_variable_index) {
+      DCHECK_NOT_NULL(class_scope->class_variable());
       class_scope->class_variable()->set_is_used();
       class_scope->class_variable()->ForceContextAllocation();
     }
