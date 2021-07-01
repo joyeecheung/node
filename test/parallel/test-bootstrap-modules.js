@@ -97,6 +97,7 @@ const expectedModules = new Set([
   'NativeModule internal/process/task_queues',
   'NativeModule internal/process/warning',
   'NativeModule internal/querystring',
+  'NativeModule internal/source_map/source_map',
   'NativeModule internal/source_map/source_map_cache',
   'NativeModule internal/stream_base_commons',
   'NativeModule internal/streams/add-abort-signal',
