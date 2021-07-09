@@ -455,10 +455,19 @@ size_t FileWriter::Write(const EnvSerializeInfo& data) {
 void SnapshotData::ToBlob(FILE* out) {
   FileWriter w(out);
   w.Debug("SnapshotData::ToBlob()\n");
+
   w.Debug("Write magic %" PRIx64 "\n", kMagic);
   w.Write<uint64_t>(kMagic);
+  w.Debug("Write version %s\n", NODE_VERSION);
+  w.WriteString(NODE_VERSION);
+  w.Debug("Write arch %s\n", per_process::metadata.arch.c_str());
+  w.WriteString(per_process::metadata.arch);
+  w.Debug("Write platform %s\n", per_process::metadata.platform.c_str());
+  w.WriteString(per_process::metadata.platform);
+
+  w.Debug("Write startup data\n");
   w.Write<v8::StartupData>(blob);
-  w.Debug("Write isolate_data_indices");
+  w.Debug("Write isolate_data_indices\n");
   w.WriteVector<size_t>(isolate_data_indices);
   w.Write<EnvSerializeInfo>(env_info);
 }
@@ -466,9 +475,21 @@ void SnapshotData::ToBlob(FILE* out) {
 void SnapshotData::FromBlob(SnapshotData* out, FILE* in) {
   FileReader r(in);
   r.Debug("SnapshotData::FromBlob()\n");
+
   uint64_t magic = r.Read<uint64_t>();
   r.Debug("Read magic %" PRIx64 "\n", magic);
   CHECK_EQ(magic, kMagic);
+  r.Debug("Read version\n");
+  std::string version = r.ReadString();
+  CHECK_EQ(version, NODE_VERSION);
+  r.Debug("Read arch\n");
+  std::string arch = r.ReadString();
+  CHECK_EQ(arch, per_process::metadata.arch);
+  r.Debug("Read platform\n");
+  std::string platform = r.ReadString();
+  CHECK_EQ(platform, per_process::metadata.platform);
+
+  r.Debug("Read startup data\n");
   out->blob = r.Read<v8::StartupData>();
   out->isolate_data_indices = r.ReadVector<size_t>();
   out->env_info = r.Read<EnvSerializeInfo>();
