@@ -440,15 +440,17 @@ BindingData::BindingData(Environment* env, v8::Local<v8::Object> object)
 }
 
 void BindingData::AddMethods() {
-  env()->SetFastMethod(object(), "hrtime", SlowNumber, FastNumber);
-  env()->SetFastMethod(object(), "hrtimeBigInt", SlowBigInt, FastBigInt);
+  env()->SetMethod(object(), "hrtime", SlowNumber);
+  env()->SetMethod(object(), "hrtimeBigInt", SlowBigInt);
+  // env()->SetFastMethod(object(), "hrtime", SlowNumber, FastNumber);
+  // env()->SetFastMethod(object(), "hrtimeBigInt", SlowBigInt, FastBigInt);
 }
 
 void BindingData::RegisterExternalReferences(
     ExternalReferenceRegistry* registry) {
-  registry->Register(FastNumber);
+  // registry->Register(FastNumber);
   registry->Register(SlowNumber);
-  registry->Register(FastBigInt);
+  // registry->Register(FastBigInt);
   registry->Register(SlowBigInt);
 }
 
