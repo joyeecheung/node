@@ -631,6 +631,10 @@ void SnapshotBuilder::Generate(SnapshotData* out,
         // synchronized again after snapshot restoration.
         int exit_code = SpinEventLoop(env).FromMaybe(1);
         CHECK_EQ(exit_code, 0);
+        if (bootstrapCatch.HasCaught()) {
+          PrintCaughtException(isolate, context, bootstrapCatch);
+          abort();
+        }
       }
 
       if (per_process::enabled_debug_list.enabled(DebugCategory::MKSNAPSHOT)) {

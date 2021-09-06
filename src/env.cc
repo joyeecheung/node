@@ -1138,12 +1138,16 @@ std::ostream& operator<<(std::ostream& output,
 AsyncHooks::SerializeInfo AsyncHooks::Serialize(Local<Context> context,
                                                 SnapshotCreator* creator) {
   SerializeInfo info;
+  // TODO(joyeecheung): are we even capable of deserializing this? Maybe we
+  // should just throw all these away.
+  clear_async_id_stack();
+
   info.async_ids_stack = async_ids_stack_.Serialize(context, creator);
   info.fields = fields_.Serialize(context, creator);
   info.async_id_fields = async_id_fields_.Serialize(context, creator);
   if (!js_execution_async_resources_.IsEmpty()) {
     info.js_execution_async_resources = creator->AddData(
-        context, js_execution_async_resources_.Get(context->GetIsolate()));
+        context, PersistentToLocal::Strong(js_execution_async_resources_));
     CHECK_NE(info.js_execution_async_resources, 0);
   } else {
     info.js_execution_async_resources = 0;
@@ -1152,9 +1156,10 @@ AsyncHooks::SerializeInfo AsyncHooks::Serialize(Local<Context> context,
   info.native_execution_async_resources.resize(
       native_execution_async_resources_.size());
   for (size_t i = 0; i < native_execution_async_resources_.size(); i++) {
-    info.native_execution_async_resources[i] = creator->AddData(
-        context,
-        native_execution_async_resources_[i].Get(context->GetIsolate()));
+    Local<Object> resource =
+        PersistentToLocal::Strong(native_execution_async_resources_[i]);
+    info.native_execution_async_resources[i] =
+        creator->AddData(context, resource);
   }
   CHECK_EQ(contexts_.size(), 1);
   CHECK_EQ(contexts_[0], env()->context());

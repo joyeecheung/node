@@ -87,6 +87,7 @@ class ExternalReferenceRegistry {
   V(types)                                                                     \
   V(uv)                                                                        \
   V(v8)                                                                        \
+  V(zlib)                                                                      \
   V(worker)
 
 #if NODE_HAVE_I18N_SUPPORT

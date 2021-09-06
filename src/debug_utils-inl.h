@@ -89,6 +89,7 @@ std::string COLD_NOINLINE SPrintFImpl(  // NOLINT(runtime/string)
                                      std::forward<Args>(args)...);
     }
     case 'd':
+    case 'f':
     case 'i':
     case 'u':
     case 's':

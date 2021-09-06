@@ -26,6 +26,7 @@
 
 #include "aliased_buffer.h"
 #include "callback_queue-inl.h"
+#include "debug_utils-inl.h"
 #include "env.h"
 #include "node.h"
 #include "node_context_data.h"
@@ -131,6 +132,10 @@ inline Environment* AsyncHooks::env() {
 inline void AsyncHooks::push_async_context(double async_id,
                                            double trigger_async_id,
                                            v8::Local<v8::Object> resource) {
+  per_process::Debug(DebugCategory::MKSNAPSHOT,
+                     "push_async_context %f, %f\n",
+                     async_id,
+                     trigger_async_id);
   // Since async_hooks is experimental, do only perform the check
   // when async_hooks is enabled.
   if (fields_[kCheck] > 0) {
@@ -164,6 +169,8 @@ inline void AsyncHooks::push_async_context(double async_id,
 
 // Remember to keep this code aligned with popAsyncContext() in JS.
 inline bool AsyncHooks::pop_async_context(double async_id) {
+  per_process::Debug(
+      DebugCategory::MKSNAPSHOT, "pop_async_context %f\n", async_id);
   // In case of an exception then this may have already been reset, if the
   // stack was multiple MakeCallback()'s deep.
   if (fields_[kStackLength] == 0) return false;
