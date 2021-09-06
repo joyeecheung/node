@@ -12,6 +12,7 @@
 #include "node_internals.h"
 #include "node_main_instance.h"
 #include "node_process.h"
+#include "node_metadata.h"
 #include "node_v8.h"
 #include "node_v8_platform-inl.h"
 
@@ -457,8 +458,15 @@ size_t FileWriter::Write(const EnvSerializeInfo& data) {
 void SnapshotData::ToBlob(FILE* out) {
   FileWriter w(out);
   w.Debug("SnapshotData::ToBlob()\n");
+
+  // Metadata
   w.Debug("Write magic %" PRIx64 "\n", kMagic);
   w.Write<uint64_t>(kMagic);
+  w.Debug("Write version %s\n", NODE_VERSION);
+  w.WriteString(NODE_VERSION);
+  w.Debug("Write arch %s\n", NODE_ARCH);
+  w.WriteString(NODE_ARCH);
+
   w.Write<v8::StartupData>(blob);
   w.Debug("Write isolate_data_indices");
   w.WriteVector<size_t>(isolate_data_indices);
@@ -468,9 +476,18 @@ void SnapshotData::ToBlob(FILE* out) {
 void SnapshotData::FromBlob(SnapshotData* out, FILE* in) {
   FileReader r(in);
   r.Debug("SnapshotData::FromBlob()\n");
+
+  // Metadata
   uint64_t magic = r.Read<uint64_t>();
   r.Debug("Read magic %" PRIx64 "\n", magic);
   CHECK_EQ(magic, kMagic);
+  std::string version = r.ReadString();
+  r.Debug("Read version %s\n", version.c_str());
+  CHECK_EQ(version, NODE_VERSION);
+  std::string arch = r.ReadString();
+  r.Debug("Read arch %s\n", arch.c_str());
+  CHECK_EQ(arch, NODE_ARCH);
+
   out->blob = r.Read<v8::StartupData>();
   out->isolate_data_indices = r.ReadVector<size_t>();
   out->env_info = r.Read<EnvSerializeInfo>();
