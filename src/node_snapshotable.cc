@@ -652,7 +652,7 @@ void SnapshotBuilder::Generate(SnapshotData* out,
 
     // Must be out of HandleScope
     out->blob =
-        creator.CreateBlob(SnapshotCreator::FunctionCodeHandling::kClear);
+        creator.CreateBlob(SnapshotCreator::FunctionCodeHandling::kKeep);
 
     // We must be able to rehash the blob when we restore it or otherwise
     // the hash seed would be fixed by V8, introducing a vulnerability.
@@ -821,7 +821,10 @@ static void CompileSnapshotMain(const FunctionCallbackInfo<Value>& args) {
   // TODO(joyee): do we need all of these? Maybe we would want a less
   // internal version of them.
   std::vector<Local<String>> parameters = {
-      FIXED_ONE_BYTE_STRING(isolate, "require")};
+      FIXED_ONE_BYTE_STRING(isolate, "require"),
+      FIXED_ONE_BYTE_STRING(isolate, "__filename"),
+      FIXED_ONE_BYTE_STRING(isolate, "__dirname"),
+  };
   ScriptCompiler::Source script_source(source, origin);
   Local<Function> fn;
   if (ScriptCompiler::CompileFunctionInContext(context,
