@@ -31,27 +31,44 @@ const file = fixtures.path('snapshot', 'marked.js');
   assert(stats.isFile());
 }
 
-const md = `
-# heading
-
-[link][1]
-
-[1]: #heading "heading"
-`;
-
 {
-  const child = spawnSync(process.execPath, [
+  let child = spawnSync(process.execPath, [
     '--snapshot-blob',
     path.join(tmpdir.path, 'snapshot.blob'),
     fixtures.path('snapshot', 'check-umd.js'),
   ], {
-    cwd: tmpdir.path
+    cwd: tmpdir.path,
+    env: {
+      ...process.env,
+      NODE_TEST_USE_SNAPSHOT: 'true'
+    }
   });
-  const stderr = child.stderr.toString();
-  const stdout = child.stdout.toString();
+  let stderr = child.stderr.toString();
+  const snapshotOutput = child.stdout.toString();
   console.log(stderr);
-  console.log(stdout);
+  console.log(snapshotOutput);
+
   assert.strictEqual(child.status, 0);
-  const marked = require(file);
-  assert(stdout.includes(marked(md)));
+  assert(stderr.includes('NODE_TEST_USE_SNAPSHOT true'));
+
+  child = spawnSync(process.execPath, [
+    '--snapshot-blob',
+    path.join(tmpdir.path, 'snapshot.blob'),
+    fixtures.path('snapshot', 'check-umd.js'),
+  ], {
+    cwd: tmpdir.path,
+    env: {
+      ...process.env,
+      NODE_TEST_USE_SNAPSHOT: 'false'
+    }
+  });
+  stderr = child.stderr.toString();
+  const verifyOutput = child.stdout.toString();
+  console.log(stderr);
+  console.log(verifyOutput);
+
+  assert.strictEqual(child.status, 0);
+  assert(stderr.includes('NODE_TEST_USE_SNAPSHOT false'));
+
+  assert(snapshotOutput.includes(verifyOutput));
 }
