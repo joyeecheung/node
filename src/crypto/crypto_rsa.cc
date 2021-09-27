@@ -637,6 +637,12 @@ void Initialize(Environment* env, Local<Object> target) {
   NODE_DEFINE_CONSTANT(target, kKeyVariantRSA_PSS);
   NODE_DEFINE_CONSTANT(target, kKeyVariantRSA_OAEP);
 }
+
+void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
+  RSAKeyPairGenJob::RegisterExternalReferences(registry);
+  RSAKeyExportJob::RegisterExternalReferences(registry);
+  RSACipherJob::RegisterExternalReferences(registry);
+}
 }  // namespace RSAAlg
 }  // namespace crypto
 }  // namespace node
