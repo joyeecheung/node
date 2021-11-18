@@ -1,6 +1,9 @@
-#include "node_native_module_env.h"
+#include <algorithm>
+
+#include "debug_utils-inl.h"
 #include "env-inl.h"
 #include "node_external_reference.h"
+#include "node_native_module_env.h"
 
 namespace node {
 namespace native_module {
@@ -36,6 +39,61 @@ Local<Object> NativeModuleEnv::GetSourceObject(Local<Context> context) {
 
 Local<String> NativeModuleEnv::GetConfigString(Isolate* isolate) {
   return NativeModuleLoader::GetInstance()->GetConfigString(isolate);
+}
+
+NativeModuleCacheMap* NativeModuleEnv::GetCodeCacheMap() {
+  return NativeModuleLoader::GetInstance()->code_cache();
+}
+
+const Mutex& NativeModuleEnv::GetCodeCacheMutex() {
+  return NativeModuleLoader::GetInstance()->code_cache_mutex();
+}
+
+void NativeModuleEnv::RefreshCodeCache(const std::vector<CodeCacheInfo>& vec) {
+  Mutex::ScopedLock lock(GetCodeCacheMutex());
+  auto map = GetCodeCacheMap();
+  for (auto& info : vec) {
+    size_t new_size = info.data.size();
+    std::unique_ptr<uint8_t> copied_cache(new uint8_t[new_size]);
+    memcpy(copied_cache.get(), info.data.data(), new_size);
+    std::unique_ptr<v8::ScriptCompiler::CachedData> new_cached_data =
+        std::make_unique<v8::ScriptCompiler::CachedData>(
+            copied_cache.release(),
+            new_size,
+            v8::ScriptCompiler::CachedData::BufferOwned);
+    auto cache_it = map->find(info.id);
+    if (cache_it != map->end()) {
+      size_t old_size = cache_it->second->length;
+      per_process::Debug(
+          DebugCategory::CODE_CACHE,
+          "Replacing code cache %s: old size = %d, new size = %d, ",
+          info.id.c_str(),
+          old_size,
+          new_size);
+      if (per_process::enabled_debug_list.enabled(DebugCategory::CODE_CACHE)) {
+        size_t offset = 0;
+        while (offset < old_size && offset < new_size &&
+               *(cache_it->second->data + offset) ==
+                   *(new_cached_data->data + offset)) {
+          offset++;
+        }
+        per_process::Debug(
+            DebugCategory::CODE_CACHE,
+            "mismatch offset = %d(%d, %d)\n",
+            offset,
+            static_cast<int>(offset) - static_cast<int>(old_size),
+            static_cast<int>(offset) - static_cast<int>(new_size));
+      }
+      // Release the old cache and replace it with the new copy.
+      cache_it->second.reset(new_cached_data.release());
+    } else {
+      map->emplace(info.id, new_cached_data.release());
+      per_process::Debug(DebugCategory::CODE_CACHE,
+                         "Add code cache %s, size = %d\n",
+                         info.id.c_str(),
+                         new_size);
+    }
+  }
 }
 
 void NativeModuleEnv::GetModuleCategories(

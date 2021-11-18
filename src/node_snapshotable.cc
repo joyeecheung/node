@@ -42,6 +42,27 @@ using v8::Value;
 
 const uint64_t SnapshotData::kMagic;
 
+std::ostream& operator<<(std::ostream& output,
+                         const std::vector<native_module::CodeCacheInfo>& vec) {
+  output << "{\n";
+  for (const auto& info : vec) {
+    output << "<native_module::CodeCacheInfo id=" << info.id
+           << ", size=" << info.data.size() << ">";
+  }
+  output << "}\n";
+  return output;
+}
+
+std::ostream& operator<<(std::ostream& output,
+                         const std::vector<uint8_t>& vec) {
+  output << "{\n";
+  for (const auto& i : vec) {
+    output << i << ",";
+  }
+  output << "}";
+  return output;
+}
+
 class FileIO {
  public:
   explicit FileIO(FILE* file)
@@ -70,9 +91,15 @@ class FileIO {
 };
 
 template <>
+const char* FileIO::GetName<native_module::CodeCacheInfo>() const {
+  return "native_module::CodeCacheInfo";
+}
+
+template <>
 const char* FileIO::GetName<int>() const {
   return "int";
 }
+
 template <>
 const char* FileIO::GetName<size_t>() const {
   return "size_t";
@@ -119,10 +146,12 @@ class FileReader : public FileIO {
     std::vector<T> result;
     result.reserve(count);
     for (size_t i = 0; i < count; ++i) {
-      if (is_debug) {
+      if (is_debug && sizeof(T) > 8) {
         Debug("[%d] ", i);
       }
+      is_debug = false;
       result.push_back(Read<T>());
+      is_debug = true;
     }
 
     return result;
@@ -199,10 +228,12 @@ class FileWriter : public FileIO {
     size_t count = data.size();
     size_t written_total = Write(count);
     for (size_t i = 0; i < data.size(); ++i) {
-      if (is_debug) {
+      if (is_debug && sizeof(T) > 8) {
         Debug("[%d] ", i);
       }
+      is_debug = false;
       written_total += Write<T>(data[i]);
+      is_debug = true;
     }
 
     if (is_debug) {
@@ -260,6 +291,31 @@ size_t FileWriter::Write(const v8::StartupData& data) {
   written_total += Write<char>(data.data, static_cast<size_t>(count));
 
   Debug("Write<v8::StartupData>() wrote %d bytes\n\n", written_total);
+  return written_total;
+}
+
+template <>
+native_module::CodeCacheInfo FileReader::Read() {
+  Debug("Read<native_module::CodeCacheInfo>() ");
+
+  native_module::CodeCacheInfo result{ReadString(), ReadVector<uint8_t>()};
+  Debug("id = %s, size=%d\n", result.id.c_str(), result.data.size());
+
+  return result;
+}
+
+template <>
+size_t FileWriter::Write(const native_module::CodeCacheInfo& data) {
+  Debug("\nWrite<native_module::CodeCacheInfo>() id = %s"
+        "size=%d\n",
+        data.id.c_str(),
+        data.data.size());
+
+  size_t written_total = WriteString(data.id);
+  written_total += WriteVector<uint8_t>(data.data);
+
+  Debug("Write<native_module::CodeCacheInfo>() wrote %d bytes\n\n",
+        written_total);
   return written_total;
 }
 
@@ -471,6 +527,7 @@ void SnapshotData::ToBlob(FILE* out) const {
   w.Debug("Write isolate_data_indices");
   w.WriteVector<size_t>(isolate_data_indices);
   w.Write<EnvSerializeInfo>(env_info);
+  w.WriteVector<native_module::CodeCacheInfo>(code_cache);
 }
 
 void SnapshotData::FromBlob(SnapshotData* out, FILE* in) {
@@ -491,6 +548,7 @@ void SnapshotData::FromBlob(SnapshotData* out, FILE* in) {
   out->blob = r.Read<v8::StartupData>();
   out->isolate_data_indices = r.ReadVector<size_t>();
   out->env_info = r.Read<EnvSerializeInfo>();
+  out->code_cache = r.ReadVector<native_module::CodeCacheInfo>();
 }
 
 template <typename T>
@@ -498,6 +556,17 @@ void WriteVector(std::ostringstream* ss, const T* vec, size_t size) {
   for (size_t i = 0; i < size; i++) {
     *ss << std::to_string(vec[i]) << (i == size - 1 ? '\n' : ',');
   }
+}
+
+static std::string GetDefName(const std::string& id) {
+  char buf[64] = {0};
+  size_t size = id.size();
+  CHECK_LT(size, sizeof(buf));
+  for (size_t i = 0; i < size; ++i) {
+    char ch = id[i];
+    buf[i] = (ch == '-' || ch == '/') ? '_' : ch;
+  }
+  return std::string(buf) + std::string("_cache_data");
 }
 
 std::string FormatBlob(SnapshotData* data) {
@@ -518,9 +587,21 @@ static const char blob_data[] = {
   ss << R"(};
 
 static const int blob_size = )"
-     << data->blob.raw_size << R"(;
+     << data->blob.raw_size
+     << ";";
 
-SnapshotData snapshot_data {
+  // Windows can't deal with too many large vector initializers.
+  // Store the data into static arrays first.
+  // TODO(joyeecheung): in builds with embedded snapshot, consider
+  // removing the embedded code cache and just use the one compatible
+  // with the snapshot or don't use the cache when snapshot is disabled.
+  for (const auto& info : data->code_cache) {
+    ss << "static const uint8_t " << GetDefName(info.id) << "[] = {\n";
+    WriteVector(&ss, info.data.data(), info.data.size());
+    ss << "};";
+  }
+
+  ss << R"(SnapshotData snapshot_data {
   // -- blob begins --
   { blob_data, blob_size },
   // -- blob ends --
@@ -536,6 +617,18 @@ SnapshotData snapshot_data {
 )" << data->env_info
      << R"(
   // -- env_info ends --
+  ,
+  // -- code_cache begins --
+  {)";
+  for (const auto& info : data->code_cache) {
+    std::string def = GetDefName(info.id);
+    ss << "  { \"" << info.id << "\", \n"
+       << "    {" << def << "," << def << " + arraysize(" << def << ")"
+       << "}\n"
+       << "  },\n";
+  }
+  ss << R"(}
+  // -- code_cache ends --
 };
 
 const SnapshotData* SnapshotBuilder::GetEmbeddedSnapshotData() {
@@ -641,8 +734,8 @@ void SnapshotBuilder::Generate(SnapshotData* out,
         // in the future).
         if (per_process::cli_options->build_snapshot) {
 #if HAVE_INSPECTOR
-        // TODO(joyeecheung): move this before RunBootstrapping().
-        env->InitializeInspector({});
+          // TODO(joyeecheung): move this before RunBootstrapping().
+          env->InitializeInspector({});
 #endif
           // TODO(joyeecheung): we could use the result for something special,
           // like setting up initializers that should be invoked at snapshot
@@ -679,6 +772,11 @@ void SnapshotBuilder::Generate(SnapshotData* out,
         size_t index = creator.AddContext(
             main_context, {SerializeNodeContextInternalFields, env});
         CHECK_EQ(index, SnapshotBuilder::kNodeMainContextIndex);
+
+        // Regenerate all the code cache.
+        native_module::NativeModuleLoader* loader =
+            native_module::NativeModuleLoader::GetInstance();
+        loader->CompileAllModules(main_context, &(out->code_cache));
       }
     }
 

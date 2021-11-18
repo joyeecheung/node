@@ -1,6 +1,7 @@
 #include "node_native_module.h"
-#include "util-inl.h"
 #include "debug_utils-inl.h"
+#include "node_internals.h"
+#include "util-inl.h"
 
 namespace node {
 namespace native_module {
@@ -172,6 +173,31 @@ ScriptCompiler::CachedData* NativeModuleLoader::GetCodeCache(
   return it->second.get();
 }
 
+void NativeModuleLoader::CompileAllModules(Local<Context> context,
+                                           std::vector<CodeCacheInfo>* out) {
+  std::vector<std::string> ids = GetModuleIds();
+  for (const auto& id : ids) {
+    // TODO(joyeecheung): compile non-module scripts here too.
+    if (!CanBeRequired(id.c_str())) {
+      continue;
+    }
+    v8::TryCatch bootstrapCatch(context->GetIsolate());
+    native_module::NativeModuleLoader::Result result;
+    USE(CompileAsModule(context, id.c_str(), &result));
+    if (bootstrapCatch.HasCaught()) {
+      std::cerr << "Failed to compile " << id << "\n";
+      PrintCaughtException(context->GetIsolate(), context, bootstrapCatch);
+    } else {
+      ScriptCompiler::CachedData* cached_data = GetCodeCache(id.c_str());
+      CHECK_NOT_NULL(cached_data);
+      out->emplace_back(native_module::CodeCacheInfo{
+          id,
+          std::vector<uint8_t>(cached_data->data,
+                               cached_data->data + cached_data->length)});
+    }
+  }
+}
+
 MaybeLocal<Function> NativeModuleLoader::CompileAsModule(
     Local<Context> context,
     const char* id,
@@ -277,6 +303,11 @@ MaybeLocal<Function> NativeModuleLoader::LookupAndCompile(
                 : ScriptCompiler::kEagerCompile;
   ScriptCompiler::Source script_source(source, origin, cached_data);
 
+  per_process::Debug(DebugCategory::CODE_CACHE,
+                     "Compiling %s %s code cache\n",
+                     id,
+                     has_cache ? "with" : "without");
+
   MaybeLocal<Function> maybe_fun =
       ScriptCompiler::CompileFunctionInContext(context,
                                                &script_source,
@@ -304,6 +335,23 @@ MaybeLocal<Function> NativeModuleLoader::LookupAndCompile(
   *result = (has_cache && !script_source.GetCachedData()->rejected)
                 ? Result::kWithCache
                 : Result::kWithoutCache;
+
+  if (has_cache) {
+    per_process::Debug(DebugCategory::CODE_CACHE,
+                       "Code cache of %s (%s) %s\n",
+                       id,
+                       script_source.GetCachedData()->buffer_policy ==
+                               ScriptCompiler::CachedData::BufferNotOwned
+                           ? "BufferNotOwned"
+                           : "BufferOwned",
+                       script_source.GetCachedData()->rejected ? "is rejected"
+                                                               : "is accepted");
+  }
+
+  // if (*result == Result::kWithCache) {
+  //   return scope.Escape(fun);
+  // }
+
   // Generate new cache for next compilation
   std::unique_ptr<ScriptCompiler::CachedData> new_cached_data(
       ScriptCompiler::CreateCodeCacheForFunction(fun));
@@ -311,10 +359,12 @@ MaybeLocal<Function> NativeModuleLoader::LookupAndCompile(
 
   {
     Mutex::ScopedLock lock(code_cache_mutex_);
-    // The old entry should've been erased by now so we can just emplace.
-    // If another thread did the same thing in the meantime, that should not
-    // be an issue.
-    code_cache_.emplace(id, std::move(new_cached_data));
+    const auto it = code_cache_.find(id);
+    if (it == code_cache_.end()) {
+      code_cache_.emplace(id, std::move(new_cached_data));
+    } else {
+      it->second.reset(new_cached_data.release());
+    }
   }
 
   return scope.Escape(fun);

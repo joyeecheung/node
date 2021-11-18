@@ -979,6 +979,8 @@ struct SnapshotData {
   EnvSerializeInfo env_info;
   void ToBlob(FILE* out) const;
   static void FromBlob(SnapshotData* out, FILE* in);
+
+  std::vector<native_module::CodeCacheInfo> code_cache;
 };
 
 class Environment : public MemoryRetainer {
