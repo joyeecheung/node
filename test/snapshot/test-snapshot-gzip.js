@@ -17,7 +17,7 @@ const file = fixtures.path('snapshot', 'decompress-gzip-sync.js');
 {
   // By default, the snapshot blob path is snapshot.blob at cwd
   const child = spawnSync(process.execPath, [
-    '--snapshot-main',
+    '--build-snapshot',
     file,
   ], {
     env: {

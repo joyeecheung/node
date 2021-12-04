@@ -1,7 +1,7 @@
 'use strict';
 
 // This tests that user land snapshots works when the instance restored from
-// the snapshot is launched as a CJS module.
+// the snapshot is launched with --help, --check
 
 require('../common');
 const assert = require('assert');
@@ -14,15 +14,14 @@ const fs = require('fs');
 tmpdir.refresh();
 const blobPath = path.join(tmpdir.path, 'my-snapshot.blob');
 const file = fixtures.path('snapshot', 'mutate-fs.js');
-const checkFile = fixtures.path('snapshot', 'check-mutate-fs.js');
 
 {
   // Create the snapshot.
   const child = spawnSync(process.execPath, [
-    '--snapshot-main',
-    file,
     '--snapshot-blob',
     blobPath,
+    '--build-snapshot',
+    file,
   ], {
     cwd: tmpdir.path
   });
@@ -36,11 +35,11 @@ const checkFile = fixtures.path('snapshot', 'check-mutate-fs.js');
 }
 
 {
-  // Run the check file as a CJS module
+  // Check --help.
   const child = spawnSync(process.execPath, [
     '--snapshot-blob',
     blobPath,
-    checkFile,
+    '--help',
   ], {
     cwd: tmpdir.path
   });
@@ -50,4 +49,23 @@ const checkFile = fixtures.path('snapshot', 'check-mutate-fs.js');
     console.log(child.stdout.toString());
     assert.strictEqual(child.status, 0);
   }
+
+  assert(child.stdout.toString().includes('--help'));
+}
+
+{
+  // Check -c.
+  const child = spawnSync(process.execPath, [
+    '--snapshot-blob',
+    blobPath,
+    '-c',
+    file,
+  ], {
+    cwd: tmpdir.path
+  });
+
+  // Check that it is a noop.
+  assert.strictEqual(child.stdout.toString().trim(), '');
+  assert.strictEqual(child.stderr.toString().trim(), '');
+  assert.strictEqual(child.status, 0);
 }

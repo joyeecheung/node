@@ -1,6 +1,6 @@
 'use strict';
 
-// This tests the behavior of loading a UMD module with --snapshot-main
+// This tests the behavior of loading a UMD module with --build-snapshot
 
 require('../common');
 const assert = require('assert');
@@ -11,12 +11,12 @@ const path = require('path');
 const fs = require('fs');
 
 tmpdir.refresh();
-const file = fixtures.path('snapshot', 'typescript.js');
+const file = fixtures.path('snapshot', 'marked.js');
 
 {
   // By default, the snapshot blob path is snapshot.blob at cwd
   const child = spawnSync(process.execPath, [
-    '--snapshot-main',
+    '--build-snapshot',
     file,
   ], {
     cwd: tmpdir.path
@@ -35,7 +35,7 @@ const file = fixtures.path('snapshot', 'typescript.js');
   let child = spawnSync(process.execPath, [
     '--snapshot-blob',
     path.join(tmpdir.path, 'snapshot.blob'),
-    fixtures.path('snapshot', 'check-typescript.js'),
+    fixtures.path('snapshot', 'check-umd.js'),
   ], {
     cwd: tmpdir.path,
     env: {
@@ -54,7 +54,7 @@ const file = fixtures.path('snapshot', 'typescript.js');
   child = spawnSync(process.execPath, [
     '--snapshot-blob',
     path.join(tmpdir.path, 'snapshot.blob'),
-    fixtures.path('snapshot', 'check-typescript.js'),
+    fixtures.path('snapshot', 'check-umd.js'),
   ], {
     cwd: tmpdir.path,
     env: {

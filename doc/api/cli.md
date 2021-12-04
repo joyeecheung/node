@@ -73,6 +73,42 @@ If this flag is passed, the behavior can still be set to not abort through
 [`process.setUncaughtExceptionCaptureCallback()`][] (and through usage of the
 `domain` module that uses it).
 
+### `--build-snapshot`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+When `--build-snapshot` is set, the process will genearte a V8
+start snapshot of the heap and write it to disk before exiting.
+If `--snapshot-blob` is not specified, the generated blob
+will be written, by default, to `snapshot.blob` in the current working
+directory. Otherwise it will be written to the path specified by
+`--snapshot-blob`.
+
+At the moment, it's only supported to snapshot a process launched to
+run an entry point script, and the script can only load public Node.js
+APIs via `require()`. Support for `import` and loading user-land
+modules in the snapshot entry point will be added in the future.
+The process state can be restored with a provided `--snapshot-blob`
+later.
+
+Example:
+
+```console
+# Runs prepare.js and serialize the heap into snapshot.blob,
+# and write that to the current working directory.
+$ node --build-snapshot <other-node-arguments> prepare.js
+
+# Runs prepare.js and serialize the heap into a specified path.
+$ node --build-snapshot --snapshot-blob /path/to/snapshot.blob \
+    <other-node-arguments> prepare.js
+
+# Restore the process state from a snapshot blob.
+# The entry point index.js can load user land modules as normal.
+$ node --snapshot-blob snapshot.blob index.js
+```
+
 ### `--completion-bash`
 
 <!-- YAML
@@ -1007,28 +1043,18 @@ The maximum value is the lesser of `--secure-heap` or `2147483647`.
 The value given must be a power of two.
 
 ### `--snapshot-blob=path`
+
 <!-- YAML
 added: REPLACEME
 -->
 
-When used with `--snapshot-main`, `--snapshot-blob` specifies the path
+When used with `--build-snapshot`, `--snapshot-blob` specifies the path
 where the generated snapshot blob will be written to. If not speficied,
 the generated blob will be written, by default, to `snapshot.blob`
 in the current working directory.
 
-When used without `--snapshot-main`, `--snapshot-blob` specifies the
+When used without `--build-snapshot`, `--snapshot-blob` specifies the
 path to the blob that will be used to restore the application state.
-
-### `--snapshot-main=path`
-<!-- YAML
-added: REPLACEME
--->
-
-Specifies the path of the entry point file used to build user land
-snapshot. If `--snapshot-blob` is not specified, the generated blob
-will be written, by default, to `snapshot.blob` in the current working
-directory. Otherwise it will be written to the path specified by
-`--snapshot-blob`.
 
 ### `--throw-deprecation`
 
