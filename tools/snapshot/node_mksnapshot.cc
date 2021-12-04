@@ -27,13 +27,6 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  std::ofstream out;
-  out.open(argv[1], std::ios::out | std::ios::binary);
-  if (!out.is_open()) {
-    std::cerr << "Cannot open " << argv[1] << "\n";
-    return 1;
-  }
-
 // Windows needs conversion from wchar_t to char. See node_main.cc
 #ifdef _WIN32
   int node_argc = 1;
@@ -49,11 +42,25 @@ int main(int argc, char* argv[]) {
   CHECK(!result.early_return);
   CHECK_EQ(result.exit_code, 0);
 
+  std::string snapshot_main = "";
+  std::string output_file;
+  if (node::per_process::cli_options->build_snapshot) {
+    snapshot_main = result.args[1];
+    output_file = result.args[2];
+  } else {
+    output_file = result.args[1];
+  }
+
+  std::ofstream out;
+  out.open(output_file, std::ios::out | std::ios::binary);
+  if (!out.is_open()) {
+    std::cerr << "Cannot open " << argv[1] << "\n";
+    return 1;
+  }
+
   {
     std::string snapshot = node::SnapshotBuilder::Generate(
-        node::per_process::cli_options->snapshot_main,
-        result.args,
-        result.exec_args);
+        snapshot_main, result.args, result.exec_args);
     out << snapshot;
     out.close();
   }

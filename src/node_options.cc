@@ -718,9 +718,9 @@ PerProcessOptionsParser::PerProcessOptionsParser(
             "disable Object.prototype.__proto__",
             &PerProcessOptions::disable_proto,
             kAllowedInEnvironment);
-  AddOption("--snapshot-main",
-            "Path to the entry point file used to build user snapshot",
-            &PerProcessOptions::snapshot_main,
+  AddOption("--build-snapshot",
+            "Generate a snapshot blob when the process exits.",
+            &PerProcessOptions::build_snapshot,
             kDisallowedInEnvironment);
   AddOption("--snapshot-blob",
             "Path to the snapshot blob that's either the result of snapshot"

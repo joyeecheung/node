@@ -477,7 +477,7 @@ MaybeLocal<Value> StartExecution(Environment* env, StartExecutionCallback cb) {
     return StartExecution(env, "internal/main/worker_thread");
   }
 
-  if (!per_process::cli_options->snapshot_main.empty()) {
+  if (per_process::cli_options->build_snapshot) {
     return StartExecution(env, "internal/main/mksnapshot");
   }
 
@@ -1148,12 +1148,17 @@ int Start(int argc, char** argv) {
     return result.exit_code;
   }
 
-  if (!per_process::cli_options->snapshot_main.empty()) {
-    SnapshotData data;
-    node::SnapshotBuilder::Generate(&data,
-                                    per_process::cli_options->snapshot_main,
-                                    result.args,
-                                    result.exec_args);
+  // --build-snapshot is on.
+  if (per_process::cli_options->build_snapshot) {
+    if (result.args.size() < 2) {
+      fprintf(stderr,
+              "--build-snapshot only supports starting the process "
+              "with an entry point script.\n"
+              "Usage: %s --build-snapshot <...args> "
+              "/path/to/entry.js\n",
+              result.args[0].c_str());
+      return 1;
+    }
 
     std::string snapshot_blob_path;
     if (!per_process::cli_options->snapshot_blob.empty()) {
@@ -1162,44 +1167,49 @@ int Start(int argc, char** argv) {
       snapshot_blob_path = std::string("snapshot.blob");
     }
 
+    SnapshotData data;
+    node::SnapshotBuilder::Generate(
+        &data, result.args[1], result.args, result.exec_args);
+
     FILE* fp = fopen(snapshot_blob_path.c_str(), "w");
-    if (fp != nullptr) {
+    int exit_code = 0;
+    if (fp == nullptr) {
+      fprintf(stderr, "Cannot open %s\n", snapshot_blob_path.c_str());
+      exit_code = 1;
+    } else {
       data.ToBlob(fp);
       fclose(fp);
-    } else {
-      fprintf(stderr, "Cannot open %s", snapshot_blob_path.c_str());
-      result.exit_code = 1;
     }
-  } else {
-    SnapshotData snapshot_data;
-    Isolate::CreateParams params;
-    const std::vector<size_t>* indices = nullptr;
-    const EnvSerializeInfo* env_info = nullptr;
-    bool use_node_snapshot =
-        per_process::cli_options->per_isolate->node_snapshot;
-    if (use_node_snapshot) {
-      // TODO(joyee): return const SnapshotData* from the generated source
-      if (per_process::cli_options->snapshot_blob.empty()) {
-        v8::StartupData* blob = NodeMainInstance::GetEmbeddedSnapshotBlob();
-        if (blob != nullptr) {
-          params.snapshot_blob = blob;
-          indices = NodeMainInstance::GetIsolateDataIndices();
-          env_info = NodeMainInstance::GetEnvSerializeInfo();
-        }
-      } else {
-        std::string filename = per_process::cli_options->snapshot_blob;
-        FILE* fp = fopen(filename.c_str(), "r");
-        if (fp != nullptr) {
-          SnapshotData::FromBlob(&snapshot_data, fp);
-          params.snapshot_blob = &(snapshot_data.blob);
-          indices = &(snapshot_data.isolate_data_indices);
-          env_info = &(snapshot_data.env_info);
-          fclose(fp);
-        } else {
-          fprintf(stderr, "Cannot open %s", filename.c_str());
-          result.exit_code = 1;
-        }
+    delete[] data.blob.data;
+    return exit_code;
+  }
+
+  SnapshotData snapshot_data;
+  Isolate::CreateParams params;
+  const std::vector<size_t>* indices = nullptr;
+  const EnvSerializeInfo* env_info = nullptr;
+  bool use_node_snapshot = per_process::cli_options->per_isolate->node_snapshot;
+  if (use_node_snapshot) {
+    // TODO(joyee): return const SnapshotData* from the generated source
+    if (per_process::cli_options->snapshot_blob.empty()) {
+      v8::StartupData* blob = NodeMainInstance::GetEmbeddedSnapshotBlob();
+      if (blob != nullptr) {
+        params.snapshot_blob = blob;
+        indices = NodeMainInstance::GetIsolateDataIndices();
+        env_info = NodeMainInstance::GetEnvSerializeInfo();
       }
+    } else {
+      std::string filename = per_process::cli_options->snapshot_blob;
+      FILE* fp = fopen(filename.c_str(), "r");
+      if (fp == nullptr) {
+        fprintf(stderr, "Cannot open %s\n", filename.c_str());
+        return 1;
+      }
+      SnapshotData::FromBlob(&snapshot_data, fp);
+      params.snapshot_blob = &(snapshot_data.blob);
+      indices = &(snapshot_data.isolate_data_indices);
+      env_info = &(snapshot_data.env_info);
+      fclose(fp);
     }
     uv_loop_configure(uv_default_loop(), UV_METRICS_IDLE_TIME);
 

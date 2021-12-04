@@ -11,8 +11,8 @@
 #include "node_file.h"
 #include "node_internals.h"
 #include "node_main_instance.h"
-#include "node_process.h"
 #include "node_metadata.h"
+#include "node_process.h"
 #include "node_v8.h"
 #include "node_v8_platform-inl.h"
 
@@ -602,7 +602,7 @@ void SnapshotBuilder::Generate(SnapshotData* out,
                             {});
 
 #if HAVE_INSPECTOR
-     env->InitializeInspector({});
+      env->InitializeInspector({});
 #endif
       // Run scripts in lib/internal/bootstrap/
       {
@@ -811,12 +811,10 @@ namespace mksnapshot {
 
 static void CompileSnapshotMain(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[0]->IsString());
-  Local<String> source = args[0].As<String>();
+  Local<String> filename = args[0].As<String>();
+  Local<String> source = args[1].As<String>();
   Isolate* isolate = args.GetIsolate();
   Local<Context> context = isolate->GetCurrentContext();
-  std::string filename_s = std::string("node:snapshot_main");
-  Local<String> filename =
-      OneByteString(isolate, filename_s.c_str(), filename_s.size());
   ScriptOrigin origin(isolate, filename, 0, 0, true);
   // TODO(joyee): do we need all of these? Maybe we would want a less
   // internal version of them.
