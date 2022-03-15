@@ -3,7 +3,9 @@
 
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
+#include <vector>
 #include "node_native_module.h"
+#include "node_snapshotable.h"
 
 namespace node {
 class Environment;
@@ -38,6 +40,9 @@ class NativeModuleEnv {
   // the build is configured with --code-cache-path=.... They are noops
   // in node_code_cache_stub.cc
   static void InitializeCodeCache();
+  static void RefreshCodeCache(const std::vector<CodeCacheInfo>& vec);
+  static NativeModuleCacheMap* GetCodeCacheMap();
+  static const Mutex& GetCodeCacheMutex();
 
  private:
   static void RecordResult(const char* id,

@@ -11,6 +11,7 @@
 #include "node_file.h"
 #include "node_internals.h"
 #include "node_main_instance.h"
+#include "node_native_module_env.h"
 #include "node_process.h"
 #include "node_v8.h"
 #include "node_v8_platform-inl.h"
@@ -68,8 +69,18 @@ SnapshotData snapshot_data {
   // -- isolate_data_indices ends --
   // -- env_info begins --
 )" << data->env_info
-  << R"(
-  // -- env_info ends --
+     << R"(,
+  // -- code_cache begins --
+  {)";
+  for (const auto& info : data->code_cache) {
+    ss << "  { \"" << info.id << "\", \n";
+    ss << "    {";
+    WriteVector(&ss, info.data.data(), info.data.size());
+    ss << "}\n";
+    ss << "  },\n";
+  }
+  ss << R"(}
+  // -- code_cache ends --
 };
 
 const SnapshotData* NodeMainInstance::GetEmbeddedSnapshotData() {
@@ -160,6 +171,19 @@ void SnapshotBuilder::Generate(SnapshotData* out,
     // We must be able to rehash the blob when we restore it or otherwise
     // the hash seed would be fixed by V8, introducing a vulnerability.
     CHECK(out->blob.CanBeRehashed());
+
+    {
+      Mutex::ScopedLock lock(
+          native_module::NativeModuleEnv::GetCodeCacheMutex());
+      auto code_cache_map = native_module::NativeModuleEnv::GetCodeCacheMap();
+      // Copy the code cache into the vector.
+      for (const auto& pair : *code_cache_map) {
+        out->code_cache.emplace_back(native_module::CodeCacheInfo{
+            pair.first,
+            std::vector<uint8_t>(pair.second->data,
+                                 pair.second->data + pair.second->length)});
+      }
+    }
 
     // We cannot resurrect the handles from the snapshot, so make sure that
     // no handles are left open in the environment after the blob is created

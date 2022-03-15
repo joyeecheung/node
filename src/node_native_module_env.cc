@@ -38,6 +38,33 @@ Local<String> NativeModuleEnv::GetConfigString(Isolate* isolate) {
   return NativeModuleLoader::GetInstance()->GetConfigString(isolate);
 }
 
+NativeModuleCacheMap* NativeModuleEnv::GetCodeCacheMap() {
+  return NativeModuleLoader::GetInstance()->code_cache();
+}
+
+const Mutex& NativeModuleEnv::GetCodeCacheMutex() {
+  return NativeModuleLoader::GetInstance()->code_cache_mutex();
+}
+
+void NativeModuleEnv::RefreshCodeCache(const std::vector<CodeCacheInfo>& vec) {
+  Mutex::ScopedLock lock(GetCodeCacheMutex());
+  auto map = GetCodeCacheMap();
+  for (auto& info : vec) {
+    std::unique_ptr<uint8_t> copied_cache(new uint8_t[info.data.size()]);
+    memcpy(copied_cache.get(), info.data.data(), info.data.size());
+    std::unique_ptr<v8::ScriptCompiler::CachedData> new_cached_data =
+        std::make_unique<v8::ScriptCompiler::CachedData>(
+            copied_cache.release(),
+            info.data.size(),
+            v8::ScriptCompiler::CachedData::BufferOwned);
+    auto cache_it = map->find(info.id);
+    if (cache_it != map->end()) {
+      // Release the old cache and replace it with the new copy.
+      cache_it->second.reset(new_cached_data.release());
+    }
+  }
+}
+
 void NativeModuleEnv::GetModuleCategories(
     Local<Name> property, const PropertyCallbackInfo<Value>& info) {
   Environment* env = Environment::GetCurrent(info);
