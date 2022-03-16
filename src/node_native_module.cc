@@ -304,6 +304,21 @@ MaybeLocal<Function> NativeModuleLoader::LookupAndCompile(
   *result = (has_cache && !script_source.GetCachedData()->rejected)
                 ? Result::kWithCache
                 : Result::kWithoutCache;
+
+  per_process::Debug(DebugCategory::MKSNAPSHOT, "Code cache of %s", id);
+  if (has_cache) {
+    per_process::Debug(DebugCategory::MKSNAPSHOT,
+                       "(%s) %s\n",
+                       script_source.GetCachedData()->buffer_policy ==
+                               ScriptCompiler::CachedData::BufferNotOwned
+                           ? "BufferNotOwned"
+                           : "BufferOwned",
+                       script_source.GetCachedData()->rejected ? "is rejected"
+                                                               : "is accepted");
+  } else {
+    per_process::Debug(DebugCategory::MKSNAPSHOT, " is not found\n");
+  }
+
   // Generate new cache for next compilation
   std::unique_ptr<ScriptCompiler::CachedData> new_cached_data(
       ScriptCompiler::CreateCodeCacheForFunction(fun));
