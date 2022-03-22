@@ -169,7 +169,7 @@ class FileReader : public FileIO {
 
     MallocedBuffer<char> buf(length + 1);
     size_t r = fread(buf.data, 1, length + 1, f);
-    std::string result(buf.data, length);
+    std::string result(buf.data, length);  // This creates a copy of buf.data.
 
     if (is_debug) {
       Debug("%s, read %d bytes\n", result.c_str(), r);
@@ -273,14 +273,12 @@ v8::StartupData FileReader::Read() {
   Debug("Read<v8::StartupData>() ");
 
   int length = Read<int>();
-  MallocedBuffer<char> buf(length);
-  Read<char>(buf.data, length);
-  DCHECK_EQ(buf.size, static_cast<size_t>(length));
-  char* ptr = buf.release();
+  std::unique_ptr<char> buf = std::unique_ptr<char>(new char[length]);
+  Read<char>(buf.get(), length);
 
-  Debug("size=%d\n", buf.size);
+  Debug("size=%d\n", length);
 
-  return v8::StartupData{ptr, length};
+  return v8::StartupData{buf.release(), length};
 }
 
 template <>
@@ -512,7 +510,7 @@ size_t FileWriter::Write(const EnvSerializeInfo& data) {
   return written_total;
 }
 
-void SnapshotData::ToBlob(FILE* out) {
+void SnapshotData::ToBlob(FILE* out) const {
   FileWriter w(out);
   w.Debug("SnapshotData::ToBlob()\n");
 
