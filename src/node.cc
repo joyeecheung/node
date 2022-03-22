@@ -1157,51 +1157,66 @@ int Start(int argc, char** argv) {
     return result.exit_code;
   }
 
-  if (!per_process::cli_options->snapshot_main.empty()) {
-    SnapshotData data;
-    node::SnapshotBuilder::Generate(&data,
-                                    per_process::cli_options->snapshot_main,
-                                    result.args,
-                                    result.exec_args);
+  const SnapshotData* snapshot_data = nullptr;
+  bool should_cleanup_snapshot_data = false;
 
+  // --snapshot-main indicates that we are in snapshot building mode.
+  if (!per_process::cli_options->snapshot_main.empty()) {
+    // node:embedded_snapshot_main indicates that we are using the
+    // embedded snapshot and we are not supposed to clean it up.
+    if (per_process::cli_options->snapshot_main ==
+        "node:embedded_snapshot_main") {
+      snapshot_data = NodeMainInstance::GetEmbeddedSnapshotData();
+    } else {
+      // Otherwise, load an run the specified main script.
+      std::unique_ptr<SnapshotData> generated_data =
+          std::make_unique<SnapshotData>();
+      node::SnapshotBuilder::Generate(generated_data.get(),
+                                      per_process::cli_options->snapshot_main,
+                                      result.args,
+                                      result.exec_args);
+      snapshot_data = generated_data.release();
+      should_cleanup_snapshot_data = true;
+    }
+
+    // Get the path to write the snapshot blob to.
     std::string snapshot_blob_path;
     if (!per_process::cli_options->snapshot_blob.empty()) {
       snapshot_blob_path = per_process::cli_options->snapshot_blob;
     } else {
+      // Defaults to snapshot.blob in the current working directory.
       snapshot_blob_path = std::string("snapshot.blob");
     }
 
     FILE* fp = fopen(snapshot_blob_path.c_str(), "w");
     if (fp != nullptr) {
-      data.ToBlob(fp);
+      snapshot_data->ToBlob(fp);
       fclose(fp);
     } else {
       fprintf(stderr, "Cannot open %s", snapshot_blob_path.c_str());
       result.exit_code = 1;
     }
   } else {
-    const SnapshotData* snapshot_data = nullptr;
-    bool should_cleanup_snapshot = false;
-    bool use_node_snapshot =
-        per_process::cli_options->per_isolate->node_snapshot;
-    if (use_node_snapshot) {
-      if (per_process::cli_options->snapshot_blob.empty()) {
-        snapshot_data = NodeMainInstance::GetEmbeddedSnapshotData();
+    // Without --snapshot-main, we are in snapshot loading mode.
+    // --snapshot-blob indicates that we are reading a customized snapshot
+    if (!per_process::cli_options->snapshot_blob.empty()) {
+      std::string filename = per_process::cli_options->snapshot_blob;
+      FILE* fp = fopen(filename.c_str(), "r");
+      if (fp != nullptr) {
+        std::unique_ptr<SnapshotData> read_data =
+            std::make_unique<SnapshotData>();
+        SnapshotData::FromBlob(read_data.get(), fp);
+        snapshot_data = read_data.release();
+        should_cleanup_snapshot_data = true;
+        fclose(fp);
       } else {
-        std::string filename = per_process::cli_options->snapshot_blob;
-        FILE* fp = fopen(filename.c_str(), "r");
-        if (fp != nullptr) {
-          std::unique_ptr<SnapshotData> snapshot_data_ptr =
-              std::make_unique<SnapshotData>();
-          SnapshotData::FromBlob(snapshot_data_ptr.get(), fp);
-          fclose(fp);
-          snapshot_data = snapshot_data_ptr.release();
-          should_cleanup_snapshot = true;
-        } else {
-          fprintf(stderr, "Cannot open %s", filename.c_str());
-          result.exit_code = 1;
-        }
+        fprintf(stderr, "Cannot open %s", filename.c_str());
+        result.exit_code = 1;
       }
+      // Otherwise we are reading the embedded snapshot, but we will skip
+      // it if --no-node-snapshot is specified,
+    } else if (per_process::cli_options->per_isolate->node_snapshot) {
+      snapshot_data = NodeMainInstance::GetEmbeddedSnapshotData();
     }
     uv_loop_configure(uv_default_loop(), UV_METRICS_IDLE_TIME);
 
@@ -1211,13 +1226,15 @@ int Start(int argc, char** argv) {
                                    result.args,
                                    result.exec_args);
     result.exit_code = main_instance.Run();
-    if (should_cleanup_snapshot) {
-      delete snapshot_data->blob.data;
-      delete snapshot_data;
-    }
   }
 
   TearDownOncePerProcess();
+
+  if (should_cleanup_snapshot_data) {
+    delete[] snapshot_data->blob.data;
+    delete snapshot_data;
+  }
+
   return result.exit_code;
 }
 
