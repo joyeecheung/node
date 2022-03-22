@@ -1,9 +1,9 @@
 #include <algorithm>
 
-#include "node_native_module_env.h"
 #include "debug_utils-inl.h"
 #include "env-inl.h"
 #include "node_external_reference.h"
+#include "node_native_module_env.h"
 
 namespace node {
 namespace native_module {
@@ -72,9 +72,9 @@ void NativeModuleEnv::RefreshCodeCache(const std::vector<CodeCacheInfo>& vec) {
           new_size);
       if (per_process::enabled_debug_list.enabled(DebugCategory::MKSNAPSHOT)) {
         size_t offset = 0;
-        while (offset < old_size &&
-               offset < new_size &&
-               *(cache_it->second->data + offset) == *(new_cached_data->data + offset)) {
+        while (offset < old_size && offset < new_size &&
+               *(cache_it->second->data + offset) ==
+                   *(new_cached_data->data + offset)) {
           offset++;
         }
         per_process::Debug(
