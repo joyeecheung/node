@@ -725,6 +725,11 @@ PerProcessOptionsParser::PerProcessOptionsParser(
             "disable Object.prototype.__proto__",
             &PerProcessOptions::disable_proto,
             kAllowedInEnvironment);
+  AddOption("--snapshot-main",
+            "Path to the entry point file used to build user snapshot, "
+            "currently only aupported by the internal node_mksnapshot binary",
+            &PerProcessOptions::snapshot_main,
+            kDisallowedInEnvironment);
 
   // 12.x renamed this inadvertently, so alias it for consistency within the
   // release line, while using the original name for consistency with older
