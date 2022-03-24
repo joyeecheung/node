@@ -495,7 +495,7 @@ MaybeLocal<Value> StartExecution(Environment* env, StartExecutionCallback cb) {
     return StartExecution(env, "internal/main/inspect");
   }
 
-  if (!per_process::cli_options->snapshot_main.empty()) {
+  if (per_process::cli_options->build_snapshot) {
     return StartExecution(env, "internal/main/mksnapshot");
   }
 
@@ -1157,9 +1157,9 @@ int Start(int argc, char** argv) {
     return result.exit_code;
   }
 
-  if (!per_process::cli_options->snapshot_main.empty()) {
+  if (per_process::cli_options->build_snapshot) {
     fprintf(stderr,
-            "--snapshot-main is not yet supported in the node binary\n");
+            "--build-snapshot is not yet supported in the node binary\n");
     return 1;
   }
 

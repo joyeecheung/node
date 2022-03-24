@@ -331,7 +331,7 @@
                   ],
                   'action': [
                     '<(node_mksnapshot_exec)',
-                    '--snapshot-main',
+                    '--build-snapshot',
                     '<(node_snapshot_main)',
                     '<@(_outputs)',
                   ],
