@@ -976,6 +976,8 @@ struct SnapshotData {
   v8::StartupData blob;
   std::vector<size_t> isolate_data_indices;
   EnvSerializeInfo env_info;
+
+  void DebugPrint() const;
 };
 
 class Environment : public MemoryRetainer {

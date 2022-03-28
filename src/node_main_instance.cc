@@ -77,7 +77,12 @@ NodeMainInstance::NodeMainInstance(const SnapshotData* snapshot_data,
       isolate_params_(std::make_unique<Isolate::CreateParams>()),
       snapshot_data_(snapshot_data) {
   isolate_params_->array_buffer_allocator = array_buffer_allocator_.get();
+
   if (snapshot_data != nullptr) {
+    per_process::Debug(DebugCategory::MKSNAPSHOT,
+                       "Reading snapshot blob\n");
+    snapshot_data->DebugPrint();
+
     // TODO(joyeecheung): collect external references and set it in
     // params.external_references.
     const std::vector<intptr_t>& external_references =

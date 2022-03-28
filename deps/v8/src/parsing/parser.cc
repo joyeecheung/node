@@ -829,6 +829,10 @@ void Parser::ParseFunction(Isolate* isolate, ParseInfo* info,
   if (shared_info->HasOuterScopeInfo()) {
     maybe_outer_scope_info = handle(shared_info->GetOuterScopeInfo(), isolate);
   }
+  if (shared_info->Name().IsOneByteEqualTo(base::CStrVector("isBrandCheck"))) {
+    PrintF("Found shared info\n");
+    shared_info->Print();
+  }
   DeserializeScopeChain(isolate, info, maybe_outer_scope_info,
                         Scope::DeserializationMode::kIncludingVariables);
   DCHECK_EQ(factory()->zone(), info->zone());

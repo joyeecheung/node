@@ -2055,6 +2055,10 @@ Variable* Scope::Lookup(VariableProxy* proxy, Scope* scope,
         var = scope->variables_.Lookup(proxy->raw_name());
         if (var != nullptr) return var;
       }
+      if (proxy->raw_name()->IsOneByteEqualTo("kTTTTTTTTT")) {
+        PrintF("Found scope info\n");
+        scope->Print(0);
+      }
       var = scope->LookupInScopeInfo(proxy->raw_name(),
                                      external_cache ? cache_scope : scope);
     }

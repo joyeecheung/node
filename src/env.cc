@@ -1459,11 +1459,6 @@ void Environment::DeserializeProperties(const EnvSerializeInfo* info) {
   stream_base_state_.Deserialize(ctx);
   should_abort_on_uncaught_toggle_.Deserialize(ctx);
 
-  if (enabled_debug_list_.enabled(DebugCategory::MKSNAPSHOT)) {
-    fprintf(stderr, "deserializing...\n");
-    std::cerr << *info << "\n";
-  }
-
   const std::vector<PropInfo>& templates = info->persistent_templates;
   size_t i = 0;  // index to the array
   size_t id = 0;

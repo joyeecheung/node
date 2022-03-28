@@ -196,6 +196,10 @@ void SnapshotBuilder::Generate(SnapshotData* out,
     out->blob =
         creator.CreateBlob(SnapshotCreator::FunctionCodeHandling::kClear);
 
+    per_process::Debug(DebugCategory::MKSNAPSHOT,
+                       "Created snapshot blob\n");
+    out->DebugPrint();
+
     // We must be able to rehash the blob when we restore it or otherwise
     // the hash seed would be fixed by V8, introducing a vulnerability.
     CHECK(out->blob.CanBeRehashed());
@@ -229,6 +233,28 @@ std::string SnapshotBuilder::Generate(
   std::string result = FormatBlob(&data);
   delete[] data.blob.data;
   return result;
+}
+
+void SnapshotData::DebugPrint() const {
+  if (per_process::enabled_debug_list.enabled(DebugCategory::MKSNAPSHOT)) {
+    std::cerr << "- blob <v8::StartupData>\n";
+    std::cerr << "  size: " << blob.raw_size << "\n  { ";
+    // Print the first 7 words of the blob which should contain the metadata and
+    // offset of the first (and only) context.
+    const uint32_t* ptr = reinterpret_cast<const uint32_t*>(blob.data);
+    for (size_t i = 0; i < 7; ++i) {
+      std::cerr << *(ptr + i) << ", ";
+    }
+    std::cerr << "... }\n";
+    std::cerr << "- isolate_data_indices <std::vector<size_t>:\n";
+    std::cerr << "  size: " << blob.raw_size << "\n  {";
+    for (size_t i = 0; i < isolate_data_indices.size(); ++i) {
+      std::cerr << ((i % 5 == 0) ? "\n    " : ", ") << *(ptr + i);
+    }
+
+    fprintf(stderr, "}\n- env_info <EnvSerializeInfo>\n");
+    std::cerr << env_info << "\n";
+  }
 }
 
 SnapshotableObject::SnapshotableObject(Environment* env,
