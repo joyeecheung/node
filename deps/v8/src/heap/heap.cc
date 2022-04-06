@@ -1958,7 +1958,17 @@ bool Heap::CollectGarbage(AllocationSpace space,
   }
 
   if (!CanExpandOldGeneration(0)) {
-    InvokeNearHeapLimitCallback();
+    {
+      GCCallbacksScope scope(this);
+      if (scope.CheckReenter()) {
+        AllowGarbageCollection allow_gc;
+        AllowJavascriptExecution allow_js(isolate());
+        TRACE_GC(tracer(), GCTracer::Scope::HEAP_EXTERNAL_NEAR_HEAP_LIMIT);
+        VMState<EXTERNAL> callback_state(isolate_);
+        HandleScope handle_scope(isolate_);
+        InvokeNearHeapLimitCallback();
+      }
+    }
     if (!CanExpandOldGeneration(0)) {
       FatalProcessOutOfMemory("Reached heap limit");
     }
