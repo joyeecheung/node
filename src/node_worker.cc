@@ -146,6 +146,19 @@ class WorkerThreadData {
     SetIsolateCreateParamsForNode(&params);
     params.array_buffer_allocator_shared = allocator;
 
+    bool use_node_snapshot =
+        per_process::cli_options->per_isolate->node_snapshot;
+    // TODO(joyeecheung): protect it with a mutex.
+    const SnapshotData* snapshot_data =
+        use_node_snapshot ? NodeMainInstance::GetEmbeddedSnapshotData()
+                          : nullptr;
+    if (snapshot_data != nullptr) {
+      const std::vector<intptr_t>& external_references =
+          NodeMainInstance::CollectExternalReferences();
+      params.external_references = external_references.data();
+      params.snapshot_blob =
+          const_cast<v8::StartupData*>(&(snapshot_data->blob));
+    }
     w->UpdateResourceConstraints(&params.constraints);
 
     Isolate* isolate = Isolate::Allocate();

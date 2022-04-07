@@ -47,9 +47,10 @@ NodeMainInstance::NodeMainInstance(Isolate* isolate,
 }
 
 const std::vector<intptr_t>& NodeMainInstance::CollectExternalReferences() {
-  // Cannot be called more than once.
-  CHECK_NULL(registry_);
-  registry_.reset(new ExternalReferenceRegistry());
+  // TODO(joyeecheung): protect this with a mutex.
+  if (registry_ == nullptr) {
+    registry_.reset(new ExternalReferenceRegistry());
+  }
   return registry_->external_references();
 }
 

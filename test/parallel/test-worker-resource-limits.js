@@ -38,7 +38,9 @@ while (true) {
   // Leave 10% wiggle room here, and 20% on debug builds.
   const wiggleRoom = common.buildType === 'Release' ? 1.1 : 1.2;
   const usedMB = v8.getHeapStatistics().used_heap_size / 1024 / 1024;
-  assert(usedMB < resourceLimits.maxOldGenerationSizeMb * wiggleRoom);
+  // The isolate snapshot takes about 3MB
+  // TODO(joyeecheung): no need to account for that in --no-node-snapshot.
+  assert(usedMB < resourceLimits.maxOldGenerationSizeMb * wiggleRoom + 3);
 
   let seenSpaces = 0;
   for (const { space_name, space_size } of v8.getHeapSpaceStatistics()) {

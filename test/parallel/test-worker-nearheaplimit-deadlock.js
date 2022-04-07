@@ -8,8 +8,8 @@ if (!process.env.HAS_STARTED_WORKER) {
   process.env.HAS_STARTED_WORKER = 1;
   const opts = {
     resourceLimits: {
-      maxYoungGenerationSizeMb: 0,
-      maxOldGenerationSizeMb: 0
+      maxYoungGenerationSizeMb: 3,
+      maxOldGenerationSizeMb: 3
     }
   };
 
