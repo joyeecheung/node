@@ -2303,6 +2303,11 @@ has occurred when attempting to start the loop.
 Once no more items are left in the queue, the idle loop must be suspended. This
 error indicates that the idle loop has failed to stop.
 
+### `ERR_NOT_BUILDING_SNAPSHOT`
+
+An attempt was made to use operations that can only be used when building
+V8 startup snapshot even though Node.js isn't building one.
+
 <a id="ERR_NO_CRYPTO"></a>
 
 ### `ERR_NO_CRYPTO`
