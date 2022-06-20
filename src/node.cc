@@ -1188,9 +1188,15 @@ int Start(int argc, char** argv) {
   }
 
   const SnapshotData* snapshot_data = nullptr;
-  // When this is false, the data comes from the embedded snapshot blob,
-  // otherwise we'd need to clean it up.
-  bool should_cleanup_snapshot_data = false;
+
+  auto cleanup_process = OnScopeLeave([&]() {
+    TearDownOncePerProcess();
+
+    if (snapshot_data != nullptr &&
+        snapshot_data->data_ownership == SnapshotData::DataOwnership::kOwned) {
+      delete snapshot_data;
+    }
+  });
 
   // --build-snapshot indicates that we are in snapshot building mode.
   if (per_process::cli_options->build_snapshot) {
@@ -1206,12 +1212,14 @@ int Start(int argc, char** argv) {
       snapshot_data = SnapshotBuilder::GetEmbeddedSnapshotData();
     } else {
       // Otherwise, load and run the specified main script.
-      std::unique_ptr<SnapshotData> generated_data =
-          std::make_unique<SnapshotData>();
-      node::SnapshotBuilder::Generate(
+      std::unique_ptr<SnapshotData> generated_data = SnapshotData::New();
+      result.exit_code = node::SnapshotBuilder::Generate(
           generated_data.get(), result.args, result.exec_args);
-      snapshot_data = generated_data.release();
-      should_cleanup_snapshot_data = true;
+      if (result.exit_code == 0) {
+        snapshot_data = generated_data.release();
+      } else {
+        return result.exit_code;
+      }
     }
 
     // Get the path to write the snapshot blob to.
@@ -1238,11 +1246,9 @@ int Start(int argc, char** argv) {
       std::string filename = per_process::cli_options->snapshot_blob;
       FILE* fp = fopen(filename.c_str(), "rb");
       if (fp != nullptr) {
-        std::unique_ptr<SnapshotData> read_data =
-            std::make_unique<SnapshotData>();
+        std::unique_ptr<SnapshotData> read_data = SnapshotData::New();
         SnapshotData::FromBlob(read_data.get(), fp);
         snapshot_data = read_data.release();
-        should_cleanup_snapshot_data = true;
         fclose(fp);
       } else {
         fprintf(stderr, "Cannot open %s", filename.c_str());
@@ -1266,13 +1272,6 @@ int Start(int argc, char** argv) {
                                    result.args,
                                    result.exec_args);
     result.exit_code = main_instance.Run();
-  }
-
-  TearDownOncePerProcess();
-
-  if (should_cleanup_snapshot_data) {
-    delete[] snapshot_data->v8_snapshot_blob_data.data;
-    delete snapshot_data;
   }
 
   return result.exit_code;
