@@ -483,7 +483,11 @@ SnapshotCreator::SnapshotCreator(const intptr_t* external_references,
 
 SnapshotCreator::~SnapshotCreator() {
   SnapshotCreatorData* data = SnapshotCreatorData::cast(data_);
-  DCHECK(data->created_);
+#ifdef DEBUG
+  if (!data->created_) {
+    i::PrintF("Snapshot was not created.\n");
+  }
+#endif
   Isolate* isolate = data->isolate_;
   isolate->Exit();
   isolate->Dispose();
