@@ -32,10 +32,19 @@
 
 namespace node {
 
+// This just has to be different from the Chromium ones:
+// https://source.chromium.org/chromium/chromium/src/+/main:gin/public/gin_embedders.h;l=18-23;drc=5a758a97032f0b656c3c36a3497560762495501a
+// Otherwise, when Node is loaded in an isolate which uses cppgc, cppgc will
+// misinterpret the data stored in the embedder fields and try to garbage
+// collect them.
+static uint16_t kNodeEmbedderId = 0x90de;
+
 BaseObject::BaseObject(Environment* env, v8::Local<v8::Object> object)
     : persistent_handle_(env->isolate(), object), env_(env) {
   CHECK_EQ(false, object.IsEmpty());
-  CHECK_GT(object->InternalFieldCount(), 0);
+  CHECK_GE(object->InternalFieldCount(), BaseObject::kInternalFieldCount);
+  object->SetAlignedPointerInInternalField(BaseObject::kEmbedderType,
+      &kNodeEmbedderId);
   object->SetAlignedPointerInInternalField(
       BaseObject::kSlot,
       static_cast<void*>(this));
@@ -151,7 +160,9 @@ bool BaseObject::IsWeakOrDetached() const {
 void BaseObject::LazilyInitializedJSTemplateConstructor(
     const v8::FunctionCallbackInfo<v8::Value>& args) {
   DCHECK(args.IsConstructCall());
-  DCHECK_GT(args.This()->InternalFieldCount(), 0);
+  CHECK_GE(args.This()->InternalFieldCount(), BaseObject::kInternalFieldCount);
+  args.This()->SetAlignedPointerInInternalField(
+      BaseObject::kEmbedderType, &kNodeEmbedderId);
   args.This()->SetAlignedPointerInInternalField(BaseObject::kSlot, nullptr);
 }
 

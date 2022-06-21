@@ -40,9 +40,9 @@ class TransferData;
 
 class BaseObject : public MemoryRetainer {
  public:
-  enum InternalFields { kSlot, kInternalFieldCount };
+  enum InternalFields { kEmbedderType, kSlot, kInternalFieldCount };
 
-  // Associates this object with `object`. It uses the 0th internal field for
+  // Associates this object with `object`. It uses the 1st internal field for
   // that, and in particular aborts if there is no such field.
   inline BaseObject(Environment* env, v8::Local<v8::Object> object);
   inline ~BaseObject() override;
