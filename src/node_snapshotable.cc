@@ -177,6 +177,28 @@ void SnapshotBuilder::InitializeIsolateParams(const SnapshotData* data,
       const_cast<v8::StartupData*>(&(data->v8_snapshot_blob_data));
 }
 
+void SnapshotFatalErrorHandler(const char* location, const char* message) {
+  // We match against the error message here since currently V8 has no
+  // mechanism of identifying the API errors otherwise. This message
+  // indicates that we voluntarily gave up snapshot building. There
+  // should've been other information printed already and we'll
+  // exit from other place.
+  const char* no_blob = "No snapshot blob was not created.";
+  if (strncmp(message, no_blob, strlen(no_blob)) == 0) {
+    FPrintF(stderr, "\n%s\n", message);
+    return;
+  }
+
+  if (location) {
+    FPrintF(stderr, "FATAL ERROR: %s %s\n", location, message);
+  } else {
+    FPrintF(stderr, "FATAL ERROR: %s\n", message);
+  }
+  DumpBacktrace(stderr);
+  fflush(stderr);
+  ABORT();
+}
+
 constexpr int INTERNAL_ERROR = 12;
 
 int SnapshotBuilder::Generate(SnapshotData* out,
@@ -194,6 +216,7 @@ int SnapshotBuilder::Generate(SnapshotData* out,
 
   isolate->SetCaptureStackTraceForUncaughtExceptions(
       true, 10, v8::StackTrace::StackTraceOptions::kDetailed);
+  isolate->SetFatalErrorHandler(SnapshotFatalErrorHandler);
 
   Environment* env = nullptr;
   std::unique_ptr<NodeMainInstance> main_instance =
