@@ -479,7 +479,7 @@ void BlobBindingData::PrepareForSerialization(
 }
 
 InternalFieldInfo* BlobBindingData::Serialize(int index) {
-  DCHECK_EQ(index, BaseObject::kSlot);
+  DCHECK_EQ(index, BaseObject::kEmbedderType);
   InternalFieldInfo* info = InternalFieldInfo::New(type());
   return info;
 }

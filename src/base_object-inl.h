@@ -44,7 +44,7 @@ BaseObject::BaseObject(Environment* env, v8::Local<v8::Object> object)
   CHECK_EQ(false, object.IsEmpty());
   CHECK_GE(object->InternalFieldCount(), BaseObject::kInternalFieldCount);
   object->SetAlignedPointerInInternalField(BaseObject::kEmbedderType,
-      &kNodeEmbedderId);
+                                           &kNodeEmbedderId);
   object->SetAlignedPointerInInternalField(
       BaseObject::kSlot,
       static_cast<void*>(this));
@@ -161,8 +161,8 @@ void BaseObject::LazilyInitializedJSTemplateConstructor(
     const v8::FunctionCallbackInfo<v8::Value>& args) {
   DCHECK(args.IsConstructCall());
   CHECK_GE(args.This()->InternalFieldCount(), BaseObject::kInternalFieldCount);
-  args.This()->SetAlignedPointerInInternalField(
-      BaseObject::kEmbedderType, &kNodeEmbedderId);
+  args.This()->SetAlignedPointerInInternalField(BaseObject::kEmbedderType,
+                                                &kNodeEmbedderId);
   args.This()->SetAlignedPointerInInternalField(BaseObject::kSlot, nullptr);
 }
 

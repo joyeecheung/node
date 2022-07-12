@@ -1444,6 +1444,7 @@ void Environment::EnqueueDeserializeRequest(DeserializeRequestCallback cb,
                                             Local<Object> holder,
                                             int index,
                                             InternalFieldInfo* info) {
+  DCHECK_EQ(index, BaseObject::kEmbedderType);
   DeserializeRequest request{cb, {isolate(), holder}, index, info};
   deserialize_requests_.push_back(std::move(request));
 }
