@@ -33,6 +33,12 @@ for (let i = 0; i < 201; i++) {
 stream.end();
 stream.on('finish', common.mustCall(function() {
   fs.readFile(file, 'utf8', common.mustCall(function(err, buf) {
+    if (!(err instanceof Error)) {
+      console.log('err:');
+      console.log(err);
+      console.log('buf:');
+      console.log(buf);
+    }
     assert.ok(err instanceof Error);
     if (err.message !== 'Array buffer allocation failed') {
       const stringLengthHex = kStringMaxLength.toString(16);
