@@ -927,7 +927,7 @@ class CleanupHookCallback {
 
 struct PropInfo {
   std::string name;     // name for debugging
-  size_t id;            // In the list - in case there are any empty entries
+  uint32_t id;          // In the list - in case there are any empty entries
   SnapshotIndex index;  // In the snapshot
 };
 
@@ -965,9 +965,9 @@ struct EnvSerializeInfo {
 struct SnapshotData {
   enum class DataOwnership { kOwned, kNotOwned };
 
-  static const uint64_t kMagic = 0x143da19;
-  static const size_t kNodeBaseContextIndex = 0;
-  static const size_t kNodeMainContextIndex = kNodeBaseContextIndex + 1;
+  static const uint32_t kMagic = 0x143da19;
+  static const SnapshotIndex kNodeBaseContextIndex = 0;
+  static const SnapshotIndex kNodeMainContextIndex = kNodeBaseContextIndex + 1;
 
   DataOwnership data_ownership = DataOwnership::kOwned;
 
@@ -975,7 +975,7 @@ struct SnapshotData {
   // building process.
   v8::StartupData v8_snapshot_blob_data{nullptr, 0};
 
-  std::vector<size_t> isolate_data_indices;
+  std::vector<SnapshotIndex> isolate_data_indices;
   // TODO(joyeecheung): there should be a vector of env_info once we snapshot
   // the worker environments.
   EnvSerializeInfo env_info;

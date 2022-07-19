@@ -1555,8 +1555,7 @@ std::ostream& operator<<(std::ostream& output,
 AsyncHooks::SerializeInfo AsyncHooks::Serialize(Local<Context> context,
                                                 SnapshotCreator* creator) {
   SerializeInfo info;
-  // TODO(joyeecheung): should we serialize them at all? Are we capable
-  // of deserializing the async stack or does it even make sense?
+  // TODO(joyeecheung): some of these probably don't need to be serialized.
   info.async_ids_stack = async_ids_stack_.Serialize(context, creator);
   info.fields = fields_.Serialize(context, creator);
   info.async_id_fields = async_id_fields_.Serialize(context, creator);
@@ -1750,12 +1749,12 @@ EnvSerializeInfo Environment::Serialize(SnapshotCreator* creator) {
   info.should_abort_on_uncaught_toggle =
       should_abort_on_uncaught_toggle_.Serialize(ctx, creator);
 
-  size_t id = 0;
+  uint32_t id = 0;
 #define V(PropertyName, TypeName)                                              \
   do {                                                                         \
     Local<TypeName> field = PropertyName();                                    \
     if (!field.IsEmpty()) {                                                    \
-      size_t index = creator->AddData(field);                                  \
+      SnapshotIndex index = creator->AddData(field);                           \
       info.persistent_templates.push_back({#PropertyName, id, index});         \
     }                                                                          \
     id++;                                                                      \
@@ -1768,7 +1767,7 @@ EnvSerializeInfo Environment::Serialize(SnapshotCreator* creator) {
   do {                                                                         \
     Local<TypeName> field = PropertyName();                                    \
     if (!field.IsEmpty()) {                                                    \
-      size_t index = creator->AddData(ctx, field);                             \
+      SnapshotIndex index = creator->AddData(ctx, field);                      \
       info.persistent_values.push_back({#PropertyName, id, index});            \
     }                                                                          \
     id++;                                                                      \

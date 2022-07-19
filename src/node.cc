@@ -1170,13 +1170,22 @@ void TearDownOncePerProcess() {
 
 int GenerateAndWriteSnapshotData(const SnapshotData** snapshot_data_ptr,
                                  InitializationResult* result) {
-  DCHECK_NULL(
-      *snapshot_data_ptr);  // nullptr indicates there's no snapshot data.
+  // nullptr indicates there's no snapshot data.
+  DCHECK_NULL(*snapshot_data_ptr);
 
   // node:embedded_snapshot_main indicates that we are using the
   // embedded snapshot and we are not supposed to clean it up.
   if (result->args[1] == "node:embedded_snapshot_main") {
     *snapshot_data_ptr = SnapshotBuilder::GetEmbeddedSnapshotData();
+    if (*snapshot_data_ptr == nullptr) {
+      // The Node.js binary is built without embedded snapshot
+      fprintf(stderr,
+              "node:embedded_snapshot_main was specified as snapshot "
+              "entry point but Node.js was built without embedded "
+              "snapshot.\n");
+      result->exit_code = 1;
+      return result->exit_code;
+    }
   } else {
     // Otherwise, load and run the specified main script.
     std::unique_ptr<SnapshotData> generated_data =
@@ -1204,7 +1213,9 @@ int GenerateAndWriteSnapshotData(const SnapshotData** snapshot_data_ptr,
     (*snapshot_data_ptr)->ToBlob(fp);
     fclose(fp);
   } else {
-    fprintf(stderr, "Cannot open %s", snapshot_blob_path.c_str());
+    fprintf(stderr,
+            "Cannot open %s for writing a snapshot.\n",
+            snapshot_blob_path.c_str());
     result->exit_code = 1;
   }
   return result->exit_code;
@@ -1212,8 +1223,8 @@ int GenerateAndWriteSnapshotData(const SnapshotData** snapshot_data_ptr,
 
 int LoadSnapshotDataAndRun(const SnapshotData** snapshot_data_ptr,
                            InitializationResult* result) {
-  DCHECK_NULL(
-      *snapshot_data_ptr);  // nullptr indicates there's no snapshot data.
+  // nullptr indicates there's no snapshot data.
+  DCHECK_NULL(*snapshot_data_ptr);
   // --snapshot-blob indicates that we are reading a customized snapshot.
   if (!per_process::cli_options->snapshot_blob.empty()) {
     std::string filename = per_process::cli_options->snapshot_blob;

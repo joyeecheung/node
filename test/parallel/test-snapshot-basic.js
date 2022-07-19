@@ -12,20 +12,40 @@ const path = require('path');
 const fs = require('fs');
 
 tmpdir.refresh();
-const file = fixtures.path('snapshot', 'mutate-fs.js');
+
+let snapshotScript = 'node:embedded_snapshot_main';
+if (!process.config.variables.node_use_node_snapshot) {
+  // Check that Node.js built without an embedded snapshot
+  // exits with 1 when node:embedded_snapshot_main is specified
+  // as snapshot entry point.
+  const child = spawnSync(process.execPath, [
+    '--build-snapshot',
+    snapshotScript,
+  ], {
+    cwd: tmpdir.path
+  });
+
+  assert.match(
+    child.stderr.toString(),
+    /Node\.js was built without embedded snapshot/);
+  assert.strictEqual(child.status, 1);
+
+  snapshotScript = fixtures.path('empty.js');
+}
 
 // By default, the snapshot blob path is cwd/snapshot.blob.
 {
   // Create the snapshot.
   const child = spawnSync(process.execPath, [
     '--build-snapshot',
-    file,
+    snapshotScript,
   ], {
     cwd: tmpdir.path
   });
   if (child.status !== 0) {
     console.log(child.stderr.toString());
     console.log(child.stdout.toString());
+    console.log(child.signal);
     assert.strictEqual(child.status, 0);
   }
   const stats = fs.statSync(path.join(tmpdir.path, 'snapshot.blob'));
@@ -40,13 +60,14 @@ const blobPath = path.join(tmpdir.path, 'my-snapshot.blob');
     '--snapshot-blob',
     blobPath,
     '--build-snapshot',
-    file,
+    snapshotScript,
   ], {
     cwd: tmpdir.path
   });
   if (child.status !== 0) {
     console.log(child.stderr.toString());
     console.log(child.stdout.toString());
+    console.log(child.signal);
     assert.strictEqual(child.status, 0);
   }
   const stats = fs.statSync(blobPath);
@@ -66,6 +87,7 @@ const blobPath = path.join(tmpdir.path, 'my-snapshot.blob');
   if (child.status !== 0) {
     console.log(child.stderr.toString());
     console.log(child.stdout.toString());
+    console.log(child.signal);
     assert.strictEqual(child.status, 0);
   }
 
@@ -78,7 +100,7 @@ const blobPath = path.join(tmpdir.path, 'my-snapshot.blob');
     '--snapshot-blob',
     blobPath,
     '-c',
-    file,
+    fixtures.path('snapshot', 'marked.js'),
   ], {
     cwd: tmpdir.path
   });
