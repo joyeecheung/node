@@ -106,6 +106,8 @@ If this flag is passed, the behavior can still be set to not abort through
 added: REPLACEME
 -->
 
+> Stability: 1 - Experimental
+
 Generates a snapshot blob when the process exits and writes it to
 disk, which can be loaded later with `--snapshot-blob`.
 
@@ -1139,6 +1141,8 @@ The value given must be a power of two.
 <!-- YAML
 added: REPLACEME
 -->
+
+> Stability: 1 - Experimental
 
 When used with `--build-snapshot`, `--snapshot-blob` specifies the path
 where the generated snapshot blob will be written to. If not specified,

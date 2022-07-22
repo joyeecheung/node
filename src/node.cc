@@ -1237,8 +1237,6 @@ int LoadSnapshotDataAndRun(const SnapshotData** snapshot_data_ptr,
     *snapshot_data_ptr = SnapshotBuilder::GetEmbeddedSnapshotData();
   }
 
-  uv_loop_configure(uv_default_loop(), UV_METRICS_IDLE_TIME);
-
   if ((*snapshot_data_ptr) != nullptr) {
     NativeModuleLoader::RefreshCodeCache((*snapshot_data_ptr)->code_cache);
   }
@@ -1268,6 +1266,8 @@ int Start(int argc, char** argv) {
       delete snapshot_data;
     }
   });
+
+  uv_loop_configure(uv_default_loop(), UV_METRICS_IDLE_TIME);
 
   // --build-snapshot indicates that we are in snapshot building mode.
   if (per_process::cli_options->build_snapshot) {
