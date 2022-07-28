@@ -130,6 +130,32 @@ $ node --snapshot-blob snapshot.blob index.js
 I am from the snapshot
 ```
 
+The [`v8.startupSnapshot` API][] can be used to specify an entry point at
+snapshot building time, thus avoiding the need of an additional entry
+script at deserialization time:
+
+```console
+$ echo "require('v8').startupSnapshot.setDeserializeMainFunction(() => console.log('I am from the snapshot'))" > snapshot.js
+$ node --snapshot-blob snapshot.blob --build-snapshot snapshot.js
+$ node --snapshot-blob snapshot.blob
+I am from the snapshot
+```
+
+For more information, check out the [`v8.startupSnapshot` API][] documentation.
+
+Currently the support for run-time snapshot is experimental in that:
+
+1. User-land modules are not yet supported in the snapshot, so only
+   one single file can be snapshotted. Users can bundle their applications
+   into a single script with their bundler of choice before building
+   a snapshot, however.
+2. Only a subset of the built-in modules work in the snapshot, though the
+   Node.js core test suite checks that a few fairly complex applications
+   can be snapshotted. Support for more modules are being added. If any
+   crashes or buggy behaviors occur when building a snapshot, please file
+   a report in the [Node.js issue tracker][] and link to it in the
+   [tracking issue for user-land snapshots][].
+
 ### `--completion-bash`
 
 <!-- YAML
@@ -2137,6 +2163,7 @@ done
 [ECMAScript module loader]: esm.md#loaders
 [Fetch API]: https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API
 [Modules loaders]: packages.md#modules-loaders
+[Node.js issue tracker]: https://github.com/nodejs/node/issues
 [OSSL_PROVIDER-legacy]: https://www.openssl.org/docs/man3.0/man7/OSSL_PROVIDER-legacy.html
 [REPL]: repl.md
 [ScriptCoverage]: https://chromedevtools.github.io/devtools-protocol/tot/Profiler#type-ScriptCoverage
@@ -2167,6 +2194,7 @@ done
 [`tls.DEFAULT_MAX_VERSION`]: tls.md#tlsdefault_max_version
 [`tls.DEFAULT_MIN_VERSION`]: tls.md#tlsdefault_min_version
 [`unhandledRejection`]: process.md#event-unhandledrejection
+[`v8.startupSnapshot` API]: v8.md#startup-snapshot-api
 [`worker_threads.threadId`]: worker_threads.md#workerthreadid
 [conditional exports]: packages.md#conditional-exports
 [context-aware]: addons.md#context-aware-addons
@@ -2182,4 +2210,5 @@ done
 [security warning]: #warning-binding-inspector-to-a-public-ipport-combination-is-insecure
 [semi-space]: https://www.memorymanagement.org/glossary/s.html#semi.space
 [timezone IDs]: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+[tracking issue for user-land snapshots]: https://github.com/nodejs/node/issues/44014
 [ways that `TZ` is handled in other environments]: https://www.gnu.org/software/libc/manual/html_node/TZ-Variable.html
