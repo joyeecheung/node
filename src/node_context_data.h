@@ -33,6 +33,10 @@ namespace node {
 #define NODE_CONTEXT_ALLOW_CODE_GENERATION_FROM_STRINGS_INDEX 37
 #endif
 
+#ifndef NODE_CONTEXT_CONTEXTIFY_CONTEXT_INDEX
+#define NODE_CONTEXT_CONTEXTIFY_CONTEXT_INDEX 38
+#endif
+
 enum ContextEmbedderIndex {
   kEnvironment = NODE_CONTEXT_EMBEDDER_DATA_INDEX,
   kSandboxObject = NODE_CONTEXT_SANDBOX_OBJECT_INDEX,
@@ -40,7 +44,8 @@ enum ContextEmbedderIndex {
   kContextTag = NODE_CONTEXT_TAG,
   kBindingListIndex = NODE_BINDING_LIST_INDEX,
   kAllowCodeGenerationFromStrings =
-      NODE_CONTEXT_ALLOW_CODE_GENERATION_FROM_STRINGS_INDEX
+      NODE_CONTEXT_ALLOW_CODE_GENERATION_FROM_STRINGS_INDEX,
+  kContextifyContext = NODE_CONTEXT_CONTEXTIFY_CONTEXT_INDEX
 };
 
 }  // namespace node

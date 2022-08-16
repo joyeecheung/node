@@ -6,6 +6,7 @@
 #include "memory_tracker-inl.h"
 #include "node_buffer.h"
 #include "node_context_data.h"
+#include "node_contextify.h"
 #include "node_errors.h"
 #include "node_internals.h"
 #include "node_options-inl.h"
@@ -444,6 +445,8 @@ void IsolateData::CreateProperties() {
 #undef V
 
   // TODO(legendecas): eagerly create per isolate templates.
+  set_contextify_global_template(
+      contextify::ContextifyContext::CreateGlobalTemplate(isolate_));
 }
 
 IsolateData::IsolateData(Isolate* isolate,
@@ -771,6 +774,8 @@ void Environment::InitializeMainContext(Local<Context> context,
                                         const EnvSerializeInfo* env_info) {
   context_.Reset(context->GetIsolate(), context);
   AssignToContext(context, ContextInfo(""));
+  context->SetAlignedPointerInEmbedderData(
+      ContextEmbedderIndex::kContextifyContext, nullptr);
   if (env_info != nullptr) {
     DeserializeProperties(env_info);
   } else {
