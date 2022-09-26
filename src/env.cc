@@ -1897,10 +1897,7 @@ BaseObject::BaseObject(Environment* env, Local<Object> object)
     : persistent_handle_(env->isolate(), object), env_(env) {
   CHECK_EQ(false, object.IsEmpty());
   CHECK_GE(object->InternalFieldCount(), BaseObject::kInternalFieldCount);
-  object->SetAlignedPointerInInternalField(BaseObject::kEmbedderType,
-                                           &kNodeEmbedderId);
-  object->SetAlignedPointerInInternalField(BaseObject::kSlot,
-                                           static_cast<void*>(this));
+  SetInternalFields(object, static_cast<void*>(this));
   env->AddCleanupHook(DeleteMe, static_cast<void*>(this));
   env->modify_base_object_count(1);
 }
@@ -1959,19 +1956,21 @@ uint16_t kNodeEmbedderId = 0x90de;
 void BaseObject::LazilyInitializedJSTemplateConstructor(
     const FunctionCallbackInfo<Value>& args) {
   DCHECK(args.IsConstructCall());
-  CHECK_GE(args.This()->InternalFieldCount(), BaseObject::kInternalFieldCount);
-  args.This()->SetAlignedPointerInInternalField(BaseObject::kEmbedderType,
-                                                &kNodeEmbedderId);
-  args.This()->SetAlignedPointerInInternalField(BaseObject::kSlot, nullptr);
+  SetInternalFields(args.This(), nullptr);
+}
+
+Local<FunctionTemplate> BaseObject::MakeLazilyInitializedJSTemplate(
+    IsolateData* isolate_data) {
+  Local<FunctionTemplate> t = NewFunctionTemplate(
+      isolate_data->isolate(), LazilyInitializedJSTemplateConstructor);
+  t->Inherit(BaseObject::GetConstructorTemplate(isolate_data));
+  t->InstanceTemplate()->SetInternalFieldCount(BaseObject::kInternalFieldCount);
+  return t;
 }
 
 Local<FunctionTemplate> BaseObject::MakeLazilyInitializedJSTemplate(
     Environment* env) {
-  Local<FunctionTemplate> t = NewFunctionTemplate(
-      env->isolate(), LazilyInitializedJSTemplateConstructor);
-  t->Inherit(BaseObject::GetConstructorTemplate(env));
-  t->InstanceTemplate()->SetInternalFieldCount(BaseObject::kInternalFieldCount);
-  return t;
+  return MakeLazilyInitializedJSTemplate(env->isolate_data());
 }
 
 BaseObject::PointerData* BaseObject::pointer_data() {
