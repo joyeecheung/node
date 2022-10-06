@@ -350,7 +350,11 @@ void Worker::Run() {
             thread_id_,
             std::move(inspector_parent_handle_)));
         if (is_stopped()) return;
-        CHECK_NOT_NULL(env_);
+        if (env_ == nullptr) {
+          exit_code_ = ExitCode::kGenericUserError;
+          Exit(exit_code_, "ERR_WORKER_INIT_FAILED", "Failed to create Worker");
+          return;
+        }
         env_->set_env_vars(std::move(env_vars_));
         SetProcessExitHandler(env_.get(), [this](Environment*, int exit_code) {
           Exit(static_cast<ExitCode>(exit_code));

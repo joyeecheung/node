@@ -126,7 +126,9 @@ ExitCode NodeMainInstance::Run() {
   ExitCode exit_code = ExitCode::kNoFailure;
   DeleteFnPtr<Environment, FreeEnvironment> env =
       CreateMainEnvironment(&exit_code);
-  CHECK_NOT_NULL(env);
+  if (env == nullptr) {
+    return ExitCode::kGenericUserError;
+  }
 
   Context::Scope context_scope(env->context());
   Run(&exit_code, env.get());
@@ -181,9 +183,10 @@ NodeMainInstance::CreateMainEnvironment(ExitCode* exit_code) {
     SetIsolateErrorHandlers(isolate_, {});
     env->InitializeMainContext(context, &(snapshot_data_->env_info));
 #if HAVE_INSPECTOR
-    // TODO(joyeecheung): handle the exit code returned by
-    // InitializeInspector().
-    env->InitializeInspector({});
+    *exit_code = env->InitializeInspector({});
+    if (*exit_code != ExitCode::kNoFailure) {
+      return nullptr;
+    }
 #endif
 
 #if HAVE_OPENSSL
@@ -201,9 +204,10 @@ NodeMainInstance::CreateMainEnvironment(ExitCode* exit_code) {
                               EnvironmentFlags::kDefaultFlags,
                               {}));
 #if HAVE_INSPECTOR
-    // TODO(joyeecheung): handle the exit code returned by
-    // InitializeInspector().
-    env->InitializeInspector({});
+    *exit_code = env->InitializeInspector({});
+    if (*exit_code != ExitCode::kNoFailure) {
+      return nullptr;
+    }
 #endif
     if (env->principal_realm()->RunBootstrapping().IsEmpty()) {
       return nullptr;

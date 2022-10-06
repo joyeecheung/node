@@ -1175,7 +1175,10 @@ ExitCode SnapshotBuilder::Generate(SnapshotData* out,
 #if HAVE_INSPECTOR
         // TODO(joyeecheung): handle the exit code returned by
         // InitializeInspector().
-        env->InitializeInspector({});
+        ExitCode inspector_code = env->InitializeInspector({});
+        if (inspector_code != ExitCode::kNoFailure) {
+          return inspector_code;
+        }
 #endif
         if (LoadEnvironment(env, StartExecutionCallback{}).IsEmpty()) {
           return ExitCode::kGenericUserError;

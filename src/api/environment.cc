@@ -369,20 +369,22 @@ Environment* CreateEnvironment(
   // options than the global parse call.
   Environment* env = new Environment(
       isolate_data, context, args, exec_args, nullptr, flags, thread_id);
+
+  ExitCode code = ExitCode::kNoFailure;
 #if HAVE_INSPECTOR
-  // TODO(joyeecheung): handle the exit code returned by InitializeInspector().
   if (env->should_create_inspector()) {
     if (inspector_parent_handle) {
-      env->InitializeInspector(
-          std::move(static_cast<InspectorParentHandleImpl*>(
-              inspector_parent_handle.get())->impl));
+      code = env->InitializeInspector(std::move(
+          static_cast<InspectorParentHandleImpl*>(inspector_parent_handle.get())
+              ->impl));
     } else {
-      env->InitializeInspector({});
+      code = env->InitializeInspector({});
     }
   }
 #endif
 
-  if (env->principal_realm()->RunBootstrapping().IsEmpty()) {
+  if (code != ExitCode::kNoFailure ||
+      env->principal_realm()->RunBootstrapping().IsEmpty()) {
     FreeEnvironment(env);
     return nullptr;
   }
