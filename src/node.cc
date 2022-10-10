@@ -274,7 +274,9 @@ MaybeLocal<Value> StartExecution(Environment* env, StartExecutionCallback cb) {
   if (cb != nullptr) {
     EscapableHandleScope scope(env->isolate());
 
-    if (StartExecution(env, "internal/main/environment").IsEmpty()) return {};
+    if (StartExecution(env, "internal/bootstrap/main/environment").IsEmpty()) {
+      return {};
+    }
 
     StartExecutionCallbackInfo info = {
         env->process_object(),
@@ -284,66 +286,68 @@ MaybeLocal<Value> StartExecution(Environment* env, StartExecutionCallback cb) {
     return scope.EscapeMaybe(cb(info));
   }
 
-  // TODO(joyeecheung): move these conditions into JS land and let the
-  // deserialize main function take precedence. For workers, we need to
-  // move the pre-execution part into a different file that can be
-  // reused when dealing with user-defined main functions.
   if (!env->snapshot_deserialize_main().IsEmpty()) {
     return env->RunSnapshotDeserializeMain();
   }
 
-  if (env->worker_context() != nullptr) {
-    return StartExecution(env, "internal/main/worker_thread");
-  }
+  return StartExecution(env, "internal/bootstrap/main");
 
-  std::string first_argv;
-  if (env->argv().size() > 1) {
-    first_argv = env->argv()[1];
-  }
+  // // TODO(joyeecheung): move these conditions into JS land and let the
+  // // deserialize main function take precedence. For workers, we need to
+  // // move the pre-execution part into a different file that can be
+  // // reused when dealing with user-defined main functions.
+  // if (env->worker_context() != nullptr) {
+  //   return StartExecution(env, "internal/main/worker_thread");
+  // }
 
-  if (first_argv == "inspect") {
-    return StartExecution(env, "internal/main/inspect");
-  }
+  // std::string first_argv;
+  // if (env->argv().size() > 1) {
+  //   first_argv = env->argv()[1];
+  // }
 
-  if (per_process::cli_options->build_snapshot) {
-    return StartExecution(env, "internal/main/mksnapshot");
-  }
+  // if (first_argv == "inspect") {
+  //   return StartExecution(env, "internal/main/inspect");
+  // }
 
-  if (per_process::cli_options->print_help) {
-    return StartExecution(env, "internal/main/print_help");
-  }
+  // if (per_process::cli_options->build_snapshot) {
+  //   return StartExecution(env, "internal/main/mksnapshot");
+  // }
 
+  // if (per_process::cli_options->print_help) {
+  //   return StartExecution(env, "internal/main/print_help");
+  // }
 
-  if (env->options()->prof_process) {
-    return StartExecution(env, "internal/main/prof_process");
-  }
+  // if (env->options()->prof_process) {
+  //   return StartExecution(env, "internal/main/prof_process");
+  // }
 
-  // -e/--eval without -i/--interactive
-  if (env->options()->has_eval_string && !env->options()->force_repl) {
-    return StartExecution(env, "internal/main/eval_string");
-  }
+  // // -e/--eval without -i/--interactive
+  // if (env->options()->has_eval_string && !env->options()->force_repl) {
+  //   return StartExecution(env, "internal/main/eval_string");
+  // }
 
-  if (env->options()->syntax_check_only) {
-    return StartExecution(env, "internal/main/check_syntax");
-  }
+  // if (env->options()->syntax_check_only) {
+  //   return StartExecution(env, "internal/main/check_syntax");
+  // }
 
-  if (env->options()->test_runner) {
-    return StartExecution(env, "internal/main/test_runner");
-  }
+  // if (env->options()->test_runner) {
+  //   return StartExecution(env, "internal/main/test_runner");
+  // }
 
-  if (env->options()->watch_mode && !first_argv.empty()) {
-    return StartExecution(env, "internal/main/watch_mode");
-  }
+  // if (env->options()->watch_mode && !first_argv.empty()) {
+  //   return StartExecution(env, "internal/main/watch_mode");
+  // }
 
-  if (!first_argv.empty() && first_argv != "-") {
-    return StartExecution(env, "internal/main/run_main_module");
-  }
+  // if (!first_argv.empty() && first_argv != "-") {
+  //   return StartExecution(env, "internal/main/run_main_module");
+  // }
 
-  if (env->options()->force_repl || uv_guess_handle(STDIN_FILENO) == UV_TTY) {
-    return StartExecution(env, "internal/main/repl");
-  }
+  // if (env->options()->force_repl || uv_guess_handle(STDIN_FILENO) == UV_TTY)
+  // {
+  //   return StartExecution(env, "internal/main/repl");
+  // }
 
-  return StartExecution(env, "internal/main/eval_stdin");
+  // return StartExecution(env, "internal/main/eval_stdin");
 }
 
 #ifdef __POSIX__

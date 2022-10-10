@@ -353,8 +353,7 @@ MaybeLocal<Function> BuiltinLoader::LookupAndCompile(
         FIXED_ONE_BYTE_STRING(isolate, "exports"),
         FIXED_ONE_BYTE_STRING(isolate, "primordials"),
     };
-  } else if (strncmp(id, "internal/main/", strlen("internal/main/")) == 0 ||
-             strncmp(id,
+  } else if (strncmp(id,
                      "internal/bootstrap/",
                      strlen("internal/bootstrap/")) == 0) {
     // internal/main/*, internal/bootstrap/*: process, require,
@@ -416,8 +415,7 @@ MaybeLocal<Value> BuiltinLoader::CompileAndCall(Local<Context> context,
                  get_linked_binding,
                  get_internal_binding,
                  realm->primordials()};
-  } else if (strncmp(id, "internal/main/", strlen("internal/main/")) == 0 ||
-             strncmp(id,
+  } else if (strncmp(id,
                      "internal/bootstrap/",
                      strlen("internal/bootstrap/")) == 0) {
     // internal/main/*, internal/bootstrap/*: process, require,

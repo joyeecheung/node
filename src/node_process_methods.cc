@@ -451,6 +451,15 @@ static void ReallyExit(const FunctionCallbackInfo<Value>& args) {
   env->Exit(code);
 }
 
+
+static void GetRawProcessArgv1(const FunctionCallbackInfo<Value>& args) {
+  Environment* env = Environment::GetCurrent(args);
+  const auto& argv = env->argv();
+  if (argv.size() > 1 && !argv[1].empty()) {
+    args.GetReturnValue().Set(OneByteString(args.GetIsolate(), argv[1].c_str()));
+  }
+}
+
 namespace process {
 
 BindingData::BindingData(Environment* env, v8::Local<v8::Object> object)
@@ -595,6 +604,7 @@ static void Initialize(Local<Object> target,
   SetMethod(context, target, "reallyExit", ReallyExit);
   SetMethodNoSideEffect(context, target, "uptime", Uptime);
   SetMethod(context, target, "patchProcessObject", PatchProcessObject);
+  SetMethodNoSideEffect(context, target, "getRawProcessArgv1", GetRawProcessArgv1);
 }
 
 void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
@@ -624,6 +634,7 @@ void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
   registry->Register(ReallyExit);
   registry->Register(Uptime);
   registry->Register(PatchProcessObject);
+  registry->Register(GetRawProcessArgv1);
 }
 
 }  // namespace process
