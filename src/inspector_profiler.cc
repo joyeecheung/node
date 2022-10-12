@@ -21,6 +21,7 @@ using v8::Context;
 using v8::Function;
 using v8::FunctionCallbackInfo;
 using v8::HandleScope;
+using v8::Int32;
 using v8::Isolate;
 using v8::Local;
 using v8::MaybeLocal;
@@ -465,11 +466,17 @@ static void SetCoverageDirectory(const FunctionCallbackInfo<Value>& args) {
   env->set_coverage_directory(*directory);
 }
 
-
 static void SetSourceMapCacheGetter(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[0]->IsFunction());
   Environment* env = Environment::GetCurrent(args);
   env->set_source_map_cache_getter(args[0].As<Function>());
+}
+
+// TODO(joyeecheung): merge the functions for coverage initializations.
+static void StartCoverageInterval(const FunctionCallbackInfo<Value>& args) {
+  CHECK(args[0]->IsInt32());
+  Environment* env = Environment::GetCurrent(args);
+  env->StartCoverageInterval(args[0].As<Int32>()->Value());
 }
 
 static void TakeCoverage(const FunctionCallbackInfo<Value>& args) {
@@ -510,6 +517,7 @@ static void Initialize(Local<Object> target,
   SetMethod(context, target, "setCoverageDirectory", SetCoverageDirectory);
   SetMethod(
       context, target, "setSourceMapCacheGetter", SetSourceMapCacheGetter);
+  SetMethod(context, target, "startCoverageInterval", StartCoverageInterval);
   SetMethod(context, target, "takeCoverage", TakeCoverage);
   SetMethod(context, target, "stopCoverage", StopCoverage);
 }
@@ -517,6 +525,7 @@ static void Initialize(Local<Object> target,
 void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
   registry->Register(SetCoverageDirectory);
   registry->Register(SetSourceMapCacheGetter);
+  registry->Register(StartCoverageInterval);
   registry->Register(TakeCoverage);
   registry->Register(StopCoverage);
 }

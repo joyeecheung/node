@@ -410,8 +410,11 @@ BaseObjectPtr<AsyncWrap> CreateHeapSnapshotStream(
   return MakeBaseObject<HeapSnapshotStream>(env, std::move(snapshot), obj);
 }
 
+
+
 void CreateHeapSnapshotStream(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
+
   HeapSnapshotPointer snapshot {
       env->isolate()->GetHeapProfiler()->TakeHeapSnapshot() };
   CHECK(snapshot);

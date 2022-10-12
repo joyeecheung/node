@@ -1263,6 +1263,27 @@ Local<Value> Environment::GetNow() {
     return Number::New(isolate(), static_cast<double>(now));
 }
 
+#ifdef HAVE_INSPECTOR
+
+void Environment::CoverageIntervalCB(uv_timer_t* handle) {
+  Environment* env =
+      ContainerOf(&Environment::coverage_interval_timer_, handle);
+  if (env->coverage_connection() != nullptr) {
+    env->coverage_connection()->TakeCoverage();
+  }
+}
+
+void Environment::StartCoverageInterval(int32_t interval) {
+  coverage_interval_ = interval;
+  uv_timer_init(event_loop(), &coverage_interval_timer_);
+  uv_timer_start(&coverage_interval_timer_,
+                 CoverageIntervalCB,
+                 coverage_interval_,
+                 coverage_interval_);
+  uv_unref(reinterpret_cast<uv_handle_t*>(&coverage_interval_timer_));
+}
+
+#endif  // HAVE_INSPECTOR
 void CollectExceptionInfo(Environment* env,
                           Local<Object> obj,
                           int errorno,

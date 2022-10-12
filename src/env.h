@@ -1011,6 +1011,7 @@ class Environment : public MemoryRetainer {
   inline void set_heap_prof_interval(uint64_t interval);
   inline uint64_t heap_prof_interval() const;
 
+  void StartCoverageInterval(int32_t interval);
 #endif  // HAVE_INSPECTOR
 
   inline void set_main_utf16(std::unique_ptr<v8::String::Value>);
@@ -1077,6 +1078,10 @@ class Environment : public MemoryRetainer {
   std::string heap_prof_dir_;
   std::string heap_prof_name_;
   uint64_t heap_prof_interval_;
+  uv_timer_t coverage_interval_timer_;
+  bool coverage_interval_timer_initialized_ = false;
+  int32_t coverage_interval_;
+  static void CoverageIntervalCB(uv_timer_t* handle);
 #endif  // HAVE_INSPECTOR
 
   std::shared_ptr<EnvironmentOptions> options_;
