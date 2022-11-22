@@ -75,8 +75,9 @@ MaybeHandle<Object> DebugEvaluate::Global(Isolate* isolate,
     isolate->debug()->StartSideEffectCheckMode();
   }
   // TODO(cbruni, 1244145): Use host-defined options from script context.
-  Handle<Object> host_defined_options(
-      function->context().host_defined_options(), isolate);
+  Handle<FixedArray> host_defined_options(
+      Script::cast(function->shared().script()).host_defined_options(),
+      isolate);
   MaybeHandle<Object> result = Execution::CallScript(
       isolate, function, Handle<JSObject>(context->global_proxy(), isolate),
       host_defined_options);
@@ -273,11 +274,7 @@ DebugEvaluate::ContextBuilder::ContextBuilder(Isolate* isolate,
     scope_info->SetIsDebugEvaluateScope();
 
     if (v8_flags.experimental_reuse_locals_blocklists) {
-      // In the case where the "paused function scope" is the script scope
-      // itself, we don't need (and don't have) a blocklist.
-      const bool paused_scope_is_script_scope =
-          scope_iterator_.Done() || scope_iterator_.InInnerScope();
-      if (rit == context_chain_.rbegin() && !paused_scope_is_script_scope) {
+      if (rit == context_chain_.rbegin()) {
         // The DebugEvaluateContext we create for the closure scope is the only
         // DebugEvaluateContext with a block list. This means we'll retrieve
         // the existing block list from the paused function scope
