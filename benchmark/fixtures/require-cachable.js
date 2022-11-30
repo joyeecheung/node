@@ -8,7 +8,7 @@ if (process.moduleLoadList.includes('Internal Binding builtins')) {
   ({moduleCategories: { canBeRequired }} = internalBinding('native_module'));
 }
 
-let prefix = process.version < 'v17.' ? '' : 'node:';
+let prefix = process.version < 'v16.' ? '' : 'node:';
 for (const key of canBeRequired) {
   require(`${prefix}${key}`);
 }
