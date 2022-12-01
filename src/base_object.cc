@@ -66,12 +66,18 @@ void BaseObject::MakeWeak() {
       WeakCallbackType::kParameter);
 }
 
-// This just has to be different from the Chromium ones:
+// kNodeEmbedderId just has to be different from the Chromium ones:
 // https://source.chromium.org/chromium/chromium/src/+/main:gin/public/gin_embedders.h;l=18-23;drc=5a758a97032f0b656c3c36a3497560762495501a
 // Otherwise, when Node is loaded in an isolate which uses cppgc, cppgc will
 // misinterpret the data stored in the embedder fields and try to garbage
 // collect them.
 uint16_t kNodeEmbedderId = 0x90de;
+
+// kNodeEmbedderIdForCppgc is used when we initialize cppgc for use in Node,
+// when its not part of Chromium.  Again, all that's required is that it
+// doesn't match kNodeEmbedderId, so that the two types of objects don't get
+// confused by v8.
+uint16_t kNodeEmbedderIdForCppgc = kNodeEmbedderId + 1;
 
 void BaseObject::LazilyInitializedJSTemplateConstructor(
     const FunctionCallbackInfo<Value>& args) {

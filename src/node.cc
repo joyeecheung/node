@@ -62,6 +62,8 @@
 #endif  // NODE_USE_V8_PLATFORM
 #include "v8-profiler.h"
 
+#include "cppgc/platform.h"
+
 #if HAVE_INSPECTOR
 #include "inspector/worker_inspector.h"  // ParentInspectorHandle
 #endif
@@ -1085,6 +1087,18 @@ InitializeOncePerProcessInternal(const std::vector<std::string>& args,
     V8::Initialize();
   }
 
+  if (!(flags & ProcessInitializationFlags::kNoInitializeCppgc)) {
+    // 'cppgc::InitializeProcess' optionally takes a page_allocator.  If one
+    // isn't specified, v8 uses an internal one.  Node's platform doesn't have
+    // a page_allocator (GetPageAllocator() always returns nullptr).  If this
+    // changes in the future, we should pass it along.
+    DCHECK_IMPLIES(
+        !(flags & ProcessInitializationFlags::kNoInitializeNodeV8Platform),
+        !per_process::v8_platform.Platform()->GetPageAllocator());
+
+    cppgc::InitializeProcess();
+  }
+
   performance::performance_v8_start = PERFORMANCE_NOW();
   per_process::v8_initialized = true;
 
@@ -1102,6 +1116,10 @@ void TearDownOncePerProcess() {
   ResetStdio();
   if (!(flags & ProcessInitializationFlags::kNoDefaultSignalHandling)) {
     ResetSignalHandlers();
+  }
+
+  if (!(flags & ProcessInitializationFlags::kNoInitializeCppgc)) {
+    cppgc::ShutdownProcess();
   }
 
   per_process::v8_initialized = false;
