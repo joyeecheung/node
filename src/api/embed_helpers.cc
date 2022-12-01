@@ -2,8 +2,11 @@
 #include "env-inl.h"
 #include "node.h"
 #include "node_snapshot_builder.h"
+#include "v8-cppgc.h"
 
 using v8::Context;
+using v8::CppHeap;
+using v8::CppHeapCreateParams;
 using v8::Function;
 using v8::Global;
 using v8::HandleScope;
@@ -16,6 +19,7 @@ using v8::Nothing;
 using v8::SealHandleScope;
 using v8::SnapshotCreator;
 using v8::TryCatch;
+using v8::WrapperDescriptor;
 
 namespace node {
 
@@ -82,6 +86,7 @@ struct CommonEnvironmentSetup::Impl {
   std::shared_ptr<ArrayBufferAllocator> allocator;
   std::optional<SnapshotCreator> snapshot_creator;
   Isolate* isolate = nullptr;
+  std::unique_ptr<CppHeap> cpp_heap;
   DeleteFnPtr<IsolateData, FreeIsolateData> isolate_data;
   DeleteFnPtr<Environment, FreeEnvironment> env;
   Global<Context> main_context;
@@ -126,6 +131,14 @@ CommonEnvironmentSetup::CommonEnvironmentSetup(
     isolate = impl_->isolate =
         NewIsolate(impl_->allocator, &impl_->loop, platform, snapshot_data);
   }
+
+  impl_->cpp_heap = CppHeap::Create(
+      platform,
+      CppHeapCreateParams{{},
+                          WrapperDescriptor(BaseObject::kEmbedderType,
+                                            BaseObject::kSlot,
+                                            kNodeEmbedderIdForCppgc)});
+  isolate->AttachCppHeap(impl_->cpp_heap.get());
 
   {
     Locker locker(isolate);
@@ -212,6 +225,9 @@ CommonEnvironmentSetup::~CommonEnvironmentSetup() {
       impl_->env.reset();
       impl_->isolate_data.reset();
     }
+
+    isolate->DetachCppHeap();
+    impl_->cpp_heap->Terminate();
 
     bool platform_finished = false;
     impl_->platform->AddIsolateFinishedCallback(isolate, [](void* data) {

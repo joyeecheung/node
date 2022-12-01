@@ -261,6 +261,8 @@ enum Flags : uint32_t {
   kNoUseLargePages = 1 << 11,
   // Skip printing output for --help, --version, --v8-options.
   kNoPrintHelpOrVersionOutput = 1 << 12,
+  // Do not perform cppgc initialization.
+  kNoInitializeCppgc = 1 << 13,
 
   // Emulate the behavior of InitializeNodeWithArgs() when passing
   // a flags argument to the InitializeOncePerProcess() replacement
@@ -269,7 +271,7 @@ enum Flags : uint32_t {
       kNoStdioInitialization | kNoDefaultSignalHandling | kNoInitializeV8 |
       kNoInitializeNodeV8Platform | kNoInitOpenSSL |
       kNoParseGlobalDebugVariables | kNoAdjustResourceLimits |
-      kNoUseLargePages | kNoPrintHelpOrVersionOutput,
+      kNoUseLargePages | kNoPrintHelpOrVersionOutput | kNoInitializeCppgc,
 };
 }  // namespace ProcessInitializationFlags
 namespace ProcessFlags = ProcessInitializationFlags;  // Legacy alias.
