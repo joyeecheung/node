@@ -40,7 +40,6 @@ class BaseObjectPtrImpl;
 namespace worker {
 class TransferData;
 }
-
 class BaseObject : public MemoryRetainer {
  public:
   enum InternalFields { kEmbedderType, kSlot, kInternalFieldCount };
