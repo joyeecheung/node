@@ -11,6 +11,7 @@
 #include "node_snapshot_builder.h"
 #include "permission/permission.h"
 #include "util-inl.h"
+#include "v8-cppgc.h"
 
 #include <memory>
 #include <string>
@@ -22,6 +23,8 @@ using v8::Array;
 using v8::ArrayBuffer;
 using v8::Boolean;
 using v8::Context;
+using v8::CppHeap;
+using v8::CppHeapCreateParams;
 using v8::Float64Array;
 using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
@@ -41,6 +44,7 @@ using v8::SealHandleScope;
 using v8::String;
 using v8::TryCatch;
 using v8::Value;
+using v8::WrapperDescriptor;
 
 namespace node {
 namespace worker {
@@ -164,6 +168,14 @@ class WorkerThreadData {
       return;
     }
 
+    cpp_heap_ = CppHeap::Create(
+        w->platform_,
+        CppHeapCreateParams{{},
+                            WrapperDescriptor(BaseObject::kEmbedderType,
+                                              BaseObject::kSlot,
+                                              kNodeEmbedderIdForCppgc)});
+    isolate->AttachCppHeap(cpp_heap_.get());
+
     SetIsolateUpForNode(isolate);
 
     // Be sure it's called before Environment::InitializeDiagnostics()
@@ -217,6 +229,9 @@ class WorkerThreadData {
         *static_cast<bool*>(data) = true;
       }, &platform_finished);
 
+      isolate->DetachCppHeap();
+      cpp_heap_->Terminate();
+
       // The order of these calls is important; if the Isolate is first disposed
       // and then unregistered, there is a race condition window in which no
       // new Isolate at the same address can successfully be registered with
@@ -242,6 +257,7 @@ class WorkerThreadData {
   uv_loop_t loop_;
   bool loop_init_failed_ = true;
   DeleteFnPtr<IsolateData, FreeIsolateData> isolate_data_;
+  std::unique_ptr<v8::CppHeap> cpp_heap_;
   const SnapshotData* snapshot_data_ = nullptr;
   friend class Worker;
 };
