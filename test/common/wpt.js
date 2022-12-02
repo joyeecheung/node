@@ -386,7 +386,7 @@ class WPTRunner {
       'MessageChannel', 'MessagePort', 'MessageEvent',
       'EventTarget', 'Event',
       'AbortController', 'AbortSignal',
-      'crypto', 'performance',
+      'performance',
       'TransformStream', 'TransformStreamDefaultController',
       'WritableStream', 'WritableStreamDefaultController', 'WritableStreamDefaultWriter',
       'ReadableStream', 'ReadableStreamDefaultReader',
@@ -396,6 +396,9 @@ class WPTRunner {
       'TextEncoderStream', 'TextDecoderStream',
       'CompressionStream', 'DecompressionStream',
     ];
+    if (Boolean(process.versions.openssl) && !process.env.NODE_SKIP_CRYPTO) {
+      lazyProperties.push('crypto');
+    }
     const script = lazyProperties.map((name) => `globalThis.${name};`).join('\n');
     this.globalThisInitScripts.push(script);
   }
