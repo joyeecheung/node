@@ -24,7 +24,6 @@ const expectedModules = new Set([
   'Internal Binding options',
   'Internal Binding performance',
   'Internal Binding process_methods',
-  'Internal Binding report',
   'Internal Binding string_decoder',
   'Internal Binding symbols',
   'Internal Binding task_queue',
@@ -63,7 +62,6 @@ const expectedModules = new Set([
   'NativeModule internal/process/per_thread',
   'NativeModule internal/process/pre_execution',
   'NativeModule internal/process/promises',
-  'NativeModule internal/process/report',
   'NativeModule internal/process/signal',
   'NativeModule internal/process/task_queues',
   'NativeModule internal/process/warning',
@@ -78,7 +76,6 @@ const expectedModules = new Set([
   'NativeModule internal/validators',
   'NativeModule internal/vm',
   'NativeModule internal/vm/module',
-  'NativeModule internal/wasm_web_api',
   'NativeModule internal/worker/js_transferable',
   'Internal Binding blob',
   'NativeModule async_hooks',
@@ -88,15 +85,10 @@ const expectedModules = new Set([
   'NativeModule url',
   'NativeModule util',
   'NativeModule internal/v8/startup_snapshot',
-  'NativeModule vm',
 ]);
 
 if (!common.isMainThread) {
   [
-    'Internal Binding messaging',
-    'Internal Binding performance',
-    'Internal Binding symbols',
-    'Internal Binding worker',
     'NativeModule diagnostics_channel',
     'NativeModule internal/abort_controller',
     'NativeModule internal/error_serdes',
