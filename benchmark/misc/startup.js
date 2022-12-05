@@ -1,6 +1,6 @@
 'use strict';
 const common = require('../common.js');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const path = require('path');
 
 let Worker;  // Lazy loaded in main
@@ -16,26 +16,25 @@ const bench = common.createBenchmark(main, {
 
 function spawnProcess(script, bench, state) {
   const cmd = process.execPath || process.argv[0];
-  const child = spawn(cmd, [script]);
-  child.on('exit', (code) => {
-    if (code !== 0) {
+  while (state.finished < state.count) {
+    const child = spawnSync(cmd, [script]);
+    if (child.status !== 0) {
       console.log('---- STDOUT ----');
       console.log(child.stdout.toString());
       console.log('---- STDERR ----');
       console.log(child.stderr.toString());
-      throw new Error(`Child process stopped with exit code ${code}`);
+      throw new Error(`Child process stopped with exit code ${child.status}`);
     }
     state.finished++;
     if (state.finished === 0) {
       // Finished warmup.
       bench.start();
     }
-    if (state.finished < state.count) {
-      spawnProcess(script, bench, state);
-    } else {
+
+    if (state.finished == state.count) {
       bench.end(state.count);
     }
-  });
+  }
 }
 
 function spawnWorker(script, bench, state) {
