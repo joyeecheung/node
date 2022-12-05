@@ -6,75 +6,64 @@ const path = require('path');
 let Worker;  // Lazy loaded in main
 
 const bench = common.createBenchmark(main, {
-  dur: [1],
   script: [
     'benchmark/fixtures/require-builtins',
-    'benchmark/fixtures/require-cachable',
     'test/fixtures/semicolon',
   ],
-  mode: ['process', 'worker']
-}, {
-  flags: ['--expose-internals']
+  mode: ['process', 'worker'],
+  count: [30],
 });
 
-function spawnProcess(script) {
+function spawnProcess(script, bench, state) {
   const cmd = process.execPath || process.argv[0];
-  const argv = ['--expose-internals', script];
-  return spawn(cmd, argv);
-}
-
-function spawnWorker(script) {
-  return new Worker(script, { stderr: true, stdout: true });
-}
-
-function start(state, script, bench, getNode) {
-  const node = getNode(script);
-  let stdout = '';
-  let stderr = '';
-
-  node.stdout.on('data', (data) => {
-    stdout += data;
-  });
-
-  node.stderr.on('data', (data) => {
-    stderr += data;
-  });
-
-  node.on('exit', (code) => {
+  const child = spawn(cmd, [script]);
+  child.on('exit', (code) => {
     if (code !== 0) {
-      console.error('------ stdout ------');
-      console.error(stdout);
-      console.error('------ stderr ------');
-      console.error(stderr);
-      throw new Error(`Error during node startup, exit code ${code}`);
+      console.log('---- STDOUT ----');
+      console.log(child.stdout.toString());
+      console.log('---- STDERR ----');
+      console.log(child.stderr.toString());
+      throw new Error(`Child process stopped with exit code ${code}`);
     }
-    state.throughput++;
-
-    if (state.go) {
-      start(state, script, bench, getNode);
+    state.finished++;
+    if (state.finished === 0) {
+      // Finished warmup.
+      bench.start();
+    }
+    if (state.finished < state.count) {
+      spawnProcess(script, bench, state);
     } else {
-      bench.end(state.throughput);
+      bench.end(state.count);
     }
   });
 }
 
-function main({ dur, script, mode }) {
-  const state = {
-    go: true,
-    throughput: 0
-  };
+function spawnWorker(script, bench, state) {
+  const child = new Worker(script);
+  child.on('exit', (code) => {
+    if (code !== 0) {
+      throw new Error(`Worker stopped with exit code ${code}`);
+    }
+    state.finished++;
+    if (state.finished === 0) {
+      // Finished warmup.
+      bench.start();
+    }
+    if (state.finished < state.count) {
+      spawnProcess(script, bench, state);
+    } else {
+      bench.end(state.count);
+    }
+  });
+}
 
-  require('timers').setTimeout(() => {
-    state.go = false;
-  }, dur * 1000);
-
+function main({ count, script, mode }) {
   script = path.resolve(__dirname, '../../', `${script}.js`);
+  const state = { count, finished: -3 };
   if (mode === 'worker') {
-    Worker = require('worker_threads').Worker;
-    bench.start();
-    start(state, script, bench, spawnWorker);
+    Worker = require('worker_threads').Worker;  // Warm up.
+    spawnWorker(script, bench, state);
   } else {
-    bench.start();
-    start(state, script, bench, spawnProcess);
+    spawnProcess(script, bench, state);
   }
 }
