@@ -42,7 +42,6 @@ using v8::ArrayBufferView;
 using v8::Boolean;
 using v8::Context;
 using v8::EscapableHandleScope;
-using v8::FixedArray;
 using v8::Function;
 using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
@@ -61,10 +60,8 @@ using v8::MicrotasksPolicy;
 using v8::Name;
 using v8::NamedPropertyHandlerConfiguration;
 using v8::Nothing;
-using v8::Number;
 using v8::Object;
 using v8::ObjectTemplate;
-using v8::PrimitiveArray;
 using v8::Promise;
 using v8::PropertyAttribute;
 using v8::PropertyCallbackInfo;
@@ -1238,7 +1235,7 @@ void ContextifyContext::CompileFunction(
   }
 
   // CompiledFnEntry is bound to the fn.
-  USE(new CompiledFnEntry(env, cache_key, fn));
+  // USE(new CompiledFnEntry(env, cache_key, fn));
 
   Local<Object> result = Object::New(isolate);
   if (result->Set(parsing_context, env->function_string(), fn).IsNothing())
