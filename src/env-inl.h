@@ -218,7 +218,7 @@ inline T* Environment::GetBindingData(v8::Local<v8::Context> context) {
       context->GetAlignedPointerFromEmbedderData(
           ContextEmbedderIndex::kBindingListIndex));
   DCHECK_NOT_NULL(map);
-  auto it = map->find(T::type_name);
+  auto it = map->find(static_cast<uint8_t>(T::type_int));
   if (UNLIKELY(it == map->end())) return nullptr;
   T* result = static_cast<T*>(it->second.get());
   DCHECK_NOT_NULL(result);
@@ -237,7 +237,7 @@ inline T* Environment::AddBindingData(
       context->GetAlignedPointerFromEmbedderData(
           ContextEmbedderIndex::kBindingListIndex));
   DCHECK_NOT_NULL(map);
-  auto result = map->emplace(T::type_name, item);
+  auto result = map->emplace(static_cast<uint8_t>(T::type_int), item);
   CHECK(result.second);
   DCHECK_EQ(GetBindingData<T>(context), item.get());
   return item.get();

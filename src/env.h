@@ -57,7 +57,7 @@
 #include <ostream>
 #include <set>
 #include <string>
-#include <unordered_map>
+#include <map>
 #include <unordered_set>
 #include <vector>
 
@@ -601,10 +601,7 @@ class Environment : public MemoryRetainer {
   template <typename T>
   static inline T* GetBindingData(v8::Local<v8::Context> context);
 
-  typedef std::unordered_map<
-      FastStringKey,
-      BaseObjectPtr<BaseObject>,
-      FastStringKey::Hash> BindingDataStore;
+  typedef std::map<uint8_t, BaseObjectPtr<BaseObject>> BindingDataStore;
 
   // Create an Environment without initializing a main Context. Use
   // InitializeMainContext() to initialize a main context for it.

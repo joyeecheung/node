@@ -69,7 +69,6 @@ class BindingData : public SnapshotableObject {
 
   using InternalFieldInfo = InternalFieldInfoBase;
   SERIALIZABLE_OBJECT_METHODS()
-  static constexpr FastStringKey type_name{"node::fs::BindingData"};
   static constexpr EmbedderObjectType type_int =
       EmbedderObjectType::k_fs_binding_data;
 

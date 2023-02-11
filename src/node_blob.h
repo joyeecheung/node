@@ -147,7 +147,6 @@ class BlobBindingData : public SnapshotableObject {
 
   SERIALIZABLE_OBJECT_METHODS()
 
-  static constexpr FastStringKey type_name{"node::BlobBindingData"};
   static constexpr EmbedderObjectType type_int =
       EmbedderObjectType::k_blob_binding_data;
 

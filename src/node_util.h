@@ -14,7 +14,6 @@ class WeakReference : public SnapshotableObject {
  public:
   SERIALIZABLE_OBJECT_METHODS()
 
-  static constexpr FastStringKey type_name{"node::util::WeakReference"};
   static constexpr EmbedderObjectType type_int =
       EmbedderObjectType::k_util_weak_reference;
 

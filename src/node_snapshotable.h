@@ -22,6 +22,10 @@ struct PropInfo {
   SnapshotIndex index;  // In the snapshot
 };
 
+#define UNSERIALIZABLE_OBJECT_TYPES(V)                                         \
+  V(http2_binding_data, http2::BindingData)                                                              \
+  V(http_parser_binding_data, http_parser::BindingData)
+
 #define SERIALIZABLE_OBJECT_TYPES(V)                                           \
   V(encoding_binding_data, encoding_binding::BindingData)                      \
   V(fs_binding_data, fs::BindingData)                                          \
@@ -33,6 +37,7 @@ struct PropInfo {
 enum class EmbedderObjectType : uint8_t {
 #define V(PropertyName, NativeType) k_##PropertyName,
   SERIALIZABLE_OBJECT_TYPES(V)
+  UNSERIALIZABLE_OBJECT_TYPES(V)
 #undef V
 };
 
@@ -102,7 +107,7 @@ class SnapshotableObject : public BaseObject {
   SnapshotableObject(Environment* env,
                      v8::Local<v8::Object> wrap,
                      EmbedderObjectType type);
-  std::string_view GetTypeName() const;
+  std::string GetTypeName() const;
 
   // If returns false, the object will not be serialized.
   virtual bool PrepareForSerialization(v8::Local<v8::Context> context,

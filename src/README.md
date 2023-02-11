@@ -486,18 +486,28 @@ that state is through the use of `Environment::AddBindingData`, which gives
 binding functions access to an object for storing such state.
 That object is always a [`BaseObject`][].
 
-Its class needs to have a static `type_name` field based on a
-constant string, in order to disambiguate it from other classes of this type,
-and which could e.g. match the binding's name (in the example above, that would
-be `cares_wrap`).
+If the binding should be supported in a snapshot, it needs to be in the
+`SERIALIZABLE_OBJECT_TYPES` list in `node_snapshotable.h` and implement the
+serialization and deserialization methods. See the comments of
+`SnapshotableObject` on how to implement them. Otherwise, the `type_int` field
+needs to be added to the `UNSERIALIZABLE_OBJECT_TYPES` list.
 
 ```cpp
+// In node_snapshotable.h, add the binding to either UNSERIALIZABLE_OBJECT_TYPES
+// or SERIALIZABLE_OBJECT_TYPES. The second parameter is a descriptive name
+// of the class, which is usually the class name with the (actual or conceptual)
+// namespace.
+
+#define UNSERIALIZABLE_OBJECT_TYPES(V)                                         \
+  V(http_parser_binding_data, http_parser::BindingData)
+
 // In the HTTP parser source code file:
 class BindingData : public BaseObject {
  public:
   BindingData(Environment* env, Local<Object> obj) : BaseObject(env, obj) {}
 
-  static constexpr FastStringKey type_name { "http_parser" };
+  static constexpr EmbedderObjectType type_int =
+      EmbedderObjectType::k_http_parser_binding_data;
 
   std::vector<char> parser_buffer;
   bool parser_buffer_in_use = false;
@@ -526,12 +536,6 @@ void InitializeHttpParser(Local<Object> target,
   ...
 }
 ```
-
-If the binding is loaded during bootstrap, add it to the
-`SERIALIZABLE_OBJECT_TYPES` list in `src/node_snapshotable.h` and
-inherit from the `SnapshotableObject` class instead. See the comments
-of `SnapshotableObject` on how to implement its serialization and
-deserialization.
 
 <a id="exception-handling"></a>
 

@@ -96,7 +96,8 @@ class BindingData : public BaseObject {
   BindingData(Environment* env, Local<Object> obj)
       : BaseObject(env, obj) {}
 
-  static constexpr FastStringKey type_name { "http_parser" };
+  static constexpr EmbedderObjectType type_int =
+      EmbedderObjectType::k_http_parser_binding_data;
 
   std::vector<char> parser_buffer;
   bool parser_buffer_in_use = false;
