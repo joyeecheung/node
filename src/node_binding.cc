@@ -42,6 +42,7 @@
   V(config)                                                                    \
   V(contextify)                                                                \
   V(credentials)                                                               \
+  V(encoding)                                                                  \
   V(errors)                                                                    \
   V(fs)                                                                        \
   V(fs_dir)                                                                    \

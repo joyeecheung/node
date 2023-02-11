@@ -65,6 +65,7 @@ class ExternalReferenceRegistry {
   V(cares_wrap)                                                                \
   V(contextify)                                                                \
   V(credentials)                                                               \
+  V(encoding)                                                                  \
   V(env_var)                                                                   \
   V(errors)                                                                    \
   V(fs)                                                                        \
