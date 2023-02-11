@@ -19,10 +19,11 @@ class BindingData : public SnapshotableObject {
   using InternalFieldInfo = InternalFieldInfoBase;
 
   SERIALIZABLE_OBJECT_METHODS()
+  static constexpr FastStringKey type_name{"node::encoding_binding::BindingData"};
   static constexpr EmbedderObjectType type_int =
       EmbedderObjectType::k_encoding_binding_data;
 
-  SET_NO_MEMORY_INFO()
+  void MemoryInfo(MemoryTracker* tracker) const override;
   SET_SELF_SIZE(BindingData)
   SET_MEMORY_INFO_NAME(BindingData)
 
@@ -36,6 +37,10 @@ class BindingData : public SnapshotableObject {
                          void* priv);
   static void RegisterTimerExternalReferences(
       ExternalReferenceRegistry* registry);
+
+private:
+  static constexpr size_t kEncodeIntoResultsLength = 2;
+  AliasedUint32Array encode_into_results_buffer_;
 };
 
 }  // namespace encoding_binding

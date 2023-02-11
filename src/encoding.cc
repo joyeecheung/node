@@ -25,11 +25,24 @@ using v8::Uint8Array;
 using v8::Uint32Array;
 using v8::Value;
 
-BindingData::BindingData(Environment* env, Local<Object> object)
-    : SnapshotableObject(env, object, type_int) {}
+void BindingData::MemoryInfo(MemoryTracker* tracker) const {
+  tracker->TrackField("encode_into_results_buffer", encode_into_results_buffer_);
+}
+
+BindingData::BindingData(Environment* env, v8::Local<v8::Object> object)
+    : SnapshotableObject(env, object, type_int),
+      encode_into_results_buffer_(env->isolate(), kEncodeIntoResultsLength) {
+  object->Set(env->context(),
+            FIXED_ONE_BYTE_STRING(env->isolate(), "encodeIntoResults"),
+            encode_into_results_buffer_.GetJSArray())
+  .Check();
+}
 
 bool BindingData::PrepareForSerialization(Local<Context> context,
                                           v8::SnapshotCreator* creator) {
+  // We'll just re-initialize the buffers in the constructor since their
+  // contents can be thrown away once consumed in the previous call.
+  encode_into_results_buffer_.Release();
   // Return true because we need to maintain the reference to the binding from
   // JS land.
   return true;
@@ -57,10 +70,10 @@ void BindingData::Deserialize(Local<Context> context,
 void BindingData::EncodeInto(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
   Isolate* isolate = env->isolate();
-  CHECK_GE(args.Length(), 3);
+  CHECK_GE(args.Length(), 2);
   CHECK(args[0]->IsString());
   CHECK(args[1]->IsUint8Array());
-  CHECK(args[2]->IsUint32Array());
+  BindingData* binding_data = Environment::GetBindingData<BindingData>(args);
 
   Local<String> source = args[0].As<String>();
 
@@ -69,12 +82,6 @@ void BindingData::EncodeInto(const FunctionCallbackInfo<Value>& args) {
   char* write_result = static_cast<char*>(buf->Data()) + dest->ByteOffset();
   size_t dest_length = dest->ByteLength();
 
-  // results = [ read, written ]
-  Local<Uint32Array> result_arr = args[2].As<Uint32Array>();
-  uint32_t* results = reinterpret_cast<uint32_t*>(
-      static_cast<char*>(result_arr->Buffer()->Data()) +
-      result_arr->ByteOffset());
-
   int nchars;
   int written = source->WriteUtf8(
       isolate,
@@ -82,8 +89,9 @@ void BindingData::EncodeInto(const FunctionCallbackInfo<Value>& args) {
       dest_length,
       &nchars,
       String::NO_NULL_TERMINATION | String::REPLACE_INVALID_UTF8);
-  results[0] = nchars;
-  results[1] = written;
+
+  binding_data->encode_into_results_buffer_[0] = nchars;
+  binding_data->encode_into_results_buffer_[1] = written;
 }
 
 // Encode a single string to a UTF-8 Uint8Array (not Buffer).
