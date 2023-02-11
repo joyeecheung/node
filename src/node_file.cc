@@ -1094,24 +1094,34 @@ static void InternalModuleReadJSON(const FunctionCallbackInfo<Value>& args) {
     Array::New(isolate, return_value, arraysize(return_value)));
 }
 
-// Used to speed up module loading.  Returns 0 if the path refers to
-// a file, 1 when it's a directory or < 0 on error (usually -ENOENT.)
-// The speedup comes from not creating thousands of Stat and Error objects.
-static void InternalModuleStat(const FunctionCallbackInfo<Value>& args) {
-  Environment* env = Environment::GetCurrent(args);
-
-  CHECK(args[0]->IsString());
-  node::Utf8Value path(env->isolate(), args[0]);
-
+// path should be null-terminated.
+static int32_t InternalModuleStat(const char* path) {
   uv_fs_t req;
-  int rc = uv_fs_stat(env->event_loop(), &req, *path, nullptr);
+  int32_t rc = uv_fs_stat(nullptr, &req, path, nullptr);
   if (rc == 0) {
     const uv_stat_t* const s = static_cast<const uv_stat_t*>(req.ptr);
     rc = !!(s->st_mode & S_IFDIR);
   }
   uv_fs_req_cleanup(&req);
+  return rc;
+}
 
-  args.GetReturnValue().Set(rc);
+static int32_t FastInternalModuleStat(Local<Value> receiver,
+                                      const v8::FastOneByteString& path) {
+  std::string str(path.data, path.data + path.length);
+  fprintf(stderr, "in FastInternalModuleStat %s\n", str.c_str());
+  return InternalModuleStat(str.c_str());
+}
+
+// Used to speed up module loading.  Returns 0 if the path refers to
+// a file, 1 when it's a directory or < 0 on error (usually -ENOENT.)
+// The speedup comes from not creating thousands of Stat and Error objects.
+static void SlowInternalModuleStat(const FunctionCallbackInfo<Value>& args) {
+  Environment* env = Environment::GetCurrent(args);
+  CHECK(args[0]->IsString());
+  node::Utf8Value path(env->isolate(), args[0]);
+  fprintf(stderr, "in SlowInternalModuleStat %s\n", *path);
+  args.GetReturnValue().Set(InternalModuleStat(*path));
 }
 
 static void Stat(const FunctionCallbackInfo<Value>& args) {
@@ -2678,6 +2688,9 @@ InternalFieldInfoBase* BindingData::Serialize(int index) {
   return info;
 }
 
+v8::CFunction fast_internal_module_stat =
+    v8::CFunction::Make(FastInternalModuleStat);
+
 void Initialize(Local<Object> target,
                 Local<Value> unused,
                 Local<Context> context,
@@ -2702,7 +2715,11 @@ void Initialize(Local<Object> target,
   SetMethod(context, target, "mkdir", MKDir);
   SetMethod(context, target, "readdir", ReadDir);
   SetMethod(context, target, "internalModuleReadJSON", InternalModuleReadJSON);
-  SetMethod(context, target, "internalModuleStat", InternalModuleStat);
+  SetFastMethod(context,
+                target,
+                "internalModuleStat",
+                SlowInternalModuleStat,
+                &fast_internal_module_stat);
   SetMethod(context, target, "stat", Stat);
   SetMethod(context, target, "lstat", LStat);
   SetMethod(context, target, "fstat", FStat);
@@ -2819,7 +2836,9 @@ void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
   registry->Register(MKDir);
   registry->Register(ReadDir);
   registry->Register(InternalModuleReadJSON);
-  registry->Register(InternalModuleStat);
+  registry->Register(SlowInternalModuleStat);
+  registry->Register(FastInternalModuleStat);
+  registry->Register(fast_internal_module_stat.GetTypeInfo());
   registry->Register(Stat);
   registry->Register(LStat);
   registry->Register(FStat);
