@@ -9,6 +9,7 @@ const bench = common.createBenchmark(main, {
   script: [
     'benchmark/fixtures/require-builtins',
     'test/fixtures/semicolon',
+    'test/fixtures/printA',
   ],
   mode: ['process', 'worker'],
   count: [30],
@@ -17,7 +18,7 @@ const bench = common.createBenchmark(main, {
 function spawnProcess(script, bench, state) {
   const cmd = process.execPath || process.argv[0];
   while (state.finished < state.count) {
-    const child = spawnSync(cmd, [script]);
+    const child = spawnSync(cmd, [script], { stdio: 'pipe' });
     if (child.status !== 0) {
       console.log('---- STDOUT ----');
       console.log(child.stdout.toString());
@@ -38,7 +39,7 @@ function spawnProcess(script, bench, state) {
 }
 
 function spawnWorker(script, bench, state) {
-  const child = new Worker(script);
+  const child = new Worker(script, { stdout: true });
   child.on('exit', (code) => {
     if (code !== 0) {
       throw new Error(`Worker stopped with exit code ${code}`);
