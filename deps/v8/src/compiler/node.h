@@ -339,8 +339,10 @@ class Effect : public NodeWrapper {
  public:
   explicit constexpr Effect(Node* node) : NodeWrapper(node) {
     // TODO(jgruber): Remove the End special case.
-    SLOW_DCHECK(node == nullptr || node->op()->opcode() == IrOpcode::kEnd ||
-                node->op()->EffectOutputCount() > 0);
+#ifdef ENABLE_SLOW_DCHECKS  // Special patch for compiling Node.js v18.x
+    DCHECK(node == nullptr || node->op()->opcode() == IrOpcode::kEnd ||
+           node->op()->EffectOutputCount() > 0);
+#endif  // ENABLE_SLOW_DCHECKS
   }
 
   // Support the common `Node* x = effect = ...` pattern.
@@ -355,8 +357,10 @@ class Control : public NodeWrapper {
  public:
   explicit constexpr Control(Node* node) : NodeWrapper(node) {
     // TODO(jgruber): Remove the End special case.
-    SLOW_DCHECK(node == nullptr || node->opcode() == IrOpcode::kEnd ||
-                node->op()->ControlOutputCount() > 0);
+#ifdef ENABLE_SLOW_DCHECKS  // Special patch for compiling Node.js v18.x
+    DCHECK(node == nullptr || node->opcode() == IrOpcode::kEnd ||
+           node->op()->ControlOutputCount() > 0);
+#endif // ENABLE_SLOW_DCHECKS
   }
 
   // Support the common `Node* x = control = ...` pattern.
