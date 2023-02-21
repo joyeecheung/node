@@ -710,7 +710,7 @@ void ScopeIterator::DebugPrint() {
       if (NeedsContext()) {
         context_->Print(os);
         if (context_->has_extension()) {
-          Handle<HeapObject> extension(context_->extension(), isolate_);
+          Handle<Object> extension(context_->extension(), isolate_);
           DCHECK(extension->IsJSContextExtensionObject());
           extension->Print(os);
         }
@@ -733,7 +733,7 @@ void ScopeIterator::DebugPrint() {
       os << "Closure:\n";
       context_->Print(os);
       if (context_->has_extension()) {
-        Handle<HeapObject> extension(context_->extension(), isolate_);
+        Handle<Object> extension(context_->extension(), isolate_);
         DCHECK(extension->IsJSContextExtensionObject());
         extension->Print(os);
       }

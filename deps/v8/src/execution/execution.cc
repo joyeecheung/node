@@ -113,7 +113,6 @@ InvokeParams InvokeParams::SetUpForCall(Isolate* isolate,
   params.receiver = NormalizeReceiver(isolate, receiver);
   // Check for host-defined options argument for scripts.
   DCHECK_IMPLIES(params.IsScript(), argc == 1);
-  DCHECK_IMPLIES(params.IsScript(), argv[0]->IsFixedArray());
   params.argc = argc;
   params.argv = argv;
   params.new_target = isolate->factory()->undefined_value();
@@ -186,7 +185,6 @@ Handle<CodeT> JSEntry(Isolate* isolate, Execution::Target execution_target,
 MaybeHandle<Context> NewScriptContext(Isolate* isolate,
                                       Handle<JSFunction> function,
                                       Handle<FixedArray> host_defined_options) {
-  // TODO(cbruni, 1244145): Use passed in host_defined_options.
   // Creating a script context is a side effect, so abort if that's not
   // allowed.
   if (isolate->debug_execution_mode() == DebugInfo::kSideEffects) {
@@ -258,8 +256,8 @@ MaybeHandle<Context> NewScriptContext(Isolate* isolate,
     }
   }
 
-  Handle<Context> result =
-      isolate->factory()->NewScriptContext(native_context, scope_info);
+  Handle<Context> result = isolate->factory()->NewScriptContext(
+      native_context, scope_info, host_defined_options);
 
   result->Initialize(isolate);
   // In REPL mode, we are allowed to add/modify let/const variables.

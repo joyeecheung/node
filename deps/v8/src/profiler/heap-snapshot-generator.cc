@@ -1520,8 +1520,6 @@ void V8HeapExplorer::ExtractScriptReferences(HeapEntry* entry, Script script) {
                        Script::kLineEndsOffset);
   TagObject(script.shared_function_infos(), "(shared function infos)",
             HeapEntry::kCode);
-  TagObject(script.host_defined_options(), "(host-defined options)",
-            HeapEntry::kCode);
 }
 
 void V8HeapExplorer::ExtractAccessorInfoReferences(HeapEntry* entry,

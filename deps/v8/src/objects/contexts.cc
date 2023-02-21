@@ -124,7 +124,7 @@ Context Context::closure_context() const {
 JSObject Context::extension_object() const {
   DCHECK(IsNativeContext() || IsFunctionContext() || IsBlockContext() ||
          IsEvalContext() || IsCatchContext());
-  HeapObject object = extension();
+  Object object = extension();
   if (object.IsUndefined()) return JSObject();
   DCHECK(object.IsJSContextExtensionObject() ||
          (IsNativeContext() && object.IsJSGlobalObject()));
@@ -138,11 +138,35 @@ JSReceiver Context::extension_receiver() const {
 }
 
 SourceTextModule Context::module() const {
+  DisallowGarbageCollection no_gc;
   Context current = *this;
   while (!current.IsModuleContext()) {
     current = current.previous();
   }
   return SourceTextModule::cast(current.extension());
+}
+
+Object Context::host_defined_options() const {
+  Context current = *this;
+  DisallowGarbageCollection no_gc;
+  while (true) {
+    if (current.IsModuleContext()) {
+      return SourceTextModule::cast(current.extension()).host_defined_options();
+    } else if (current.IsScriptContext()) {
+      if (current.has_extension()) {
+        return current.extension();
+      } else {
+        // TODO(cbruni): decide to go all or nothing on context extension
+        // allocated host-defined options.
+        return ReadOnlyRoots(GetIsolate()).empty_fixed_array();
+      }
+    } else if (current.IsNativeContext()) {
+      // TODO(cbruni): decide to go all or nothing on context extension
+      // allocated host-defined options.
+      return ReadOnlyRoots(GetIsolate()).empty_fixed_array();
+    }
+    current = current.previous();
+  }
 }
 
 JSGlobalObject Context::global_object() const {
@@ -510,13 +534,13 @@ namespace {
 // TODO(v8:12298): Fix js-context-specialization cctests to set up full
 // native contexts instead of using dummy internalized strings as
 // extensions.
-bool IsContexExtensionTestObject(HeapObject extension) {
+bool IsContexExtensionTestObject(Object extension) {
   return extension.IsInternalizedString() &&
          String::cast(extension).length() == 1;
 }
 }  // namespace
 
-void Context::VerifyExtensionSlot(HeapObject extension) {
+void Context::VerifyExtensionSlot(Object extension) {
   CHECK(scope_info().HasContextExtensionSlot());
   // Early exit for potentially uninitialized contexfts.
   if (extension.IsUndefined()) return;
@@ -538,7 +562,7 @@ void Context::VerifyExtensionSlot(HeapObject extension) {
 }
 #endif  // VERIFY_HEAP
 
-void Context::set_extension(HeapObject object, WriteBarrierMode mode) {
+void Context::set_extension(Object object, WriteBarrierMode mode) {
   DCHECK(scope_info().HasContextExtensionSlot());
 #ifdef VERIFY_HEAP
   VerifyExtensionSlot(object);
