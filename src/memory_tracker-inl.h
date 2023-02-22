@@ -225,6 +225,14 @@ void MemoryTracker::TrackField(const char* edge_name,
 }
 
 template <typename T>
+void MemoryTracker::TrackWeakRetainerField(const char* edge_name,
+                                           const v8::PersistentBase<T>& value) {
+  DCHECK(value.IsWeak());
+  graph_->AddEdge(
+      graph_->V8Node(value.Get(isolate_)), CurrentNode(), edge_name);
+}
+
+template <typename T>
 void MemoryTracker::TrackField(const char* edge_name,
                                const v8::Local<T>& value,
                                const char* node_name) {

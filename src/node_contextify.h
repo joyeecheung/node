@@ -149,7 +149,7 @@ class ContextifyContext : public BaseObject {
 
 class ContextifyScript : public BaseObject {
  public:
-  SET_NO_MEMORY_INFO()
+  void MemoryInfo(MemoryTracker* tracker) const override;
   SET_MEMORY_INFO_NAME(ContextifyScript)
   SET_SELF_SIZE(ContextifyScript)
 
@@ -180,7 +180,7 @@ class ContextifyScript : public BaseObject {
 
 class CompiledFnEntry final : public BaseObject {
  public:
-  SET_NO_MEMORY_INFO()
+  void MemoryInfo(MemoryTracker* tracker) const override;
   SET_MEMORY_INFO_NAME(CompiledFnEntry)
   SET_SELF_SIZE(CompiledFnEntry)
 

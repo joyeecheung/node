@@ -138,6 +138,8 @@ void ContextifyContext::MemoryInfo(MemoryTracker* tracker) const {
     tracker->TrackField("microtask_queue_wrap",
                         microtask_queue_wrap_->object());
   }
+  // TODO(joyeecheung): track context here when V8 supports
+  // adding it to the graph.
 }
 
 ContextifyContext::ContextifyContext(Environment* env,
@@ -928,6 +930,11 @@ Maybe<bool> StoreCodeCacheResult(
   return Just(true);
 }
 
+void ContextifyScript::MemoryInfo(MemoryTracker* tracker) const {
+  // TODO(joyeecheung): track script here when V8 supports
+  // adding it to the graph.
+}
+
 bool ContextifyScript::InstanceOf(Environment* env,
                                   const Local<Value>& value) {
   return !value.IsEmpty() &&
@@ -1294,6 +1301,10 @@ void ContextifyContext::CompileFunction(
   }
 
   args.GetReturnValue().Set(result);
+}
+
+void CompiledFnEntry::MemoryInfo(MemoryTracker* tracker) const {
+  tracker->TrackWeakRetainerField("fn", fn_);
 }
 
 void CompiledFnEntry::WeakCallback(

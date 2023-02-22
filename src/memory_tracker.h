@@ -208,6 +208,11 @@ class MemoryTracker {
   inline void TrackField(const char* edge_name,
                          const v8::PersistentBase<T>& value,
                          const char* node_name = nullptr);
+  // This can be used when the memory retainer is only deleted in a
+  // weak callback installed onto the persistent handle.
+  template <typename T>
+  inline void TrackWeakRetainerField(const char* edge_name,
+                                     const v8::PersistentBase<T>& value);
   template <typename T>
   inline void TrackField(const char* edge_name,
                          const v8::Local<T>& value,

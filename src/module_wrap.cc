@@ -758,6 +758,15 @@ void ModuleWrap::CreateCachedData(const FunctionCallbackInfo<Value>& args) {
   }
 }
 
+void ModuleWrap::MemoryInfo(MemoryTracker* tracker) const {
+  // TODO(joyeecheung): track module here when V8 supports
+  // adding it to the graph.
+  tracker->TrackField("resolve_cache", resolve_cache_);
+  if (contextify_context_ != nullptr) {
+    tracker->TrackField("contextify_context", contextify_context_);
+  }
+}
+
 void ModuleWrap::Initialize(Local<Object> target,
                             Local<Value> unused,
                             Local<Context> context,

@@ -51,9 +51,7 @@ class ModuleWrap : public BaseObject {
       v8::Local<v8::Module> module,
       v8::Local<v8::Object> meta);
 
-  void MemoryInfo(MemoryTracker* tracker) const override {
-    tracker->TrackField("resolve_cache", resolve_cache_);
-  }
+  void MemoryInfo(MemoryTracker* tracker) const override;
 
   inline uint32_t id() { return id_; }
   v8::Local<v8::Context> context() const;
