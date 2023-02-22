@@ -815,24 +815,15 @@ void ContextifyScript::New(const FunctionCallbackInfo<Value>& args) {
         data + cached_data_buf->ByteOffset(), cached_data_buf->ByteLength());
   }
 
-  Local<PrimitiveArray> host_defined_options =
-      PrimitiveArray::New(isolate, loader::HostDefinedOptions::kLength);
-  host_defined_options->Set(isolate, loader::HostDefinedOptions::kType,
-                            Number::New(isolate, loader::ScriptType::kScript));
-  host_defined_options->Set(isolate, loader::HostDefinedOptions::kID,
-                            Number::New(isolate, contextify_script->id()));
-
-  ScriptOrigin origin(isolate,
-                      filename,
-                      line_offset,                          // line offset
-                      column_offset,                        // column offset
-                      true,                                 // is cross origin
-                      -1,                                   // script id
-                      Local<Value>(),                       // source map URL
-                      false,                                // is opaque (?)
-                      false,                                // is WASM
-                      false,                                // is ES Module
-                      host_defined_options);
+  ScriptOrigin origin(filename,
+                      line_offset,     // line offset
+                      column_offset,   // column offset
+                      true,            // is cross origin
+                      -1,              // script id
+                      Local<Value>(),  // source map URL
+                      false,           // is opaque (?)
+                      false,           // is WASM
+                      false);          // is ES Module
   ScriptCompiler::Source source(code, origin, cached_data);
   ScriptCompiler::CompileOptions compile_options =
       ScriptCompiler::kNoCompileOptions;
@@ -1044,7 +1035,7 @@ bool ContextifyScript::EvalMachine(Local<Context> context,
   bool timed_out = false;
   bool received_signal = false;
   auto run = [&]() {
-    MaybeLocal<Value> result = script->Run(context);
+    MaybeLocal<Value> result = script->Run(context, wrapped_script->object());
     if (!result.IsEmpty() && mtask_queue)
       mtask_queue->PerformCheckpoint(env->isolate());
     return result;
@@ -1099,19 +1090,14 @@ bool ContextifyScript::EvalMachine(Local<Context> context,
   return true;
 }
 
-
 ContextifyScript::ContextifyScript(Environment* env, Local<Object> object)
-    : BaseObject(env, object),
-      id_(env->get_next_script_id()) {
+    : BaseObject(env, object) {
   MakeWeak();
-  env->id_to_script_map.emplace(id_, this);
 }
-
 
 ContextifyScript::~ContextifyScript() {
-  env()->id_to_script_map.erase(id_);
+  script_.Reset();
 }
-
 
 void ContextifyContext::CompileFunction(
     const FunctionCallbackInfo<Value>& args) {
@@ -1181,30 +1167,21 @@ void ContextifyContext::CompileFunction(
       data + cached_data_buf->ByteOffset(), cached_data_buf->ByteLength());
   }
 
-  // Get the function id
-  uint32_t id = env->get_next_function_id();
-
-  // Set host_defined_options
-  Local<PrimitiveArray> host_defined_options =
-      PrimitiveArray::New(isolate, loader::HostDefinedOptions::kLength);
-  host_defined_options->Set(
-      isolate,
-      loader::HostDefinedOptions::kType,
-      Number::New(isolate, loader::ScriptType::kFunction));
-  host_defined_options->Set(
-      isolate, loader::HostDefinedOptions::kID, Number::New(isolate, id));
-
-  ScriptOrigin origin(isolate,
-                      filename,
-                      line_offset,       // line offset
-                      column_offset,     // column offset
-                      true,              // is cross origin
-                      -1,                // script id
-                      Local<Value>(),    // source map URL
-                      false,             // is opaque (?)
-                      false,             // is WASM
-                      false,             // is ES Module
-                      host_defined_options);
+  Local<Object> cache_key;
+  if (!env->compiled_fn_entry_template()->NewInstance(context).ToLocal(
+          &cache_key)) {
+    return;
+  }
+  ScriptOrigin origin(filename,
+                      line_offset,     // line offset
+                      column_offset,   // column offset
+                      true,            // is cross origin
+                      -1,              // script id
+                      Local<Value>(),  // source map URL
+                      false,           // is opaque (?)
+                      false,           // is WASM
+                      false,           // is ES Module
+                      cache_key);      // host defined options
 
   ScriptCompiler::Source source(code, origin, cached_data);
   ScriptCompiler::CompileOptions options;
@@ -1258,13 +1235,7 @@ void ContextifyContext::CompileFunction(
     return;
   }
 
-  Local<Object> cache_key;
-  if (!env->compiled_fn_entry_template()->NewInstance(
-           context).ToLocal(&cache_key)) {
-    return;
-  }
-  CompiledFnEntry* entry = new CompiledFnEntry(env, cache_key, id, fn);
-  env->id_to_function_map.emplace(id, entry);
+  new CompiledFnEntry(env, cache_key, fn);
 
   Local<Object> result = Object::New(isolate);
   if (result->Set(parsing_context, env->function_string(), fn).IsNothing())
@@ -1296,23 +1267,15 @@ void ContextifyContext::CompileFunction(
   args.GetReturnValue().Set(result);
 }
 
-void CompiledFnEntry::WeakCallback(
-    const WeakCallbackInfo<CompiledFnEntry>& data) {
-  CompiledFnEntry* entry = data.GetParameter();
-  delete entry;
-}
-
 CompiledFnEntry::CompiledFnEntry(Environment* env,
                                  Local<Object> object,
-                                 uint32_t id,
                                  Local<Function> fn)
-    : BaseObject(env, object), id_(id), fn_(env->isolate(), fn) {
-  fn_.SetWeak(this, WeakCallback, v8::WeakCallbackType::kParameter);
+    : BaseObject(env, object), fn_(env->isolate(), fn) {
+  MakeWeak();
 }
 
 CompiledFnEntry::~CompiledFnEntry() {
-  env()->id_to_function_map.erase(id_);
-  fn_.ClearWeak();
+  fn_.Reset();
 }
 
 static void StartSigintWatchdog(const FunctionCallbackInfo<Value>& args) {
