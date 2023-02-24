@@ -584,7 +584,7 @@ size_t SnapshotSerializer::Write(const SnapshotMetadata& data) {
 // [    ...       ]  env_info
 // [    ...       ]  code_cache
 
-std::vector<char> SnapshotData::ToBlob() const {
+void SnapshotData::ToBlob(std::vector<char>* out) const {
   SnapshotSerializer w;
   w.Debug("SnapshotData::ToBlob()\n");
 
@@ -603,7 +603,14 @@ std::vector<char> SnapshotData::ToBlob() const {
   w.Debug("Write code_cache\n");
   written_total += w.WriteVector<builtins::CodeCacheInfo>(code_cache);
   w.Debug("SnapshotData::ToBlob() Wrote %d bytes\n", written_total);
-  return w.sink;
+
+  *out = std::move(w.sink);
+}
+
+std::vector<char> SnapshotData::ToBlob() const {
+  std::vector<char> result;
+  ToBlob(&result);
+  return result;
 }
 
 void SnapshotData::ToFile(FILE* out) const {

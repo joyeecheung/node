@@ -533,6 +533,7 @@ struct SnapshotData {
 
   void ToFile(FILE* out) const;
   std::vector<char> ToBlob() const;
+  void ToBlob(std::vector<char>* out) const;
   // If returns false, the metadata doesn't match the current Node.js binary,
   // and the caller should not consume the snapshot data.
   bool Check() const;
