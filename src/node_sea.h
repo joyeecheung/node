@@ -20,19 +20,24 @@ const uint32_t kMagic = 0x143da20;
 enum class SeaFlags : uint32_t {
   kDefault = 0,
   kDisableExperimentalSeaWarning = 1 << 0,
+  kBuildSnapshotFromMain = 1 << 1,
 };
 
 struct SeaResource {
   SeaFlags flags = SeaFlags::kDefault;
-  std::string_view code;
+  std::string_view main_code_or_snapshot;
 
+  bool produce_snapshot() const;
   static constexpr size_t kHeaderSize = sizeof(kMagic) + sizeof(SeaFlags);
 };
 
 bool IsSingleExecutable();
 SeaResource FindSingleExecutableResource();
 std::tuple<int, char**> FixupArgsForSEA(int argc, char** argv);
-node::ExitCode BuildSingleExecutableBlob(const std::string& config_path);
+node::ExitCode BuildSingleExecutableBlob(
+    const std::string& config_path,
+    const std::vector<std::string> args,
+    const std::vector<std::string> exec_args);
 }  // namespace sea
 }  // namespace node
 

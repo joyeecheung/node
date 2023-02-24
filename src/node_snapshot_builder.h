@@ -25,6 +25,12 @@ class NODE_EXTERN_PRIVATE SnapshotBuilder {
                            const std::vector<std::string> args,
                            const std::vector<std::string> exec_args);
 
+  static ExitCode Generate(std::vector<char>* out,
+                           const std::vector<std::string> args,
+                           const std::vector<std::string> exec_args,
+                           /*SnapshotMetadata::Type*/ uint8_t snapshot_type,
+                           const std::string& main_script);
+
   // If nullptr is returned, the binary is not built with embedded
   // snapshot.
   static const SnapshotData* GetEmbeddedSnapshotData();

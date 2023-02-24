@@ -6,6 +6,8 @@
 #include "json_parser.h"
 #include "node_external_reference.h"
 #include "node_internals.h"
+#include "node_snapshot_builder.h"
+#include "node_v8_platform-inl.h"
 #include "node_union_bytes.h"
 
 // The POSTJECT_SENTINEL_FUSE macro is a string of random characters selected by
@@ -30,6 +32,9 @@ using v8::FunctionCallbackInfo;
 using v8::Local;
 using v8::Object;
 using v8::Value;
+using v8::Isolate;
+using v8::Locker;
+using v8::HandleScope;
 
 namespace node {
 namespace sea {
@@ -64,7 +69,7 @@ class SeaSerializer : public BlobSerializer<SeaSerializer> {
 
 template <>
 size_t SeaSerializer::Write(const SeaResource& sea) {
-  sink.reserve(SeaResource::kHeaderSize + sea.code.size());
+  sink.reserve(SeaResource::kHeaderSize + sea.main_code_or_snapshot.size());
 
   Debug("Write SEA magic %x\n", kMagic);
   size_t written_total = WriteArithmetic<uint32_t>(kMagic);
@@ -75,9 +80,9 @@ size_t SeaSerializer::Write(const SeaResource& sea) {
   DCHECK_EQ(written_total, SeaResource::kHeaderSize);
 
   Debug("Write SEA resource code %p, size=%zu\n",
-        sea.code.data(),
-        sea.code.size());
-  written_total += WriteStringView(sea.code, StringLogMode::kAddressAndContent);
+        sea.main_code_or_snapshot.data(),
+        sea.main_code_or_snapshot.size());
+  written_total += WriteStringView(sea.main_code_or_snapshot, StringLogMode::kAddressAndContent);
   return written_total;
 }
 
@@ -235,10 +240,25 @@ std::optional<SeaConfig> ParseSingleExecutableConfig(
     result.flags |= SeaFlags::kDisableExperimentalSeaWarning;
   }
 
+  std::optional<bool> build_snapshot_from_main =
+      parser.GetTopLevelBoolField("buildSnapshotFromMain");
+  if (!build_snapshot_from_main.has_value()) {
+    FPrintF(stderr,
+            "\"buildSnapshotFromMain\" field of %s is not a Boolean\n",
+            config_path);
+    return std::nullopt;
+  }
+  if (build_snapshot_from_main.value()) {
+    result.flags |= SeaFlags::kBuildSnapshotFromMain;
+  }
+
   return result;
 }
 
-ExitCode GenerateSingleExecutableBlob(const SeaConfig& config) {
+ExitCode GenerateSingleExecutableBlob(
+    const SeaConfig& config,
+    const std::vector<std::string> args,
+    const std::vector<std::string> exec_args) {
   std::string main_script;
   // TODO(joyeecheung): unify the file utils.
   int r = ReadFileSync(&main_script, config.main_path.c_str());
@@ -248,7 +268,43 @@ ExitCode GenerateSingleExecutableBlob(const SeaConfig& config) {
     return ExitCode::kGenericUserError;
   }
 
-  SeaResource sea{config.flags, main_script};
+  std::vector<char> snapshot;
+  bool builds_snapshot_from_main =
+      static_cast<bool>(config.flags & SeaFlags::kBuildSnapshotFromMain);
+  if (builds_snapshot_from_main) {
+    std::vector<std::string> errors;
+    std::unique_ptr<CommonEnvironmentSetup> setup = CommonEnvironmentSetup::CreateForSnapshotting(
+                per_process::v8_platform.Platform(), &errors, args, exec_args);
+  if (!setup) {
+    for (const std::string& err : errors)
+      fprintf(stderr, "%s: %s\n", args[0].c_str(), err.c_str());
+    return ExitCode::kGenericUserError;
+  }
+
+  Isolate* isolate = setup->isolate();
+  Environment* env = setup->env();
+  {
+    Locker locker(isolate);
+    Isolate::Scope isolate_scope(isolate);
+    HandleScope handle_scope(isolate);
+    Context::Scope context_scope(setup->context());
+  }
+    ExitCode exit_code = SnapshotBuilder::Generate(
+        &snapshot,
+        args,
+        exec_args,
+        static_cast<uint8_t>(SnapshotMetadata::Type::kFullyCustomized),
+        main_script);
+    if (exit_code != ExitCode::kNoFailure) {
+      return exit_code;
+    }
+  }
+
+  SeaResource sea{
+      config.flags,
+      builds_snapshot_from_main
+          ? std::string_view{snapshot.data(), snapshot.size()}
+          : std::string_view{main_script.data(), main_script.size()}};
 
   SeaSerializer serializer;
   serializer.Write(sea);
@@ -269,11 +325,14 @@ ExitCode GenerateSingleExecutableBlob(const SeaConfig& config) {
 
 }  // anonymous namespace
 
-ExitCode BuildSingleExecutableBlob(const std::string& config_path) {
+ExitCode BuildSingleExecutableBlob(const std::string& config_path,
+                                   const std::vector<std::string> args,
+                                   const std::vector<std::string> exec_args) {
   std::optional<SeaConfig> config_opt =
       ParseSingleExecutableConfig(config_path);
   if (config_opt.has_value()) {
-    ExitCode code = GenerateSingleExecutableBlob(config_opt.value());
+    ExitCode code =
+        GenerateSingleExecutableBlob(config_opt.value(), args, exec_args);
     return code;
   }
 
