@@ -1124,6 +1124,7 @@
     {
       'target_name': 'node_js2c',
       'type': 'executable',
+      'toolsets': [ 'host' ],
       'dependencies': [
         'deps/simdutf/simdutf.gyp:simdutf',
       ],
