@@ -461,7 +461,7 @@
         'deps/uvwasi/uvwasi.gyp:uvwasi',
         'deps/simdutf/simdutf.gyp:simdutf',
         'deps/ada/ada.gyp:ada',
-        'node_js2c',
+        'node_js2c#host',
       ],
 
       'sources': [
@@ -1124,9 +1124,9 @@
     {
       'target_name': 'node_js2c',
       'type': 'executable',
-      'toolsets': [ 'host' ],
+      'toolsets': ['host'],
       'dependencies': [
-        'deps/simdutf/simdutf.gyp:simdutf',
+        'deps/simdutf/simdutf.gyp:simdutf#host',
       ],
       'include_dirs': [
         'tools'
@@ -1137,7 +1137,7 @@
       ],
       'conditions': [
         [ 'node_shared_libuv=="false"', {
-          'dependencies': [ 'deps/uv/uv.gyp:libuv' ],
+          'dependencies': [ 'deps/uv/uv.gyp:libuv#host' ],
         }],
         [ 'debug_node=="true"', {
           'cflags!': [ '-O3' ],
