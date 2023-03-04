@@ -25,16 +25,16 @@ void FixupMain(int argc, argv_type raw_argv[], char*** argv) {
       exit(1);
     }
     // Do the actual conversion
-    *argv[i] = new char[size];
+    (*argv)[i] = new char[size];
     DWORD result = WideCharToMultiByte(
-        CP_UTF8, 0, raw_argv[i], -1, argv[i], size, nullptr, nullptr);
+        CP_UTF8, 0, raw_argv[i], -1, (*argv)[i], size, nullptr, nullptr);
     if (result == 0) {
       // This should never happen.
       fprintf(stderr, "Could not convert arguments to utf8.");
       exit(1);
     }
   }
-  *argv[argc] = nullptr;
+  (*argv)[argc] = nullptr;
 }
 #else
 void FixupMain(int argc, argv_type raw_argv[], char*** argv) {

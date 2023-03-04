@@ -13,6 +13,15 @@
 #include "simdutf.h"
 #include "uv.h"
 
+#if defined(_WIN32)
+#include <io.h>  // _S_IREAD _S_IWRITE
+#ifndef S_IRUSR
+#define S_IRUSR _S_IREAD
+#endif  // S_IRUSR
+#ifndef S_IWUSR
+#define S_IWUSR _S_IWRITE
+#endif  // S_IWUSR
+#endif
 namespace node {
 namespace js2c {
 int Main(int argc, char* argv[]);
