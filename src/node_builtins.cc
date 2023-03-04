@@ -242,13 +242,25 @@ void BuiltinLoader::AddExternalizedBuiltin(const char* id,
 }
 
 bool BuiltinLoader::Add(const char* id, std::string_view utf8source) {
+  size_t utf8_length = utf8source.length();
+  const char* utf8_data = utf8source.data();
+  if (simdutf::validate_ascii(utf8_data, utf8_length)) {
+    per_process::Debug(
+        DebugCategory::CODE_CACHE, "Encoding one byte source of '%s'\n", id);
+    auto out = std::make_shared<std::vector<uint8_t>>(utf8_length);
+    for (size_t i = 0; i < utf8_length; ++i) {
+      (*out)[i] = utf8_data[i];
+    }
+    return Add(id, UnionBytes(out));
+  }
+
+  per_process::Debug(
+      DebugCategory::CODE_CACHE, "Encoding two byte source of '%s'\n", id);
   size_t expected_u16_length =
-      simdutf::utf16_length_from_utf8(utf8source.data(), utf8source.length());
+      simdutf::utf16_length_from_utf8(utf8_data, utf8_length);
   auto out = std::make_shared<std::vector<uint16_t>>(expected_u16_length);
-  size_t u16_length =
-      simdutf::convert_utf8_to_utf16(utf8source.data(),
-                                     utf8source.length(),
-                                     reinterpret_cast<char16_t*>(out->data()));
+  size_t u16_length = simdutf::convert_utf8_to_utf16(
+      utf8_data, utf8_length, reinterpret_cast<char16_t*>(out->data()));
   out->resize(u16_length);
   return Add(id, UnionBytes(out));
 }
