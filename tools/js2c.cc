@@ -8,6 +8,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 #include "executable_wrapper.h"
 #include "simdutf.h"
@@ -55,7 +56,7 @@ bool IsDirectory(const std::string& filename, int* error) {
   return result;
 }
 
-bool EndsWith(const std::string& str, const std::string& suffix) {
+bool EndsWith(const std::string& str, std::string_view suffix) {
   size_t suffix_len = suffix.length();
   size_t str_len = str.length();
   if (str_len < suffix_len) {
@@ -64,7 +65,7 @@ bool EndsWith(const std::string& str, const std::string& suffix) {
   return str.compare(str_len - suffix_len, suffix_len, suffix) == 0;
 }
 
-bool StartsWith(const std::string& str, const std::string& prefix) {
+bool StartsWith(const std::string& str, std::string_view prefix) {
   size_t prefix_len = prefix.length();
   size_t str_len = str.length();
   if (str_len < prefix_len) {
@@ -127,43 +128,46 @@ bool SearchFiles(const std::string& dir,
   return !errored;
 }
 
-std::set<std::string> kAllowedExtensions{".gypi", ".js", ".mjs"};
+constexpr std::string_view kMjsSuffix = ".mjs";
+constexpr std::string_view kJsSuffix = ".js";
+constexpr std::string_view kGypiSuffix = ".gypi";
+constexpr std::string_view depsPrefix = "deps/";
+constexpr std::string_view libPrefix = "lib/";
+constexpr std::string_view kVarSuffix = "_raw";
+std::set<std::string_view> kAllowedExtensions{
+    kGypiSuffix, kJsSuffix, kMjsSuffix};
 
-bool HasAllowedExtensions(const std::string& filename,
-                          const std::string** extension) {
+std::string_view HasAllowedExtensions(const std::string& filename) {
   for (const auto& ext : kAllowedExtensions) {
     if (EndsWith(filename, ext)) {
-      *extension = &ext;
-      return true;
+      return ext;
     }
   }
-  return false;
+  return {};
 }
 
 using Fragment = std::vector<char>;
 using Fragments = std::vector<std::vector<char>>;
 
 std::vector<char> Join(const Fragments& fragments,
-                       const std::string& separator,
-                       size_t* size) {
-  size_t length = 0;
+                       const std::string& separator) {
+  size_t length = separator.size() * (fragments.size() - 1);
   for (size_t i = 0; i < fragments.size(); ++i) {
-    length += fragments[i].size() + separator.size();
+    length += fragments[i].size();
   }
-  std::vector<char> buf(length + 1, 0);
-  int cursor = 0;
+  std::vector<char> buf(length, 0);
+  size_t cursor = 0;
   for (size_t i = 0; i < fragments.size(); ++i) {
     const Fragment& fragment = fragments[i];
-    assert(buf.size() > static_cast<size_t>(cursor));
-    int r = snprintf(buf.data() + cursor,
-                     buf.size() - cursor,
-                     "%s%.*s",
-                     i == 0 ? "" : separator.c_str(),
-                     static_cast<int>(fragment.size()),
-                     fragment.data());
-    cursor += r;
+    // Avoid using snprintf on large chunks of data because it's much slower.
+    // It's fine to use it on small amount of data though.
+    if (i != 0) {
+      memcpy(buf.data() + cursor, separator.c_str(), separator.size());
+      cursor += separator.size();
+    }
+    memcpy(buf.data() + cursor, fragment.data(), fragment.size());
+    cursor += fragment.size();
   }
-  *size = static_cast<size_t>(cursor);
   buf.resize(cursor);
   return buf;
 }
@@ -202,9 +206,6 @@ UnionBytes BuiltinLoader::GetConfig() {
 Fragment Format(const Fragments& definitions,
                 const Fragments& initializers,
                 size_t config_size) {
-  size_t def_size = 0;
-  size_t init_size = 0;
-
   // Definitions:
   // static const uint8_t fs_raw[] = {
   //  ....
@@ -212,11 +213,12 @@ Fragment Format(const Fragments& definitions,
   // static const uint16_t internal_cli_table_raw[] = {
   //  ....
   // };
-  std::vector<char> def_buf = Join(definitions, "\n", &def_size);
-
+  std::vector<char> def_buf = Join(definitions, "\n");
+  size_t def_size = def_buf.size();
   // Initializers of the BuiltinSourceMap:
   // {"fs", UnionBytes{fs_raw, 84031}},
-  std::vector<char> init_buf = Join(initializers, "\n", &init_size);
+  std::vector<char> init_buf = Join(initializers, "\n");
+  size_t init_size = init_buf.size();
 
   size_t result_size = def_size + init_size + strlen(kTemplate) + 100;
   std::vector<char> result(result_size, 0);
@@ -333,12 +335,6 @@ int WriteIfChanged(const Fragment& out, const std::string& dest) {
   return WriteFileSync(out, dest.c_str());
 }
 
-static const std::string kMjsSuffix = ".mjs";
-static const std::string kjsSuffix = ".js";
-static const std::string depsPrefix = "deps/";
-static const std::string libPrefix = "lib/";
-static const std::string kVarSuffix = "_raw";
-
 std::string GetFileId(const std::string& filename) {
   size_t end = filename.length();
   size_t start = 0;
@@ -346,8 +342,8 @@ std::string GetFileId(const std::string& filename) {
   // Strip .mjs and .js suffix
   if (EndsWith(filename, kMjsSuffix)) {
     end -= kMjsSuffix.size();
-  } else if (EndsWith(filename, kjsSuffix)) {
-    end -= kjsSuffix.size();
+  } else if (EndsWith(filename, kJsSuffix)) {
+    end -= kJsSuffix.size();
   }
 
   // deps/acorn/acorn/dist/acorn.js -> internal/deps/acorn/acorn/dist/acorn
@@ -395,6 +391,7 @@ const std::string& GetCode(uint16_t index) {
   return table[index];
 }
 
+constexpr std::string_view literal_end = "\n};\n";
 template <typename T>
 Fragment ConvertToLiteral(const std::vector<T>& code, const std::string& var) {
   size_t count = code.size();
@@ -407,20 +404,19 @@ Fragment ConvertToLiteral(const std::vector<T>& code, const std::string& var) {
 
   size_t def_size = 256 + (count * unit);
   Fragment result(def_size, 0);
-  size_t remaining = def_size;
 
   int cur = snprintf(
-      result.data(), remaining, "static const %s %s[] = {\n", id, var.c_str());
-  assert(static_cast<size_t>(cur) < remaining && cur != 0);
+      result.data(), def_size, "static const %s %s[] = {\n", id, var.c_str());
+  assert(cur != 0);
   for (size_t i = 0; i < count; ++i) {
+    // Avoid using snprintf on large chunks of data because it's much slower.
+    // It's fine to use it on small amount of data though.
     const std::string& str = GetCode(static_cast<uint16_t>(code[i]));
     memcpy(result.data() + cur, str.c_str(), str.size());
     cur += str.size();
-    remaining -= str.size();
   }
-  int r = snprintf(result.data() + cur, remaining, "\n};\n");
-  assert(static_cast<size_t>(r) < remaining && r != 0);
-  cur += r;
+  memcpy(result.data() + cur, literal_end.data(), literal_end.size());
+  cur += literal_end.size();
   result.resize(cur);
 
   return result;
@@ -477,8 +473,7 @@ int AddModule(const std::string& filename,
                    id.c_str(),
                    var.c_str(),
                    static_size);
-  assert(static_cast<size_t>(r + 1) <= buf.size());
-  buf.resize(r + 1);
+  buf.resize(r);
 
   return 0;
 }
@@ -658,9 +653,9 @@ int Main(int argc, char* argv[]) {
     } else if (error != 0) {
       return 1;
     } else {  // It's a file.
-      const std::string* extension = nullptr;
-      if (HasAllowedExtensions(file, &extension)) {
-        auto it = file_map.insert({*extension, FileList()}).first;
+      std::string_view extension = HasAllowedExtensions(file);
+      if (extension.size() != 0) {
+        auto it = file_map.insert({std::string(extension), FileList()}).first;
         it->second.push_back(file);
       } else {
         fprintf(stderr, "Unsupported file: %s\n", file.c_str());
