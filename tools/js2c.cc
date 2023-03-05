@@ -381,8 +381,19 @@ std::string GetVariableName(const std::string& id) {
   return std::string(var_buf.data(), var_buf.size());
 }
 
-const std::string kTwoByteSpecifier = "%" + std::string(PRIu16) + ",";
-const std::string kOneByteSpecifier = "%" + std::string(PRIu8) + ",";
+std::vector<std::string> GetCodeTable() {
+  size_t size = 1 << 16;
+  std::vector<std::string> code_table(size);
+  for (size_t i = 0; i < size; ++i) {
+    code_table[i] = std::to_string(i) + ',';
+  }
+  return code_table;
+}
+
+const std::string& GetCode(uint16_t index) {
+  static std::vector<std::string> table = GetCodeTable();
+  return table[index];
+}
 
 template <typename T>
 Fragment ConvertToLiteral(const std::vector<T>& code, const std::string& var) {
@@ -393,8 +404,6 @@ Fragment ConvertToLiteral(const std::vector<T>& code, const std::string& var) {
   constexpr size_t unit =
       (is_two_byte ? 5 : 3) + 1;  // 0-65536 or 0-127 and a ","
   constexpr const char* id = is_two_byte ? "uint16_t" : "uint8_t";
-  const char* sp =
-      is_two_byte ? kTwoByteSpecifier.c_str() : kOneByteSpecifier.c_str();
 
   size_t def_size = 256 + (count * unit);
   Fragment result(def_size, 0);
@@ -404,10 +413,10 @@ Fragment ConvertToLiteral(const std::vector<T>& code, const std::string& var) {
       result.data(), remaining, "static const %s %s[] = {\n", id, var.c_str());
   assert(static_cast<size_t>(cur) < remaining && cur != 0);
   for (size_t i = 0; i < count; ++i) {
-    int r = snprintf(result.data() + cur, remaining, sp, code[i]);
-    assert(static_cast<size_t>(r) < remaining && r != 0);
-    cur += r;
-    remaining -= r;
+    const std::string& str = GetCode(static_cast<uint16_t>(code[i]));
+    memcpy(result.data() + cur, str.c_str(), str.size());
+    cur += str.size();
+    remaining -= str.size();
   }
   int r = snprintf(result.data() + cur, remaining, "\n};\n");
   assert(static_cast<size_t>(r) < remaining && r != 0);
