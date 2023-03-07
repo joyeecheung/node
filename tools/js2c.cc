@@ -29,6 +29,20 @@ namespace js2c {
 int Main(int argc, char* argv[]);
 
 static bool is_verbose = false;
+static std::string_view root_dir;
+
+std::string GetPath(const char* relative_path) {
+  if (root_dir.empty()) {
+    return relative_path;
+  }
+  return std::string(root_dir) + '/' + relative_path;
+}
+
+template <typename Func, typename... Args>
+int CallWithPath(Func uv_fn, uv_fs_t* req, const char* filename, Args... args) {
+  std::string filepath = GetPath(filename);
+  return uv_fn(nullptr, req, filepath.c_str(), args..., nullptr);
+}
 
 void Debug(const char* format, ...) {
   va_list arguments;
@@ -40,12 +54,18 @@ void Debug(const char* format, ...) {
 }
 
 void PrintUvError(const char* syscall, const char* filename, int error) {
-  fprintf(stderr, "[%s] %s: %s\n", syscall, filename, uv_strerror(error));
+  std::string filepath = GetPath(filename);
+  fprintf(stderr,
+          "[%s] %s (%s): %s\n",
+          syscall,
+          filename,
+          filepath.c_str(),
+          uv_strerror(error));
 }
 
 int GetStats(const char* path, std::function<void(const uv_stat_t*)> func) {
   uv_fs_t req;
-  int r = uv_fs_stat(nullptr, &req, path, nullptr);
+  int r = CallWithPath(uv_fs_stat, &req, path);
   if (r == 0) {
     func(static_cast<const uv_stat_t*>(req.ptr));
   }
@@ -96,7 +116,7 @@ bool SearchFiles(const std::string& dir,
                  FileMap* file_map,
                  const std::string& extension) {
   uv_fs_t scan_req;
-  int result = uv_fs_scandir(nullptr, &scan_req, dir.c_str(), 0, nullptr);
+  int result = CallWithPath(uv_fs_scandir, &scan_req, dir.c_str(), 0);
   bool errored = false;
   if (result < 0) {
     PrintUvError("scandir", dir.c_str(), result);
@@ -253,7 +273,7 @@ std::vector<char> ReadFileSync(const char* path, size_t size, int* error) {
   uv_fs_t req;
   Debug("ReadFileSync %s with size %zu\n", path, size);
 
-  uv_file file = uv_fs_open(nullptr, &req, path, O_RDONLY, 0, nullptr);
+  uv_file file = CallWithPath(uv_fs_open, &req, path, O_RDONLY, 0);
   if (req.result < 0) {
     uv_fs_req_cleanup(&req);
     *error = req.result;
@@ -285,6 +305,8 @@ std::vector<char> ReadFileSync(const char* path, size_t size, int* error) {
   return contents;
 }
 
+// Write to path directly without appending it to root - it is relative to the
+// current working directory instead.
 int WriteFileSync(const std::vector<char>& out, const char* path) {
   Debug("WriteFileSync %zu bytes to %s\n", out.size(), path);
   uv_fs_t req;
@@ -630,26 +652,46 @@ int JS2C(const FileList& js_files,
   return WriteIfChanged(out, dest);
 }
 
+int PrintUsage(const char* argv0) {
+  fprintf(stderr,
+          "Usage: %s [--verbose] [--root /path/to/project/root] "
+          "path/to/output.cc path/to/directory "
+          "[extra-files ...]\n",
+          argv0);
+  return 1;
+}
+
 int Main(int argc, char* argv[]) {
   if (argc < 3) {
-    fprintf(stderr,
-            "Usage: %s [--verbose] path/to/output.cc path/to/directory "
-            "[extra-files ...]\n",
-            argv[0]);
-    return 1;
+    return PrintUsage(argv[0]);
   }
 
-  int start = 1;
-  if (strcmp(argv[start], "--verbose") == 0) {
-    is_verbose = true;
-    start++;
+  std::vector<std::string> args;
+  args.reserve(argc);
+  for (int i = 1; i < argc; ++i) {
+    std::string arg(argv[i]);
+    if (arg == "--verbose") {
+      is_verbose = true;
+    } else if (arg == "--root") {
+      if (i == argc - 1) {
+        fprintf(stderr, "--root must be followed by a path\n");
+        return 1;
+      }
+      root_dir = argv[++i];
+    } else {
+      args.emplace_back(argv[i]);
+    }
   }
-  std::string output = argv[start++];
+
+  if (args.size() < 2) {
+    return PrintUsage(argv[0]);
+  }
+  std::string output = args[0];
 
   FileMap file_map;
-  for (int i = start; i < argc; ++i) {
+  for (size_t i = 1; i < args.size(); ++i) {
     int error = 0;
-    std::string file(argv[i]);
+    const std::string& file = args[i];
     if (IsDirectory(file, &error)) {
       if (!SearchFiles(file, &file_map, std::string(kJsSuffix)) ||
           !SearchFiles(file, &file_map, std::string(kMjsSuffix))) {
