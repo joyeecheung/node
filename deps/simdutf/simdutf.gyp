@@ -2,6 +2,7 @@
   'targets': [
     {
       'target_name': 'simdutf',
+      'toolsets': ['host', 'target'],
       'type': 'static_library',
       'include_dirs': ['.'],
       'direct_dependent_settings': {
