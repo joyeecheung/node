@@ -54,7 +54,8 @@ const meowScript = () => 'meow';
     workerData,
     transferList: []
   }), {
-    code: 'ERR_MISSING_TRANSFERABLE_IN_TRANSFER_LIST',
+    name: 'DataCloneError',
+    code: DOMException.DATA_CLONE_ERR,
     message: 'Object that needs transfer was found in message but not ' +
              'listed in transferList'
   });

@@ -130,15 +130,21 @@ assert.throws(() => new BroadcastChannel(), {
 {
   const bc1 = new BroadcastChannel('channel3');
   const mc = new MessageChannel();
-  assert.throws(() => bc1.postMessage(mc), {
-    message: /Object that needs transfer was found/
+  assert.throws(() => bc1.postMessage(mc), (err) => {
+    assert(err instanceof DOMException);
+    assert.match(err.message, /Object that needs transfer was found/);
+    return true;
   });
-  assert.throws(() => bc1.postMessage(Symbol()), {
-    message: /Symbol\(\) could not be cloned/
+  assert.throws(() => bc1.postMessage(Symbol()), (err) => {
+    assert(err instanceof DOMException);
+    assert.match(err.message, /Symbol\(\) could not be cloned/);
+    return true;
   });
   bc1.close();
-  assert.throws(() => bc1.postMessage(Symbol()), {
-    message: /BroadcastChannel is closed/
+  assert.throws(() => bc1.postMessage(Symbol()), (err) => {
+    assert(err instanceof DOMException);
+    assert.match(err.message, /BroadcastChannel is closed/);
+    return true;
   });
 }
 

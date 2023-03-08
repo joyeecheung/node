@@ -406,7 +406,10 @@ class SerializerDelegate : public ValueSerializer::Delegate {
     }
 
     if (mode == BaseObject::TransferMode::kTransferable) {
-      THROW_ERR_MISSING_TRANSFERABLE_IN_TRANSFER_LIST(env_);
+      ThrowDataCloneError(FIXED_ONE_BYTE_STRING(
+          env_->isolate(),
+          "Object that needs transfer was found in message but not listed "
+          "in transferList"));
       return Nothing<bool>();
     }
 
