@@ -1301,6 +1301,7 @@ CompiledFnEntry::CompiledFnEntry(Environment* env,
     : BaseObject(env, object), id_(id) {
   MakeWeak();
   fn->SetPrivate(env->context(), env->compiled_function_entry(), object);
+  object->SetPrivate(env->context(), env->compiled_function_entry(), fn);
   env->id_to_function_map.emplace(id, this);
 }
 
