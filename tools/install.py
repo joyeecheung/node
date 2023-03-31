@@ -263,6 +263,7 @@ def headers(action):
       'deps/v8/include/v8-forward.h',
       'deps/v8/include/v8-function-callback.h',
       'deps/v8/include/v8-function.h',
+      'deps/v8/include/v8-handle-base.h',
       'deps/v8/include/v8-initialization.h',
       'deps/v8/include/v8-internal.h',
       'deps/v8/include/v8-isolate.h',
