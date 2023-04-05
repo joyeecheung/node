@@ -26,8 +26,10 @@ BaseObject::~BaseObject() {
   realm()->modify_base_object_count(-1);
   realm()->RemoveCleanupHook(DeleteMe, static_cast<void*>(this));
 
+  bool finalized_by_realm = false;
   if (UNLIKELY(has_pointer_data())) {
     PointerData* metadata = pointer_data();
+    finalized_by_realm = metadata->finalized_by_realm;
     CHECK_EQ(metadata->strong_ptr_count, 0);
     metadata->self = nullptr;
     if (metadata->weak_ptr_count == 0) delete metadata;
@@ -38,9 +40,11 @@ BaseObject::~BaseObject() {
     return;
   }
 
-  {
+  if (!finalized_by_realm) {
     HandleScope handle_scope(realm()->isolate());
     object()->SetAlignedPointerInInternalField(BaseObject::kSlot, nullptr);
+  } else {
+    CHECK(realm()->is_cleaning_up());
   }
 }
 
@@ -64,6 +68,11 @@ void BaseObject::MakeWeak() {
         obj->OnGCCollect();
       },
       WeakCallbackType::kParameter);
+}
+
+void BaseObject::SetFinalizedByRealm() {
+  pointer_data()->finalized_by_realm = true;
+  persistent_handle_.SetWeak();
 }
 
 // This just has to be different from the Chromium ones:

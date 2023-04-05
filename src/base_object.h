@@ -88,6 +88,8 @@ class BaseObject : public MemoryRetainer {
   // BaseObjectPtr references to it.
   void MakeWeak();
 
+  void SetFinalizedByRealm();
+
   // Undo `MakeWeak()`, i.e. turn this into a strong reference that is a GC
   // root and will not be touched by the garbage collector.
   inline void ClearWeak();
@@ -213,6 +215,7 @@ class BaseObject : public MemoryRetainer {
     // Indicates whether Detach() has been called. If that is the case, this
     // object will be destroyed once the strong pointer count drops to zero.
     bool is_detached = false;
+    bool finalized_by_realm = false;
     // Reference to the original BaseObject. This is used by weak pointers.
     BaseObject* self = nullptr;
   };
@@ -306,7 +309,8 @@ inline BaseObjectPtr<T> MakeBaseObject(Args&&... args);
 // itself is also destroyed.
 template <typename T, typename... Args>
 inline BaseObjectPtr<T> MakeDetachedBaseObject(Args&&... args);
-
+template <typename T, typename... Args>
+inline BaseObjectWeakPtr<T> MakeFinalizedByRealmObject(Args&&... args);
 }  // namespace node
 
 #endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS

@@ -86,8 +86,8 @@ inline T* Realm::AddBindingData(v8::Local<v8::Context> context,
                                 Args&&... args) {
   DCHECK_EQ(GetCurrent(context), this);
   // This won't compile if T is not a BaseObject subclass.
-  BaseObjectPtr<T> item =
-      MakeDetachedBaseObject<T>(this, target, std::forward<Args>(args)...);
+  BaseObjectWeakPtr<T> item =
+      MakeFinalizedByRealmObject<T>(this, target, std::forward<Args>(args)...);
   DCHECK_EQ(context->GetAlignedPointerFromEmbedderData(
                 ContextEmbedderIndex::kBindingDataStoreIndex),
             &binding_data_store_);
@@ -115,6 +115,10 @@ void Realm::modify_base_object_count(int64_t delta) {
 
 int64_t Realm::base_object_created_after_bootstrap() const {
   return base_object_count_ - base_object_created_by_bootstrap_;
+}
+
+inline bool Realm::is_cleaning_up() const {
+  return is_cleaning_up_;
 }
 
 int64_t Realm::base_object_count() const {

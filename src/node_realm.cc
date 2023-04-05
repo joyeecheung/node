@@ -212,10 +212,9 @@ void Realm::DoneBootstrapping() {
 
 void Realm::RunCleanup() {
   TRACE_EVENT0(TRACING_CATEGORY_NODE1(realm), "RunCleanup");
-  for (size_t i = 0; i < binding_data_store_.size(); ++i) {
-    binding_data_store_[i].reset();
-  }
+  is_cleaning_up_ = true;
   cleanup_queue_.Drain();
+  is_cleaning_up_ = false;
 }
 
 void Realm::PrintInfoForSnapshot() {

@@ -21,9 +21,9 @@ struct RealmSerializeInfo {
   friend std::ostream& operator<<(std::ostream& o, const RealmSerializeInfo& i);
 };
 
-using BindingDataStore = std::array<BaseObjectPtr<BaseObject>,
-                     static_cast<size_t>(
-                         BindingDataType::kBindingDataTypeCount)>;
+using BindingDataStore =
+    std::array<BaseObjectWeakPtr<BaseObject>,
+               static_cast<size_t>(BindingDataType::kBindingDataTypeCount)>;
 
 /**
  * node::Realm is a container for a set of JavaScript objects and functions
@@ -113,6 +113,7 @@ class Realm : public MemoryRetainer {
 
   // Base object count created after the bootstrap of the realm.
   inline int64_t base_object_created_after_bootstrap() const;
+  inline bool is_cleaning_up() const;
 
 #define V(PropertyName, TypeName)                                              \
   virtual v8::Local<TypeName> PropertyName() const = 0;                        \
@@ -148,6 +149,7 @@ class Realm : public MemoryRetainer {
 
   Kind kind_;
   bool has_run_bootstrapping_code_ = false;
+  bool is_cleaning_up_ = false;
 
   int64_t base_object_count_ = 0;
   int64_t base_object_created_by_bootstrap_ = 0;

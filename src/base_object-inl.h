@@ -294,6 +294,12 @@ BaseObjectPtr<T> MakeDetachedBaseObject(Args&&... args) {
   return target;
 }
 
+template <typename T, typename... Args>
+BaseObjectWeakPtr<T> MakeFinalizedByRealmObject(Args&&... args) {
+  BaseObjectWeakPtr<T> object(new T(std::forward<Args>(args)...));
+  object->SetFinalizedByRealm();
+  return object;
+}
 }  // namespace node
 
 #endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
