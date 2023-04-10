@@ -164,7 +164,7 @@ class PrincipalRealm : public Realm {
   PrincipalRealm(Environment* env,
                  v8::Local<v8::Context> context,
                  const RealmSerializeInfo* realm_info);
-  ~PrincipalRealm() = default;
+  ~PrincipalRealm();
 
   SET_MEMORY_INFO_NAME(PrincipalRealm)
   SET_SELF_SIZE(PrincipalRealm)

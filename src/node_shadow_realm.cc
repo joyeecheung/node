@@ -41,7 +41,11 @@ MaybeLocal<Context> HostCreateShadowRealmContextCallback(
 // static
 void ShadowRealm::WeakCallback(const v8::WeakCallbackInfo<ShadowRealm>& data) {
   ShadowRealm* realm = data.GetParameter();
-  delete realm;
+  realm->context_.Reset();
+  data.SetSecondPassCallback([](const v8::WeakCallbackInfo<ShadowRealm>& data) {
+    ShadowRealm* realm = data.GetParameter();
+    delete realm;
+  });
 }
 
 ShadowRealm::ShadowRealm(Environment* env)

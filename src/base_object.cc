@@ -24,12 +24,9 @@ BaseObject::BaseObject(Realm* realm, Local<Object> object)
 
 BaseObject::~BaseObject() {
   realm()->modify_base_object_count(-1);
-  realm()->RemoveCleanupHook(DeleteMe, static_cast<void*>(this));
 
-  bool finalized_by_realm = false;
   if (UNLIKELY(has_pointer_data())) {
     PointerData* metadata = pointer_data();
-    finalized_by_realm = metadata->finalized_by_realm;
     CHECK_EQ(metadata->strong_ptr_count, 0);
     metadata->self = nullptr;
     if (metadata->weak_ptr_count == 0) delete metadata;
@@ -40,11 +37,9 @@ BaseObject::~BaseObject() {
     return;
   }
 
-  if (!finalized_by_realm) {
+  {
     HandleScope handle_scope(realm()->isolate());
     object()->SetAlignedPointerInInternalField(BaseObject::kSlot, nullptr);
-  } else {
-    CHECK(realm()->is_cleaning_up());
   }
 }
 
@@ -57,22 +52,21 @@ void BaseObject::MakeWeak() {
   persistent_handle_.SetWeak(
       this,
       [](const WeakCallbackInfo<BaseObject>& data) {
-        BaseObject* obj = data.GetParameter();
+        BaseObject* obj = static_cast<BaseObject*>(data.GetParameter());
+        obj->persistent_handle_.Reset();
         // Clear the persistent handle so that ~BaseObject() doesn't attempt
         // to mess with internal fields, since the JS object may have
         // transitioned into an invalid state.
         // Refs: https://github.com/nodejs/node/issues/18897
-        obj->persistent_handle_.Reset();
         CHECK_IMPLIES(obj->has_pointer_data(),
                       obj->pointer_data()->strong_ptr_count == 0);
-        obj->OnGCCollect();
+        obj->realm()->RemoveCleanupHook(DeleteMe, static_cast<void*>(obj));
+        data.SetSecondPassCallback([](const WeakCallbackInfo<BaseObject>& data) {
+          BaseObject* obj = static_cast<BaseObject*>(data.GetParameter());
+          obj->OnGCCollect();
+        });
       },
       WeakCallbackType::kParameter);
-}
-
-void BaseObject::SetFinalizedByRealm() {
-  pointer_data()->finalized_by_realm = true;
-  persistent_handle_.SetWeak();
 }
 
 // This just has to be different from the Chromium ones:
@@ -121,6 +115,7 @@ void BaseObject::decrease_refcount() {
   unsigned int new_refcount = --metadata->strong_ptr_count;
   if (new_refcount == 0) {
     if (metadata->is_detached) {
+      realm()->RemoveCleanupHook(DeleteMe, static_cast<void*>(this));
       OnGCCollect();
     } else if (metadata->wants_weak_jsobj && !persistent_handle_.IsEmpty()) {
       MakeWeak();
@@ -139,6 +134,13 @@ void BaseObject::DeleteMe(void* data) {
   if (self->has_pointer_data() && self->pointer_data()->strong_ptr_count > 0) {
     return self->Detach();
   }
+  // TODO(joyeecheung): we should do all this in a first pass of the cleanup
+  // queue to make sure that none of the weak callbacks of BaseObjects get
+  // called during cleanup queue draining (e.g. if a previous BaseObject
+  // destructor) does something that triggers the weak callbacks and
+  // interleaving weak callbacks with cleanup hooks.
+  self->persistent_handle_.SetWeak();
+  self->realm()->RemoveCleanupHook(DeleteMe, static_cast<void*>(self));
   delete self;
 }
 

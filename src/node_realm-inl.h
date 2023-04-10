@@ -86,8 +86,8 @@ inline T* Realm::AddBindingData(v8::Local<v8::Context> context,
                                 Args&&... args) {
   DCHECK_EQ(GetCurrent(context), this);
   // This won't compile if T is not a BaseObject subclass.
-  BaseObjectWeakPtr<T> item =
-      MakeFinalizedByRealmObject<T>(this, target, std::forward<Args>(args)...);
+  T* binding = new T(this, target, std::forward<Args>(args)...);
+  binding->MakeWeak();
   DCHECK_EQ(context->GetAlignedPointerFromEmbedderData(
                 ContextEmbedderIndex::kBindingDataStoreIndex),
             &binding_data_store_);
@@ -95,9 +95,9 @@ inline T* Realm::AddBindingData(v8::Local<v8::Context> context,
   static_assert(binding_index < std::tuple_size_v<BindingDataStore>);
   // Should not insert the binding twice.
   CHECK(!binding_data_store_[binding_index]);
-  binding_data_store_[binding_index] = item;
-  DCHECK_EQ(GetBindingData<T>(context), item.get());
-  return item.get();
+  binding_data_store_[binding_index].reset(binding);
+  DCHECK_EQ(GetBindingData<T>(context), binding);
+  return binding;
 }
 
 inline BindingDataStore* Realm::binding_data_store() {

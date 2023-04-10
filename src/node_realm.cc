@@ -23,9 +23,7 @@ Realm::Realm(Environment* env, v8::Local<v8::Context> context, Kind kind)
   context_.Reset(isolate_, context);
 }
 
-Realm::~Realm() {
-  CHECK_EQ(base_object_count_, 0);
-}
+Realm::~Realm() {}
 
 void Realm::MemoryInfo(MemoryTracker* tracker) const {
 #define V(PropertyName, TypeName)                                              \
@@ -298,6 +296,11 @@ PrincipalRealm::PrincipalRealm(Environment* env,
   if (realm_info == nullptr) {
     CreateProperties();
   }
+}
+
+PrincipalRealm::~PrincipalRealm() {
+  // This can only be checked by principal realm.
+  CHECK_EQ(base_object_count(), 0);
 }
 
 void PrincipalRealm::MemoryInfo(MemoryTracker* tracker) const {
