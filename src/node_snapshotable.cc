@@ -1210,21 +1210,6 @@ ExitCode SnapshotBuilder::CreateSnapshot(SnapshotData* out,
       out->isolate_data_info = setup->isolate_data()->Serialize(creator);
       out->env_info = env->Serialize(creator);
 
-#ifdef NODE_USE_NODE_CODE_CACHE
-      // Regenerate all the code cache.
-      if (!env->builtin_loader()->CompileAllBuiltins(main_context)) {
-        return ExitCode::kGenericUserError;
-      }
-      env->builtin_loader()->CopyCodeCache(&(out->code_cache));
-      for (const auto& item : out->code_cache) {
-        std::string size_str = FormatSize(item.data.size());
-        per_process::Debug(DebugCategory::MKSNAPSHOT,
-                           "Generated code cache for %d: %s\n",
-                           item.id.c_str(),
-                           size_str.c_str());
-      }
-#endif
-
       ResetContextSettingsBeforeSnapshot(main_context);
     }
 
@@ -1244,6 +1229,29 @@ ExitCode SnapshotBuilder::CreateSnapshot(SnapshotData* out,
   // Must be out of HandleScope
   out->v8_snapshot_blob_data =
       creator->CreateBlob(SnapshotCreator::FunctionCodeHandling::kKeep);
+
+  // We need to serialize the code cache after snapshot serialization
+  // to ensure matching RO heap layout.
+  // https://github.com/nodejs/node/issues/47636
+#ifdef NODE_USE_NODE_CODE_CACHE
+  {
+    HandleScope scope(isolate);
+    Local<Context> context = Context::New(isolate);
+
+    // Regenerate all the code cache.
+    if (!env->builtin_loader()->CompileAllBuiltins(context)) {
+      return ExitCode::kGenericUserError;
+    }
+    env->builtin_loader()->CopyCodeCache(&(out->code_cache));
+    for (const auto& item : out->code_cache) {
+      std::string size_str = FormatSize(item.data.size());
+      per_process::Debug(DebugCategory::MKSNAPSHOT,
+                          "Generated code cache for %d: %s\n",
+                          item.id.c_str(),
+                          size_str.c_str());
+    }
+  }
+#endif
 
   // We must be able to rehash the blob when we restore it or otherwise
   // the hash seed would be fixed by V8, introducing a vulnerability.
