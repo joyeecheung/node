@@ -15,10 +15,12 @@ using v8::ArrayBuffer;
 using v8::BackingStore;
 using v8::Context;
 using v8::FunctionCallbackInfo;
+using v8::FunctionTemplate;
 using v8::Isolate;
 using v8::Local;
 using v8::MaybeLocal;
 using v8::Object;
+using v8::ObjectTemplate;
 using v8::String;
 using v8::Uint8Array;
 using v8::Value;
@@ -193,18 +195,21 @@ void BindingData::DecodeUTF8(const FunctionCallbackInfo<Value>& args) {
   args.GetReturnValue().Set(ret);
 }
 
-void BindingData::Initialize(Local<Object> target,
-                             Local<Value> unused,
-                             Local<Context> context,
-                             void* priv) {
-  Realm* realm = Realm::GetCurrent(context);
-  BindingData* const binding_data =
-      realm->AddBindingData<BindingData>(context, target);
-  if (binding_data == nullptr) return;
+void BindingData::CreatePerIsolateProperties(IsolateData* isolate_data,
+                                             Local<FunctionTemplate> ctor) {
+  Isolate* isolate = isolate_data->isolate();
+  Local<ObjectTemplate> target = ctor->InstanceTemplate();
+  SetMethod(isolate, target, "encodeInto", EncodeInto);
+  SetMethodNoSideEffect(isolate, target, "encodeUtf8String", EncodeUtf8String);
+  SetMethodNoSideEffect(isolate, target, "decodeUTF8", DecodeUTF8);
+}
 
-  SetMethod(context, target, "encodeInto", EncodeInto);
-  SetMethodNoSideEffect(context, target, "encodeUtf8String", EncodeUtf8String);
-  SetMethodNoSideEffect(context, target, "decodeUTF8", DecodeUTF8);
+void BindingData::CreatePerContextProperties(Local<Object> target,
+                                             Local<Value> unused,
+                                             Local<Context> context,
+                                             void* priv) {
+  Realm* realm = Realm::GetCurrent(context);
+  realm->AddBindingData<BindingData>(context, target);
 }
 
 void BindingData::RegisterTimerExternalReferences(
@@ -218,7 +223,11 @@ void BindingData::RegisterTimerExternalReferences(
 }  // namespace node
 
 NODE_BINDING_CONTEXT_AWARE_INTERNAL(
-    encoding_binding, node::encoding_binding::BindingData::Initialize)
+    encoding_binding,
+    node::encoding_binding::BindingData::CreatePerContextProperties)
+NODE_BINDING_PER_ISOLATE_INIT(
+    encoding_binding,
+    node::encoding_binding::BindingData::CreatePerIsolateProperties)
 NODE_BINDING_EXTERNAL_REFERENCE(
     encoding_binding,
     node::encoding_binding::BindingData::RegisterTimerExternalReferences)
