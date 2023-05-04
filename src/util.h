@@ -720,6 +720,11 @@ inline v8::MaybeLocal<v8::Value> ToV8Value(v8::Local<v8::Context> context,
         .Check();                                                              \
   } while (0)
 
+#define READONLY_PROPERTY_TMPL(tmpl, name, value)                              \
+  do {                                                                         \
+    tmpl->Set(isolate, name, value, v8::ReadOnly);                             \
+  } while (0)
+
 #define READONLY_DONT_ENUM_PROPERTY(obj, name, var)                            \
   do {                                                                         \
     obj->DefineOwnProperty(                                                    \
@@ -735,6 +740,12 @@ inline v8::MaybeLocal<v8::Value> ToV8Value(v8::Local<v8::Context> context,
 
 #define READONLY_TRUE_PROPERTY(obj, name)                                      \
   READONLY_PROPERTY(obj, name, v8::True(isolate))
+
+#define READONLY_FALSE_PROPERTY_TMPL(tmpl, name)                               \
+  READONLY_PROPERTY_TMPL(tmpl, name, v8::False(isolate))
+
+#define READONLY_TRUE_PROPERTY_TMPL(tmpl, name)                                \
+  READONLY_PROPERTY_TMPL(tmpl, name, v8::True(isolate))
 
 #define READONLY_STRING_PROPERTY(obj, name, str)                               \
   READONLY_PROPERTY(obj, name, ToV8Value(context, str).ToLocalChecked())

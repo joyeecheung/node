@@ -22,11 +22,13 @@ namespace node {
 using v8::Array;
 using v8::Context;
 using v8::FunctionCallbackInfo;
+using v8::FunctionTemplate;
 using v8::HandleScope;
 using v8::Isolate;
 using v8::Local;
 using v8::MaybeLocal;
 using v8::Object;
+using v8::ObjectTemplate;
 using v8::String;
 using v8::TryCatch;
 using v8::Uint32;
@@ -452,37 +454,43 @@ void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
 #endif  // NODE_IMPLEMENTS_POSIX_CREDENTIALS
 }
 
-static void Initialize(Local<Object> target,
-                       Local<Value> unused,
-                       Local<Context> context,
-                       void* priv) {
-  SetMethod(context, target, "safeGetenv", SafeGetenv);
+static void CreatePerIsolateProperties(IsolateData* isolate_data,
+                                       Local<FunctionTemplate> ctor) {
+  Isolate* isolate = isolate_data->isolate();
+  Local<ObjectTemplate> target = ctor->InstanceTemplate();
 
+  SetMethod(isolate, target, "safeGetenv", SafeGetenv);
 #ifdef NODE_IMPLEMENTS_POSIX_CREDENTIALS
-  Environment* env = Environment::GetCurrent(context);
-  Isolate* isolate = env->isolate();
+  target->Set(isolate,
+              "implementsPosixCredentials",
+              v8::True(isolate),
+              static_cast<v8::PropertyAttribute>(v8::ReadOnly | v8::DontEnum));
+  SetMethodNoSideEffect(isolate, target, "getuid", GetUid);
+  SetMethodNoSideEffect(isolate, target, "geteuid", GetEUid);
+  SetMethodNoSideEffect(isolate, target, "getgid", GetGid);
+  SetMethodNoSideEffect(isolate, target, "getegid", GetEGid);
+  SetMethodNoSideEffect(isolate, target, "getgroups", GetGroups);
 
-  READONLY_TRUE_PROPERTY(target, "implementsPosixCredentials");
-  SetMethodNoSideEffect(context, target, "getuid", GetUid);
-  SetMethodNoSideEffect(context, target, "geteuid", GetEUid);
-  SetMethodNoSideEffect(context, target, "getgid", GetGid);
-  SetMethodNoSideEffect(context, target, "getegid", GetEGid);
-  SetMethodNoSideEffect(context, target, "getgroups", GetGroups);
-
-  if (env->owns_process_state()) {
-    SetMethod(context, target, "initgroups", InitGroups);
-    SetMethod(context, target, "setegid", SetEGid);
-    SetMethod(context, target, "seteuid", SetEUid);
-    SetMethod(context, target, "setgid", SetGid);
-    SetMethod(context, target, "setuid", SetUid);
-    SetMethod(context, target, "setgroups", SetGroups);
-  }
+  SetMethod(isolate, target, "initgroups", InitGroups);
+  SetMethod(isolate, target, "setegid", SetEGid);
+  SetMethod(isolate, target, "seteuid", SetEUid);
+  SetMethod(isolate, target, "setgid", SetGid);
+  SetMethod(isolate, target, "setuid", SetUid);
+  SetMethod(isolate, target, "setgroups", SetGroups);
 #endif  // NODE_IMPLEMENTS_POSIX_CREDENTIALS
 }
+
+static void CreatePerContextProperties(Local<Object> target,
+                                       Local<Value> unused,
+                                       Local<Context> context,
+                                       void* priv) {}
 
 }  // namespace credentials
 }  // namespace node
 
-NODE_BINDING_CONTEXT_AWARE_INTERNAL(credentials, node::credentials::Initialize)
+NODE_BINDING_CONTEXT_AWARE_INTERNAL(
+    credentials, node::credentials::CreatePerContextProperties)
+NODE_BINDING_PER_ISOLATE_INIT(credentials,
+                              node::credentials::CreatePerIsolateProperties)
 NODE_BINDING_EXTERNAL_REFERENCE(credentials,
                                 node::credentials::RegisterExternalReferences)

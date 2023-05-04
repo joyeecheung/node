@@ -4,12 +4,15 @@
 
 using v8::Context;
 using v8::FunctionCallbackInfo;
+using v8::FunctionTemplate;
+using v8::Isolate;
 using v8::Local;
 using v8::Object;
+using v8::ObjectTemplate;
 using v8::Value;
 
 namespace node {
-namespace {
+namespace types {
 
 #define VALUE_METHOD_MAP(V)                                                   \
   V(External)                                                                 \
@@ -61,19 +64,23 @@ static void IsBoxedPrimitive(const FunctionCallbackInfo<Value>& args) {
     args[0]->IsSymbolObject());
 }
 
-void InitializeTypes(Local<Object> target,
-                     Local<Value> unused,
-                     Local<Context> context,
-                     void* priv) {
-#define V(type) SetMethodNoSideEffect(context, target, "is" #type, Is##type);
+void CreatePerContextProperties(Local<Object> target,
+                                Local<Value> unused,
+                                Local<Context> context,
+                                void* priv) {}
+
+static void CreatePerIsolateProperties(IsolateData* isolate_data,
+                                       Local<FunctionTemplate> ctor) {
+  Isolate* isolate = isolate_data->isolate();
+  Local<ObjectTemplate> target = ctor->InstanceTemplate();
+
+#define V(type) SetMethodNoSideEffect(isolate, target, "is" #type, Is##type);
   VALUE_METHOD_MAP(V)
 #undef V
 
-  SetMethodNoSideEffect(context, target, "isAnyArrayBuffer", IsAnyArrayBuffer);
-  SetMethodNoSideEffect(context, target, "isBoxedPrimitive", IsBoxedPrimitive);
+  SetMethodNoSideEffect(isolate, target, "isAnyArrayBuffer", IsAnyArrayBuffer);
+  SetMethodNoSideEffect(isolate, target, "isBoxedPrimitive", IsBoxedPrimitive);
 }
-
-}  // anonymous namespace
 
 void RegisterTypesExternalReferences(ExternalReferenceRegistry* registry) {
 #define V(type) registry->Register(Is##type);
@@ -83,7 +90,12 @@ void RegisterTypesExternalReferences(ExternalReferenceRegistry* registry) {
   registry->Register(IsAnyArrayBuffer);
   registry->Register(IsBoxedPrimitive);
 }
+
+}  // namespace types
 }  // namespace node
 
-NODE_BINDING_CONTEXT_AWARE_INTERNAL(types, node::InitializeTypes)
-NODE_BINDING_EXTERNAL_REFERENCE(types, node::RegisterTypesExternalReferences)
+NODE_BINDING_CONTEXT_AWARE_INTERNAL(types,
+                                    node::types::CreatePerContextProperties)
+NODE_BINDING_PER_ISOLATE_INIT(types, node::types::CreatePerIsolateProperties)
+NODE_BINDING_EXTERNAL_REFERENCE(types,
+                                node::types::RegisterTypesExternalReferences)

@@ -49,11 +49,13 @@ using v8::Array;
 using v8::Context;
 using v8::DontDelete;
 using v8::FunctionCallbackInfo;
+using v8::FunctionTemplate;
 using v8::Integer;
 using v8::Isolate;
 using v8::Local;
 using v8::Map;
 using v8::Object;
+using v8::ObjectTemplate;
 using v8::PropertyAttribute;
 using v8::ReadOnly;
 using v8::String;
@@ -104,14 +106,13 @@ void GetErrMap(const FunctionCallbackInfo<Value>& args) {
   args.GetReturnValue().Set(err_map);
 }
 
-void Initialize(Local<Object> target,
-                Local<Value> unused,
-                Local<Context> context,
-                void* priv) {
-  Environment* env = Environment::GetCurrent(context);
-  Isolate* isolate = env->isolate();
+static void CreatePerIsolateProperties(IsolateData* isolate_data,
+                                       Local<FunctionTemplate> ctor) {
+  Isolate* isolate = isolate_data->isolate();
+  Local<ObjectTemplate> target = ctor->InstanceTemplate();
+
   SetConstructorFunction(
-      context, target, "errname", NewFunctionTemplate(isolate, ErrName));
+      isolate, target, "errname", NewFunctionTemplate(isolate, ErrName));
 
   // TODO(joyeecheung): This should be deprecated in user land in favor of
   // `util.getSystemErrorName(err)`.
@@ -122,13 +123,17 @@ void Initialize(Local<Object> target,
   for (size_t i = 0; i < errors_len; ++i) {
     const auto& error = per_process::uv_errors_map[i];
     const std::string prefixed_name = prefix + error.name;
-    Local<String> name = OneByteString(isolate, prefixed_name.c_str());
     Local<Integer> value = Integer::New(isolate, error.value);
-    target->DefineOwnProperty(context, name, value, attributes).Check();
+    target->Set(isolate, prefixed_name.c_str(), value, attributes);
   }
 
-  SetMethod(context, target, "getErrorMap", GetErrMap);
+  SetMethod(isolate, target, "getErrorMap", GetErrMap);
 }
+
+void CreatePerContextProperties(Local<Object> target,
+                                Local<Value> unused,
+                                Local<Context> context,
+                                void* priv) {}
 
 void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
   registry->Register(ErrName);
@@ -137,5 +142,6 @@ void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
 }  // namespace uv
 }  // namespace node
 
-NODE_BINDING_CONTEXT_AWARE_INTERNAL(uv, node::uv::Initialize)
+NODE_BINDING_CONTEXT_AWARE_INTERNAL(uv, node::uv::CreatePerContextProperties)
+NODE_BINDING_PER_ISOLATE_INIT(uv, node::uv::CreatePerIsolateProperties)
 NODE_BINDING_EXTERNAL_REFERENCE(uv, node::uv::RegisterExternalReferences)

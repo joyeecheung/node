@@ -25,6 +25,7 @@ using v8::Local;
 using v8::MaybeLocal;
 using v8::NewStringType;
 using v8::Object;
+using v8::ObjectTemplate;
 using v8::String;
 using v8::Uint32;
 using v8::Value;
@@ -44,8 +45,8 @@ struct LocalConnection {
     return inspector->Connect(std::move(delegate), false);
   }
 
-  static Local<String> GetClassName(Environment* env) {
-    return FIXED_ONE_BYTE_STRING(env->isolate(), "Connection");
+  static Local<String> GetClassName(Isolate* isolate) {
+    return FIXED_ONE_BYTE_STRING(isolate, "Connection");
   }
 };
 
@@ -55,8 +56,8 @@ struct MainThreadConnection {
     return inspector->ConnectToMainThread(std::move(delegate), true);
   }
 
-  static Local<String> GetClassName(Environment* env) {
-    return FIXED_ONE_BYTE_STRING(env->isolate(), "MainThreadConnection");
+  static Local<String> GetClassName(Isolate* isolate) {
+    return FIXED_ONE_BYTE_STRING(isolate, "MainThreadConnection");
   }
 };
 
@@ -102,18 +103,18 @@ class JSBindingsConnection : public AsyncWrap {
     MakeCallback(callback_.Get(env()->isolate()), 1, &value);
   }
 
-  static void Bind(Environment* env, Local<Object> target) {
-    Isolate* isolate = env->isolate();
+  static void Bind(IsolateData* isolate_data, Local<ObjectTemplate> target) {
+    Isolate* isolate = isolate_data->isolate();
     Local<FunctionTemplate> tmpl =
         NewFunctionTemplate(isolate, JSBindingsConnection::New);
     tmpl->InstanceTemplate()->SetInternalFieldCount(
         JSBindingsConnection::kInternalFieldCount);
-    tmpl->Inherit(AsyncWrap::GetConstructorTemplate(env));
+    tmpl->Inherit(AsyncWrap::GetConstructorTemplate(isolate_data));
     SetProtoMethod(isolate, tmpl, "dispatch", JSBindingsConnection::Dispatch);
     SetProtoMethod(
         isolate, tmpl, "disconnect", JSBindingsConnection::Disconnect);
     SetConstructorFunction(
-        env->context(), target, ConnectionType::GetClassName(env), tmpl);
+        isolate, target, ConnectionType::GetClassName(isolate), tmpl);
   }
 
   static void New(const FunctionCallbackInfo<Value>& info) {
@@ -315,48 +316,49 @@ void Url(const FunctionCallbackInfo<Value>& args) {
   args.GetReturnValue().Set(OneByteString(env->isolate(), url.c_str()));
 }
 
-void Initialize(Local<Object> target, Local<Value> unused,
-                Local<Context> context, void* priv) {
-  Environment* env = Environment::GetCurrent(context);
-  Isolate* isolate = env->isolate();
+void CreatePerIsolateProperties(IsolateData* isolate_data,
+                                Local<FunctionTemplate> ctor) {
+  Isolate* isolate = isolate_data->isolate();
+  Local<ObjectTemplate> target = ctor->InstanceTemplate();
 
-  v8::Local<v8::Function> consoleCallFunc =
-      NewFunctionTemplate(isolate,
-                          InspectorConsoleCall,
-                          v8::Local<v8::Signature>(),
-                          v8::ConstructorBehavior::kThrow,
-                          v8::SideEffectType::kHasSideEffect)
-          ->GetFunction(context)
-          .ToLocalChecked();
-  auto name_string = FIXED_ONE_BYTE_STRING(isolate, "consoleCall");
-  target->Set(context, name_string, consoleCallFunc).Check();
-  consoleCallFunc->SetName(name_string);
+  SetMethod(isolate, target, "consoleCall", InspectorConsoleCall);
 
-  SetMethod(context,
+  SetMethod(isolate,
             target,
             "setConsoleExtensionInstaller",
             SetConsoleExtensionInstaller);
-  SetMethod(context, target, "callAndPauseOnStart", CallAndPauseOnStart);
-  SetMethod(context, target, "open", Open);
-  SetMethodNoSideEffect(context, target, "url", Url);
-  SetMethod(context, target, "waitForDebugger", WaitForDebugger);
+  SetMethod(isolate, target, "callAndPauseOnStart", CallAndPauseOnStart);
+  SetMethod(isolate, target, "open", Open);
+  SetMethodNoSideEffect(isolate, target, "url", Url);
+  SetMethod(isolate, target, "waitForDebugger", WaitForDebugger);
 
-  SetMethod(context, target, "asyncTaskScheduled", AsyncTaskScheduledWrapper);
-  SetMethod(context,
+  SetMethod(isolate, target, "asyncTaskScheduled", AsyncTaskScheduledWrapper);
+  SetMethod(isolate,
             target,
             "asyncTaskCanceled",
             InvokeAsyncTaskFnWithId<&Agent::AsyncTaskCanceled>);
-  SetMethod(context,
+  SetMethod(isolate,
             target,
             "asyncTaskStarted",
             InvokeAsyncTaskFnWithId<&Agent::AsyncTaskStarted>);
-  SetMethod(context,
+  SetMethod(isolate,
             target,
             "asyncTaskFinished",
             InvokeAsyncTaskFnWithId<&Agent::AsyncTaskFinished>);
 
-  SetMethod(context, target, "registerAsyncHook", RegisterAsyncHookWrapper);
-  SetMethodNoSideEffect(context, target, "isEnabled", IsEnabled);
+  SetMethod(isolate, target, "registerAsyncHook", RegisterAsyncHookWrapper);
+  SetMethodNoSideEffect(isolate, target, "isEnabled", IsEnabled);
+
+  JSBindingsConnection<LocalConnection>::Bind(isolate_data, target);
+  JSBindingsConnection<MainThreadConnection>::Bind(isolate_data, target);
+}
+
+static void CreatePerContextProperties(Local<Object> target,
+                                       Local<Value> unused,
+                                       Local<Context> context,
+                                       void* priv) {
+  Environment* env = Environment::GetCurrent(context);
+  Isolate* isolate = env->isolate();
 
   Local<String> console_string = FIXED_ONE_BYTE_STRING(isolate, "console");
 
@@ -368,9 +370,6 @@ void Initialize(Local<Object> target, Local<Value> unused,
             console_string,
             binding->Get(context, console_string).ToLocalChecked())
       .Check();
-
-  JSBindingsConnection<LocalConnection>::Bind(env, target);
-  JSBindingsConnection<MainThreadConnection>::Bind(env, target);
 }
 
 }  // namespace
@@ -402,6 +401,9 @@ void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
 }  // namespace inspector
 }  // namespace node
 
-NODE_BINDING_CONTEXT_AWARE_INTERNAL(inspector, node::inspector::Initialize)
+NODE_BINDING_CONTEXT_AWARE_INTERNAL(inspector,
+                                    node::inspector::CreatePerContextProperties)
+NODE_BINDING_PER_ISOLATE_INIT(inspector,
+                              node::inspector::CreatePerIsolateProperties)
 NODE_BINDING_EXTERNAL_REFERENCE(inspector,
                                 node::inspector::RegisterExternalReferences)

@@ -27,6 +27,7 @@ using v8::Maybe;
 using v8::MaybeLocal;
 using v8::Message;
 using v8::Object;
+using v8::ObjectTemplate;
 using v8::ScriptOrigin;
 using v8::StackFrame;
 using v8::StackTrace;
@@ -1026,43 +1027,45 @@ void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
   registry->Register(TriggerUncaughtException);
 }
 
-void Initialize(Local<Object> target,
-                Local<Value> unused,
-                Local<Context> context,
-                void* priv) {
-  SetMethod(context,
+static void CreatePerIsolateProperties(IsolateData* isolate_data,
+                                       Local<FunctionTemplate> ctor) {
+  Isolate* isolate = isolate_data->isolate();
+  Local<ObjectTemplate> target = ctor->InstanceTemplate();
+
+  SetMethod(isolate,
             target,
             "setPrepareStackTraceCallback",
             SetPrepareStackTraceCallback);
-  SetMethod(context,
+  SetMethod(isolate,
             target,
             "setGetSourceMapErrorSource",
             SetGetSourceMapErrorSource);
-  SetMethod(context, target, "setSourceMapsEnabled", SetSourceMapsEnabled);
-  SetMethod(context,
+  SetMethod(isolate, target, "setSourceMapsEnabled", SetSourceMapsEnabled);
+  SetMethod(isolate,
             target,
             "setMaybeCacheGeneratedSourceMap",
             SetMaybeCacheGeneratedSourceMap);
-  SetMethod(context,
+  SetMethod(isolate,
             target,
             "setEnhanceStackForFatalException",
             SetEnhanceStackForFatalException);
   SetMethodNoSideEffect(
-      context, target, "noSideEffectsToString", NoSideEffectsToString);
+      isolate, target, "noSideEffectsToString", NoSideEffectsToString);
   SetMethod(
-      context, target, "triggerUncaughtException", TriggerUncaughtException);
+      isolate, target, "triggerUncaughtException", TriggerUncaughtException);
 
-  Isolate* isolate = context->GetIsolate();
-  Local<Object> exit_codes = Object::New(isolate);
-  READONLY_PROPERTY(target, "exitCodes", exit_codes);
-
+  Local<ObjectTemplate> exit_codes = ObjectTemplate::New(isolate);
 #define V(Name, Code)                                                          \
-  constexpr int k##Name = static_cast<int>(ExitCode::k##Name);                 \
-  NODE_DEFINE_CONSTANT(exit_codes, k##Name);
-
+  exit_codes->Set(isolate, #Name, v8::Integer::New(isolate, Code));
   EXIT_CODE_LIST(V)
 #undef V
+  target->Set(isolate, "exitCodes", exit_codes);
 }
+
+static void CreatePerContextProperties(v8::Local<v8::Object> target,
+                                       v8::Local<v8::Value> unused,
+                                       v8::Local<v8::Context> context,
+                                       void* priv) {}
 
 void DecorateErrorStack(Environment* env,
                         const errors::TryCatchScope& try_catch) {
@@ -1226,6 +1229,8 @@ PrinterTryCatch::~PrinterTryCatch() {
 
 }  // namespace node
 
-NODE_BINDING_CONTEXT_AWARE_INTERNAL(errors, node::errors::Initialize)
+NODE_BINDING_CONTEXT_AWARE_INTERNAL(errors,
+                                    node::errors::CreatePerContextProperties)
+NODE_BINDING_PER_ISOLATE_INIT(errors, node::CreatePerIsolateProperties)
 NODE_BINDING_EXTERNAL_REFERENCE(errors,
                                 node::errors::RegisterExternalReferences)

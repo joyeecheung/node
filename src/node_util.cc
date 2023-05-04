@@ -369,12 +369,25 @@ void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
   registry->Register(ToUSVString);
 }
 
-void Initialize(Local<Object> target,
-                Local<Value> unused,
-                Local<Context> context,
-                void* priv) {
+static void CreatePerContextProperties(v8::Local<v8::Object> target,
+                                       v8::Local<v8::Value> unused,
+                                       v8::Local<v8::Context> context,
+                                       void* priv) {
   Environment* env = Environment::GetCurrent(context);
-  Isolate* isolate = env->isolate();
+
+  Local<String> should_abort_on_uncaught_toggle =
+      FIXED_ONE_BYTE_STRING(env->isolate(), "shouldAbortOnUncaughtToggle");
+  CHECK(target
+            ->Set(context,
+                  should_abort_on_uncaught_toggle,
+                  env->should_abort_on_uncaught_toggle().GetJSArray())
+            .FromJust());
+}
+
+static void CreatePerIsolateProperties(IsolateData* isolate_data,
+                                       Local<FunctionTemplate> ctor) {
+  Isolate* isolate = isolate_data->isolate();
+  Local<ObjectTemplate> target = ctor->InstanceTemplate();
 
   {
     Local<ObjectTemplate> tmpl = ObjectTemplate::New(isolate);
@@ -385,21 +398,14 @@ void Initialize(Local<Object> target,
     PER_ISOLATE_PRIVATE_SYMBOL_PROPERTIES(V)
 #undef V
 
-    target
-        ->Set(context,
-              FIXED_ONE_BYTE_STRING(isolate, "privateSymbols"),
-              tmpl->NewInstance(context).ToLocalChecked())
-        .Check();
+    target->Set(isolate, "privateSymbols", tmpl);
   }
 
   {
-    Local<Object> constants = Object::New(isolate);
+    Local<ObjectTemplate> constants = ObjectTemplate::New(isolate);
 #define V(name)                                                                \
-  constants                                                                    \
-      ->Set(context,                                                           \
-            FIXED_ONE_BYTE_STRING(isolate, #name),                             \
-            Integer::New(isolate, Promise::PromiseState::name))                \
-      .Check();
+  constants->Set(                                                              \
+      isolate, #name, Integer::New(isolate, Promise::PromiseState::name));
 
     V(kPending);
     V(kFulfilled);
@@ -407,11 +413,9 @@ void Initialize(Local<Object> target,
 #undef V
 
 #define V(name)                                                                \
-  constants                                                                    \
-      ->Set(context,                                                           \
-            FIXED_ONE_BYTE_STRING(isolate, #name),                             \
-            Integer::New(isolate, Environment::ExitInfoField::name))           \
-      .Check();
+  constants->Set(isolate,                                                      \
+                 #name,                                                        \
+                 Integer::New(isolate, Environment::ExitInfoField::name));
 
     V(kExiting);
     V(kExitCode);
@@ -419,11 +423,7 @@ void Initialize(Local<Object> target,
 #undef V
 
 #define V(name)                                                                \
-  constants                                                                    \
-      ->Set(context,                                                           \
-            FIXED_ONE_BYTE_STRING(isolate, #name),                             \
-            Integer::New(isolate, PropertyFilter::name))                       \
-      .Check();
+  constants->Set(isolate, #name, Integer::New(isolate, PropertyFilter::name));
 
     V(ALL_PROPERTIES);
     V(ONLY_WRITABLE);
@@ -433,32 +433,24 @@ void Initialize(Local<Object> target,
     V(SKIP_SYMBOLS);
 #undef V
 
-    target->Set(context, env->constants_string(), constants).Check();
+    target->Set(isolate, "constants", constants);
   }
 
   SetMethodNoSideEffect(
-      context, target, "getPromiseDetails", GetPromiseDetails);
-  SetMethodNoSideEffect(context, target, "getProxyDetails", GetProxyDetails);
+      isolate, target, "getPromiseDetails", GetPromiseDetails);
+  SetMethodNoSideEffect(isolate, target, "getProxyDetails", GetProxyDetails);
   SetMethodNoSideEffect(
-      context, target, "isArrayBufferDetached", IsArrayBufferDetached);
-  SetMethodNoSideEffect(context, target, "previewEntries", PreviewEntries);
+      isolate, target, "isArrayBufferDetached", IsArrayBufferDetached);
+  SetMethodNoSideEffect(isolate, target, "previewEntries", PreviewEntries);
   SetMethodNoSideEffect(
-      context, target, "getOwnNonIndexProperties", GetOwnNonIndexProperties);
+      isolate, target, "getOwnNonIndexProperties", GetOwnNonIndexProperties);
   SetMethodNoSideEffect(
-      context, target, "getConstructorName", GetConstructorName);
-  SetMethodNoSideEffect(context, target, "getExternalValue", GetExternalValue);
-  SetMethod(context, target, "sleep", Sleep);
+      isolate, target, "getConstructorName", GetConstructorName);
+  SetMethodNoSideEffect(isolate, target, "getExternalValue", GetExternalValue);
+  SetMethod(isolate, target, "sleep", Sleep);
 
   SetMethod(
-      context, target, "arrayBufferViewHasBuffer", ArrayBufferViewHasBuffer);
-
-  Local<String> should_abort_on_uncaught_toggle =
-      FIXED_ONE_BYTE_STRING(env->isolate(), "shouldAbortOnUncaughtToggle");
-  CHECK(target
-            ->Set(context,
-                  should_abort_on_uncaught_toggle,
-                  env->should_abort_on_uncaught_toggle().GetJSArray())
-            .FromJust());
+      isolate, target, "arrayBufferViewHasBuffer", ArrayBufferViewHasBuffer);
 
   Local<FunctionTemplate> weak_ref =
       NewFunctionTemplate(isolate, WeakReference::New);
@@ -467,15 +459,17 @@ void Initialize(Local<Object> target,
   SetProtoMethod(isolate, weak_ref, "get", WeakReference::Get);
   SetProtoMethod(isolate, weak_ref, "incRef", WeakReference::IncRef);
   SetProtoMethod(isolate, weak_ref, "decRef", WeakReference::DecRef);
-  SetConstructorFunction(context, target, "WeakReference", weak_ref);
+  SetConstructorFunction(isolate, target, "WeakReference", weak_ref);
 
-  SetMethod(context, target, "guessHandleType", GuessHandleType);
+  SetMethod(isolate, target, "guessHandleType", GuessHandleType);
 
-  SetMethodNoSideEffect(context, target, "toUSVString", ToUSVString);
+  SetMethodNoSideEffect(isolate, target, "toUSVString", ToUSVString);
 }
 
 }  // namespace util
 }  // namespace node
 
-NODE_BINDING_CONTEXT_AWARE_INTERNAL(util, node::util::Initialize)
+NODE_BINDING_CONTEXT_AWARE_INTERNAL(util,
+                                    node::util::CreatePerContextProperties)
+NODE_BINDING_PER_ISOLATE_INIT(util, node::util::CreatePerIsolateProperties)
 NODE_BINDING_EXTERNAL_REFERENCE(util, node::util::RegisterExternalReferences)

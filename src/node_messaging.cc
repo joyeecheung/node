@@ -37,6 +37,7 @@ using v8::Value;
 using v8::ValueDeserializer;
 using v8::ValueSerializer;
 using v8::WasmModuleObject;
+using v8::ObjectTemplate;
 
 namespace node {
 
@@ -683,7 +684,7 @@ MessagePort* MessagePort::New(
     std::unique_ptr<MessagePortData> data,
     std::shared_ptr<SiblingGroup> sibling_group) {
   Context::Scope context_scope(context);
-  Local<FunctionTemplate> ctor_templ = GetMessagePortConstructorTemplate(env);
+  Local<FunctionTemplate> ctor_templ = GetMessagePortConstructorTemplate(env->isolate_data());
 
   // Construct a new instance, then assign the listener instance and possibly
   // the MessagePortData to it.
@@ -1055,7 +1056,7 @@ void MessagePort::Stop(const FunctionCallbackInfo<Value>& args) {
 void MessagePort::CheckType(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
   args.GetReturnValue().Set(
-      GetMessagePortConstructorTemplate(env)->HasInstance(args[0]));
+      GetMessagePortConstructorTemplate(env->isolate_data())->HasInstance(args[0]));
 }
 
 void MessagePort::Drain(const FunctionCallbackInfo<Value>& args) {
@@ -1132,28 +1133,25 @@ void MessagePort::MemoryInfo(MemoryTracker* tracker) const {
   tracker->TrackField("emit_message_fn", emit_message_fn_);
 }
 
-Local<FunctionTemplate> GetMessagePortConstructorTemplate(Environment* env) {
+Local<FunctionTemplate> GetMessagePortConstructorTemplate(IsolateData* isolate_data) {
   // Factor generating the MessagePort JS constructor into its own piece
   // of code, because it is needed early on in the child environment setup.
-  Local<FunctionTemplate> templ = env->message_port_constructor_template();
-  if (!templ.IsEmpty())
-    return templ;
-
-  {
-    Isolate* isolate = env->isolate();
-    Local<FunctionTemplate> m = NewFunctionTemplate(isolate, MessagePort::New);
-    m->SetClassName(env->message_port_constructor_string());
-    m->InstanceTemplate()->SetInternalFieldCount(
+  Local<FunctionTemplate> templ = isolate_data->message_port_constructor_template();
+  if (templ.IsEmpty()) {
+    Isolate* isolate = isolate_data->isolate();
+    templ = NewFunctionTemplate(isolate, MessagePort::New);
+    templ->SetClassName(isolate_data->message_port_constructor_string());
+    templ->InstanceTemplate()->SetInternalFieldCount(
         MessagePort::kInternalFieldCount);
-    m->Inherit(HandleWrap::GetConstructorTemplate(env));
+    templ->Inherit(HandleWrap::GetConstructorTemplate(isolate_data));
 
-    SetProtoMethod(isolate, m, "postMessage", MessagePort::PostMessage);
-    SetProtoMethod(isolate, m, "start", MessagePort::Start);
+    SetProtoMethod(isolate, templ, "postMessage", MessagePort::PostMessage);
+    SetProtoMethod(isolate, templ, "start", MessagePort::Start);
 
-    env->set_message_port_constructor_template(m);
+    isolate_data->set_message_port_constructor_template(templ);
   }
 
-  return GetMessagePortConstructorTemplate(env);
+  return templ;
 }
 
 JSTransferable::JSTransferable(Environment* env, Local<Object> obj)
@@ -1477,15 +1475,27 @@ static void BroadcastChannel(const FunctionCallbackInfo<Value>& args) {
   }
 }
 
-static void InitMessaging(Local<Object> target,
+static void CreatePerContextPropertiesForMessaging(Local<Object> target,
                           Local<Value> unused,
                           Local<Context> context,
                           void* priv) {
-  Environment* env = Environment::GetCurrent(context);
-  Isolate* isolate = env->isolate();
+  {
+    Local<Function> domexception = GetDOMException(context).ToLocalChecked();
+    target
+        ->Set(context,
+              FIXED_ONE_BYTE_STRING(context->GetIsolate(), "DOMException"),
+              domexception)
+        .Check();
+  }
+}
+
+static void CreatePerIsolatePropertiesForMessaging(IsolateData* isolate_data,
+                                       Local<FunctionTemplate> ctor) {
+  Isolate* isolate = isolate_data->isolate();
+  Local<ObjectTemplate> target = ctor->InstanceTemplate();
 
   {
-    SetConstructorFunction(context,
+    SetConstructorFunction(isolate,
                            target,
                            "MessageChannel",
                            NewFunctionTemplate(isolate, MessageChannel));
@@ -1498,38 +1508,29 @@ static void InitMessaging(Local<Object> target,
         JSTransferable::kInternalFieldCount);
     t->SetClassName(OneByteString(isolate, "JSTransferable"));
     SetConstructorFunction(
-        context, target, "JSTransferable", t, SetConstructorFunctionFlag::NONE);
+        isolate, target, "JSTransferable", t, SetConstructorFunctionFlag::NONE);
   }
 
-  SetConstructorFunction(context,
+  SetConstructorFunction(isolate,
                          target,
-                         env->message_port_constructor_string(),
-                         GetMessagePortConstructorTemplate(env),
+                         isolate_data->message_port_constructor_string(),
+                         GetMessagePortConstructorTemplate(isolate_data),
                          SetConstructorFunctionFlag::NONE);
 
   // These are not methods on the MessagePort prototype, because
   // the browser equivalents do not provide them.
-  SetMethod(context, target, "stopMessagePort", MessagePort::Stop);
-  SetMethod(context, target, "checkMessagePort", MessagePort::CheckType);
-  SetMethod(context, target, "drainMessagePort", MessagePort::Drain);
+  SetMethod(isolate, target, "stopMessagePort", MessagePort::Stop);
+  SetMethod(isolate, target, "checkMessagePort", MessagePort::CheckType);
+  SetMethod(isolate, target, "drainMessagePort", MessagePort::Drain);
   SetMethod(
-      context, target, "receiveMessageOnPort", MessagePort::ReceiveMessage);
+      isolate, target, "receiveMessageOnPort", MessagePort::ReceiveMessage);
   SetMethod(
-      context, target, "moveMessagePortToContext", MessagePort::MoveToContext);
-  SetMethod(context,
+      isolate, target, "moveMessagePortToContext", MessagePort::MoveToContext);
+  SetMethod(isolate,
             target,
             "setDeserializerCreateObjectFunction",
             SetDeserializerCreateObjectFunction);
-  SetMethod(context, target, "broadcastChannel", BroadcastChannel);
-
-  {
-    Local<Function> domexception = GetDOMException(context).ToLocalChecked();
-    target
-        ->Set(context,
-              FIXED_ONE_BYTE_STRING(env->isolate(), "DOMException"),
-              domexception)
-        .Check();
-  }
+  SetMethod(isolate, target, "broadcastChannel", BroadcastChannel);
 }
 
 static void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
@@ -1552,6 +1553,7 @@ static void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
 }  // namespace worker
 }  // namespace node
 
-NODE_BINDING_CONTEXT_AWARE_INTERNAL(messaging, node::worker::InitMessaging)
+NODE_BINDING_CONTEXT_AWARE_INTERNAL(messaging, node::worker::CreatePerContextPropertiesForMessaging)
+NODE_BINDING_PER_ISOLATE_INIT(messaging, node::worker::CreatePerIsolatePropertiesForMessaging)
 NODE_BINDING_EXTERNAL_REFERENCE(messaging,
                                 node::worker::RegisterExternalReferences)

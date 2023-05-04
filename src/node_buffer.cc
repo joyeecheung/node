@@ -58,6 +58,7 @@ using v8::BackingStore;
 using v8::Context;
 using v8::EscapableHandleScope;
 using v8::FunctionCallbackInfo;
+using v8::FunctionTemplate;
 using v8::Global;
 using v8::HandleScope;
 using v8::Int32;
@@ -70,6 +71,7 @@ using v8::MaybeLocal;
 using v8::Nothing;
 using v8::Number;
 using v8::Object;
+using v8::ObjectTemplate;
 using v8::SharedArrayBuffer;
 using v8::String;
 using v8::Uint32;
@@ -1256,70 +1258,66 @@ void CopyArrayBuffer(const FunctionCallbackInfo<Value>& args) {
   memcpy(dest, src, bytes_to_copy);
 }
 
-void Initialize(Local<Object> target,
-                Local<Value> unused,
-                Local<Context> context,
-                void* priv) {
-  Environment* env = Environment::GetCurrent(context);
-  Isolate* isolate = env->isolate();
+static void CreatePerIsolateProperties(IsolateData* isolate_data,
+                                       Local<FunctionTemplate> ctor) {
+  Isolate* isolate = isolate_data->isolate();
+  Local<ObjectTemplate> target = ctor->InstanceTemplate();
 
-  SetMethod(context, target, "setBufferPrototype", SetBufferPrototype);
-  SetMethodNoSideEffect(context, target, "createFromString", CreateFromString);
+  SetMethod(isolate, target, "setBufferPrototype", SetBufferPrototype);
+  SetMethodNoSideEffect(isolate, target, "createFromString", CreateFromString);
 
-  SetFastMethodNoSideEffect(context,
+  SetFastMethodNoSideEffect(isolate,
                             target,
                             "byteLengthUtf8",
                             SlowByteLengthUtf8,
                             &fast_byte_length_utf8);
-  SetMethod(context, target, "copy", Copy);
-  SetMethodNoSideEffect(context, target, "compare", Compare);
-  SetMethodNoSideEffect(context, target, "compareOffset", CompareOffset);
-  SetMethod(context, target, "fill", Fill);
-  SetMethodNoSideEffect(context, target, "indexOfBuffer", IndexOfBuffer);
-  SetMethodNoSideEffect(context, target, "indexOfNumber", IndexOfNumber);
-  SetMethodNoSideEffect(context, target, "indexOfString", IndexOfString);
+  SetMethod(isolate, target, "copy", Copy);
+  SetMethodNoSideEffect(isolate, target, "compare", Compare);
+  SetMethodNoSideEffect(isolate, target, "compareOffset", CompareOffset);
+  SetMethod(isolate, target, "fill", Fill);
+  SetMethodNoSideEffect(isolate, target, "indexOfBuffer", IndexOfBuffer);
+  SetMethodNoSideEffect(isolate, target, "indexOfNumber", IndexOfNumber);
+  SetMethodNoSideEffect(isolate, target, "indexOfString", IndexOfString);
 
-  SetMethod(context, target, "detachArrayBuffer", DetachArrayBuffer);
-  SetMethod(context, target, "copyArrayBuffer", CopyArrayBuffer);
+  SetMethod(isolate, target, "detachArrayBuffer", DetachArrayBuffer);
+  SetMethod(isolate, target, "copyArrayBuffer", CopyArrayBuffer);
 
-  SetMethod(context, target, "swap16", Swap16);
-  SetMethod(context, target, "swap32", Swap32);
-  SetMethod(context, target, "swap64", Swap64);
+  SetMethod(isolate, target, "swap16", Swap16);
+  SetMethod(isolate, target, "swap32", Swap32);
+  SetMethod(isolate, target, "swap64", Swap64);
 
-  SetMethodNoSideEffect(context, target, "isUtf8", IsUtf8);
-  SetMethodNoSideEffect(context, target, "isAscii", IsAscii);
+  SetMethodNoSideEffect(isolate, target, "isUtf8", IsUtf8);
+  SetMethodNoSideEffect(isolate, target, "isAscii", IsAscii);
 
-  target
-      ->Set(context,
-            FIXED_ONE_BYTE_STRING(isolate, "kMaxLength"),
-            Number::New(isolate, kMaxLength))
-      .Check();
+  target->Set(isolate, "kMaxLength", Number::New(isolate, kMaxLength));
 
-  target
-      ->Set(context,
-            FIXED_ONE_BYTE_STRING(isolate, "kStringMaxLength"),
-            Integer::New(isolate, String::kMaxLength))
-      .Check();
+  target->Set(
+      isolate, "kStringMaxLength", Integer::New(isolate, String::kMaxLength));
 
-  SetMethodNoSideEffect(context, target, "asciiSlice", StringSlice<ASCII>);
-  SetMethodNoSideEffect(context, target, "base64Slice", StringSlice<BASE64>);
+  SetMethodNoSideEffect(isolate, target, "asciiSlice", StringSlice<ASCII>);
+  SetMethodNoSideEffect(isolate, target, "base64Slice", StringSlice<BASE64>);
   SetMethodNoSideEffect(
-      context, target, "base64urlSlice", StringSlice<BASE64URL>);
-  SetMethodNoSideEffect(context, target, "latin1Slice", StringSlice<LATIN1>);
-  SetMethodNoSideEffect(context, target, "hexSlice", StringSlice<HEX>);
-  SetMethodNoSideEffect(context, target, "ucs2Slice", StringSlice<UCS2>);
-  SetMethodNoSideEffect(context, target, "utf8Slice", StringSlice<UTF8>);
+      isolate, target, "base64urlSlice", StringSlice<BASE64URL>);
+  SetMethodNoSideEffect(isolate, target, "latin1Slice", StringSlice<LATIN1>);
+  SetMethodNoSideEffect(isolate, target, "hexSlice", StringSlice<HEX>);
+  SetMethodNoSideEffect(isolate, target, "ucs2Slice", StringSlice<UCS2>);
+  SetMethodNoSideEffect(isolate, target, "utf8Slice", StringSlice<UTF8>);
 
-  SetMethod(context, target, "asciiWrite", StringWrite<ASCII>);
-  SetMethod(context, target, "base64Write", StringWrite<BASE64>);
-  SetMethod(context, target, "base64urlWrite", StringWrite<BASE64URL>);
-  SetMethod(context, target, "latin1Write", StringWrite<LATIN1>);
-  SetMethod(context, target, "hexWrite", StringWrite<HEX>);
-  SetMethod(context, target, "ucs2Write", StringWrite<UCS2>);
-  SetMethod(context, target, "utf8Write", StringWrite<UTF8>);
+  SetMethod(isolate, target, "asciiWrite", StringWrite<ASCII>);
+  SetMethod(isolate, target, "base64Write", StringWrite<BASE64>);
+  SetMethod(isolate, target, "base64urlWrite", StringWrite<BASE64URL>);
+  SetMethod(isolate, target, "latin1Write", StringWrite<LATIN1>);
+  SetMethod(isolate, target, "hexWrite", StringWrite<HEX>);
+  SetMethod(isolate, target, "ucs2Write", StringWrite<UCS2>);
+  SetMethod(isolate, target, "utf8Write", StringWrite<UTF8>);
 
-  SetMethod(context, target, "getZeroFillToggle", GetZeroFillToggle);
+  SetMethod(isolate, target, "getZeroFillToggle", GetZeroFillToggle);
 }
+
+static void CreatePerContextProperties(Local<Object> target,
+                                       Local<Value> unused,
+                                       Local<Context> context,
+                                       void* priv) {}
 
 }  // anonymous namespace
 
@@ -1369,6 +1367,8 @@ void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
 }  // namespace Buffer
 }  // namespace node
 
-NODE_BINDING_CONTEXT_AWARE_INTERNAL(buffer, node::Buffer::Initialize)
+NODE_BINDING_CONTEXT_AWARE_INTERNAL(buffer,
+                                    node::Buffer::CreatePerContextProperties)
+NODE_BINDING_PER_ISOLATE_INIT(buffer, node::Buffer::CreatePerIsolateProperties)
 NODE_BINDING_EXTERNAL_REFERENCE(buffer,
                                 node::Buffer::RegisterExternalReferences)

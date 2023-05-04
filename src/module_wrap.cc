@@ -40,6 +40,7 @@ using v8::Module;
 using v8::ModuleRequest;
 using v8::Number;
 using v8::Object;
+using v8::ObjectTemplate;
 using v8::PrimitiveArray;
 using v8::Promise;
 using v8::ScriptCompiler;
@@ -758,12 +759,10 @@ void ModuleWrap::CreateCachedData(const FunctionCallbackInfo<Value>& args) {
   }
 }
 
-void ModuleWrap::Initialize(Local<Object> target,
-                            Local<Value> unused,
-                            Local<Context> context,
-                            void* priv) {
-  Environment* env = Environment::GetCurrent(context);
-  Isolate* isolate = env->isolate();
+void ModuleWrap::CreatePerIsolateProperties(IsolateData* isolate_data,
+                                            Local<FunctionTemplate> ctor) {
+  Isolate* isolate = isolate_data->isolate();
+  Local<ObjectTemplate> target = ctor->InstanceTemplate();
 
   Local<FunctionTemplate> tpl = NewFunctionTemplate(isolate, New);
   tpl->InstanceTemplate()->SetInternalFieldCount(
@@ -783,30 +782,32 @@ void ModuleWrap::Initialize(Local<Object> target,
                              "getStaticDependencySpecifiers",
                              GetStaticDependencySpecifiers);
 
-  SetConstructorFunction(context, target, "ModuleWrap", tpl);
+  SetConstructorFunction(isolate, target, "ModuleWrap", tpl);
 
-  SetMethod(context,
+  SetMethod(isolate,
             target,
             "setImportModuleDynamicallyCallback",
             SetImportModuleDynamicallyCallback);
-  SetMethod(context,
+  SetMethod(isolate,
             target,
             "setInitializeImportMetaObjectCallback",
             SetInitializeImportMetaObjectCallback);
 
 #define V(name)                                                                \
-    target->Set(context,                                                       \
-      FIXED_ONE_BYTE_STRING(env->isolate(), #name),                            \
-      Integer::New(env->isolate(), Module::Status::name))                      \
-        .FromJust()
-    V(kUninstantiated);
-    V(kInstantiating);
-    V(kInstantiated);
-    V(kEvaluating);
-    V(kEvaluated);
-    V(kErrored);
+  target->Set(isolate, #name, Integer::New(isolate, Module::Status::name));
+  V(kUninstantiated);
+  V(kInstantiating);
+  V(kInstantiated);
+  V(kEvaluating);
+  V(kEvaluated);
+  V(kErrored);
 #undef V
 }
+
+void ModuleWrap::CreatePerContextProperties(Local<Object> target,
+                                            Local<Value> unused,
+                                            Local<Context> context,
+                                            void* priv) {}
 
 void ModuleWrap::RegisterExternalReferences(
     ExternalReferenceRegistry* registry) {
@@ -828,7 +829,9 @@ void ModuleWrap::RegisterExternalReferences(
 }  // namespace loader
 }  // namespace node
 
-NODE_BINDING_CONTEXT_AWARE_INTERNAL(module_wrap,
-                                    node::loader::ModuleWrap::Initialize)
+NODE_BINDING_CONTEXT_AWARE_INTERNAL(
+    module_wrap, node::loader::ModuleWrap::CreatePerContextProperties)
+NODE_BINDING_PER_ISOLATE_INIT(
+    module_wrap, node::loader::ModuleWrap::CreatePerIsolateProperties)
 NODE_BINDING_EXTERNAL_REFERENCE(
     module_wrap, node::loader::ModuleWrap::RegisterExternalReferences)

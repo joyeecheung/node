@@ -33,14 +33,32 @@ static_assert(static_cast<int>(NM_F_LINKED) ==
 #define NODE_BINDINGS_WITH_PER_ISOLATE_INIT(V)                                 \
   V(async_wrap)                                                                \
   V(blob)                                                                      \
+  V(buffer)                                                                    \
   V(builtins)                                                                  \
+  V(config)                                                                    \
+  V(constants)                                                                 \
   V(contextify)                                                                \
+  V(credentials)                                                               \
   V(encoding_binding)                                                          \
+  V(errors)                                                                    \
   V(fs)                                                                        \
-  V(timers)                                                                    \
-  V(process_methods)                                                           \
+  V(inspector)                                                                 \
+  V(messaging)                                                                 \
+  V(mksnapshot)                                                                \
+  V(module_wrap)                                                               \
+  V(options)                                                                   \
   V(performance)                                                               \
+  V(permission)                                                                \
+  V(process_methods)                                                           \
+  V(string_decoder)                                                            \
+  V(symbols)                                                                   \
+  V(task_queue)                                                                \
+  V(timers)                                                                    \
+  V(trace_events)                                                              \
+  V(types)                                                                     \
   V(url)                                                                       \
+  V(util)                                                                      \
+  V(wasm_web_api)                                                              \
   V(worker)                                                                    \
   NODE_BUILTIN_ICU_BINDINGS(V)
 

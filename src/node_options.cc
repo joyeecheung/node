@@ -1341,5 +1341,7 @@ std::vector<std::string> ParseNodeOptionsEnvVar(
 }  // namespace node
 
 NODE_BINDING_CONTEXT_AWARE_INTERNAL(options, node::options_parser::Initialize)
+NODE_BINDING_PER_ISOLATE_INIT(options,
+                              node::options_parser::CreatePerIsolateProperties)
 NODE_BINDING_EXTERNAL_REFERENCE(
     options, node::options_parser::RegisterExternalReferences)
