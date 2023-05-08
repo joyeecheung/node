@@ -569,18 +569,6 @@ inline struct node_module* FindModule(struct node_module* list,
   return mp;
 }
 
-void CreateInternalBindingTemplates(IsolateData* isolate_data) {
-#define V(modname)                                                             \
-  do {                                                                         \
-    Local<ObjectTemplate> templ = ObjectTemplate::New(isolate_data->isolate());\
-    templ->SetInternalFieldCount(BaseObject::kInternalFieldCount);             \
-    _register_isolate_##modname(isolate_data, templ);                          \
-    isolate_data->set_##modname##_binding_template(templ);                     \
-  } while (0);
-  NODE_BINDINGS_WITH_PER_ISOLATE_INIT(V)
-#undef V
-}
-
 static Local<Object> GetInternalBindingExportObject(IsolateData* isolate_data,
                                                     const char* mod_name,
                                                     Local<Context> context) {
@@ -589,6 +577,12 @@ static Local<Object> GetInternalBindingExportObject(IsolateData* isolate_data,
 #define V(name)                                                                \
   if (strcmp(mod_name, #name) == 0) {                                          \
     templ = isolate_data->name##_binding_template();                           \
+    if (templ.IsEmpty()) {                                                     \
+      templ = ObjectTemplate::New(isolate_data->isolate());                    \
+      templ->SetInternalFieldCount(BaseObject::kInternalFieldCount);           \
+      _register_isolate_##name(isolate_data, templ);                           \
+      isolate_data->set_##name##_binding_template(templ);                      \
+    }                                                                          \
   } else  // NOLINT(readability/braces)
   NODE_BINDINGS_WITH_PER_ISOLATE_INIT(V)
 #undef V

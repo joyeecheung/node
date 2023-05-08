@@ -494,7 +494,6 @@ void IsolateData::CreateProperties() {
   Local<ObjectTemplate> templ = ObjectTemplate::New(isolate());
   templ->SetInternalFieldCount(BaseObject::kInternalFieldCount);
   set_binding_data_default_template(templ);
-  binding::CreateInternalBindingTemplates(this);
 
   contextify::ContextifyContext::InitializeGlobalTemplates(this);
 }
