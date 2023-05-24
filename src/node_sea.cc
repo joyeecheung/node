@@ -50,6 +50,10 @@ SeaFlags operator|=(/* NOLINT (runtime/references) */ SeaFlags& x, SeaFlags y) {
   return x = x | y;
 }
 
+bool operator !(SeaFlags flags) {
+  return flags == static_cast<SeaFlags>(SeaFlags::kDefault);
+}
+
 class SeaSerializer : public BlobSerializer<SeaSerializer> {
  public:
   SeaSerializer()
@@ -235,6 +239,18 @@ std::optional<SeaConfig> ParseSingleExecutableConfig(
     result.flags |= SeaFlags::kDisableExperimentalSeaWarning;
   }
 
+  std::optional<bool> produce_cached_data =
+      parser.GetTopLevelBoolField("produceCachedData");
+  if (!produce_cached_data.has_value()) {
+    FPrintF(stderr,
+            "\"produceCachedData\" field of %s is not a Boolean\n",
+            config_path);
+    return std::nullopt;
+  }
+  if (produce_cached_data.value()) {
+    result.flags |= SeaFlags::kProduceCachedData;
+  }
+
   return result;
 }
 
@@ -248,6 +264,9 @@ ExitCode GenerateSingleExecutableBlob(const SeaConfig& config) {
     return ExitCode::kGenericUserError;
   }
 
+  if (config.flags & SeaFlags::kProduceCachedData) {
+
+  }
   SeaResource sea{config.flags, main_script};
 
   SeaSerializer serializer;

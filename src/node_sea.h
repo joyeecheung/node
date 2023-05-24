@@ -20,11 +20,13 @@ const uint32_t kMagic = 0x143da20;
 enum class SeaFlags : uint32_t {
   kDefault = 0,
   kDisableExperimentalSeaWarning = 1 << 0,
+  kProduceCachedData = 1 << 1,
 };
 
 struct SeaResource {
   SeaFlags flags = SeaFlags::kDefault;
   std::string_view code;
+  std::string_view code_cache;
 
   static constexpr size_t kHeaderSize = sizeof(kMagic) + sizeof(SeaFlags);
 };

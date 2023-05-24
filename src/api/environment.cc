@@ -23,6 +23,8 @@
 namespace node {
 using errors::TryCatchScope;
 using v8::Array;
+using v8::ArrayBuffer;
+using v8::BackingStore;
 using v8::Boolean;
 using v8::Context;
 using v8::EscapableHandleScope;
@@ -42,6 +44,7 @@ using v8::Private;
 using v8::PropertyDescriptor;
 using v8::SealHandleScope;
 using v8::String;
+using v8::Uint8Array;
 using v8::Value;
 
 bool AllowWasmCodeGenerationCallback(Local<Context> context,
@@ -550,15 +553,35 @@ MaybeLocal<Value> LoadEnvironment(
 }
 
 MaybeLocal<Value> LoadEnvironment(Environment* env,
-                                  std::string_view main_script_source_utf8) {
+                                  std::string_view main_script_source_utf8,
+                                  std::string_view main_script_code_cache) {
   CHECK_NOT_NULL(main_script_source_utf8.data());
   return LoadEnvironment(
       env, [&](const StartExecutionCallbackInfo& info) -> MaybeLocal<Value> {
         Local<Value> main_script =
             ToV8Value(env->context(), main_script_source_utf8).ToLocalChecked();
+        std::vector<Local<Value>> args = { main_script };
+        std::unique_ptr<v8::BackingStore> store;  // To keep the cached data alive.
+        if (main_script_code_cache.size() > 0) {
+          size_t cache_size = main_script_code_cache.size();
+          store = ArrayBuffer::NewBackingStore(
+              const_cast<char*>(main_script_code_cache.data()),
+              cache_size,
+              [](void*, size_t, void*) {},
+              nullptr);
+          Local<ArrayBuffer> buf =
+              ArrayBuffer::New(env->isolate(), std::move(store));
+          Local<Uint8Array> cache = Uint8Array::New(buf, 0, cache_size);
+          args.push_back(cache);
+        }
         return info.run_cjs->Call(
-            env->context(), Null(env->isolate()), 1, &main_script);
+            env->context(), Null(env->isolate()), args.size(), args.data());
       });
+}
+
+MaybeLocal<Value> LoadEnvironment(Environment* env,
+                                  std::string_view main_script_source_utf8) {
+  LoadEnvironment(env, main_script_source_utf8, {});
 }
 
 Environment* GetCurrentEnvironment(Local<Context> context) {

@@ -1187,18 +1187,27 @@ void ContextifyContext::CompileFunction(
       data + cached_data_buf->ByteOffset(), cached_data_buf->ByteLength());
   }
 
-  // Get the function id
-  uint32_t id = env->get_next_function_id();
+  // Read context extensions from buffer
+  std::vector<Local<Object>> context_extensions;
+  if (!context_extensions_buf.IsEmpty()) {
+    for (uint32_t n = 0; n < context_extensions_buf->Length(); n++) {
+      Local<Value> val;
+      if (!context_extensions_buf->Get(context, n).ToLocal(&val)) return;
+      CHECK(val->IsObject());
+      context_extensions.push_back(val.As<Object>());
+    }
+  }
 
-  // Set host_defined_options
-  Local<PrimitiveArray> host_defined_options =
-      PrimitiveArray::New(isolate, loader::HostDefinedOptions::kLength);
-  host_defined_options->Set(
-      isolate,
-      loader::HostDefinedOptions::kType,
-      Number::New(isolate, loader::ScriptType::kFunction));
-  host_defined_options->Set(
-      isolate, loader::HostDefinedOptions::kID, Number::New(isolate, id));
+  // Read params from params buffer
+  std::vector<Local<String>> params;
+  if (!params_buf.IsEmpty()) {
+    for (uint32_t n = 0; n < params_buf->Length(); n++) {
+      Local<Value> val;
+      if (!params_buf->Get(context, n).ToLocal(&val)) return;
+      CHECK(val->IsString());
+      params.push_back(val.As<String>());
+    }
+  }
 
   ScriptOrigin origin(isolate,
                       filename,
@@ -1222,28 +1231,6 @@ void ContextifyContext::CompileFunction(
 
   TryCatchScope try_catch(env);
   Context::Scope scope(parsing_context);
-
-  // Read context extensions from buffer
-  std::vector<Local<Object>> context_extensions;
-  if (!context_extensions_buf.IsEmpty()) {
-    for (uint32_t n = 0; n < context_extensions_buf->Length(); n++) {
-      Local<Value> val;
-      if (!context_extensions_buf->Get(context, n).ToLocal(&val)) return;
-      CHECK(val->IsObject());
-      context_extensions.push_back(val.As<Object>());
-    }
-  }
-
-  // Read params from params buffer
-  std::vector<Local<String>> params;
-  if (!params_buf.IsEmpty()) {
-    for (uint32_t n = 0; n < params_buf->Length(); n++) {
-      Local<Value> val;
-      if (!params_buf->Get(context, n).ToLocal(&val)) return;
-      CHECK(val->IsString());
-      params.push_back(val.As<String>());
-    }
-  }
 
   MaybeLocal<Function> maybe_fn = ScriptCompiler::CompileFunction(
       parsing_context,
