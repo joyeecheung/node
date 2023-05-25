@@ -1180,13 +1180,15 @@ void SerializeSnapshotableObjects(Realm* realm,
 
 static void RunEmbedderEntryPoint(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
-  Local<Value> require_fn = args[0];
-  Local<Value> runcjs_fn = args[1];
+  Local<Value> process_obj = args[0];
+  Local<Value> require_fn = args[1];
+  Local<Value> runcjs_fn = args[2];
+  CHECK(process_obj->IsObject());
   CHECK(require_fn->IsFunction());
   CHECK(runcjs_fn->IsFunction());
 
   const node::StartExecutionCallback& callback = env->embedder_entry_point();
-  node::StartExecutionCallbackInfo info{env->process_object(),
+  node::StartExecutionCallbackInfo info{process_obj.As<Object>(),
                                         require_fn.As<Function>(),
                                         runcjs_fn.As<Function>()};
   MaybeLocal<Value> retval = callback(info);
