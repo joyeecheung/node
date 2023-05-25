@@ -816,6 +816,8 @@ NODE_EXTERN struct uv_loop_s* GetCurrentEventLoop(v8::Isolate* isolate);
 // This function only works if `env` has an associated `MultiIsolatePlatform`.
 NODE_EXTERN v8::Maybe<int> SpinEventLoop(Environment* env);
 
+NODE_EXTERN std::string GetAnonymousSnapshotMainName();
+
 class NODE_EXTERN CommonEnvironmentSetup {
  public:
   ~CommonEnvironmentSetup();
@@ -847,6 +849,14 @@ class NODE_EXTERN CommonEnvironmentSetup {
   // Not all Node.js APIs are supported in this case. Currently, there is
   // no support for native/host objects other than Node.js builtins
   // in the snapshot.
+  //
+  // If the embedder wants to use LoadEnvironment() later to run a main script
+  // they should make sure that the args vector contains at least two items,
+  // the item at index 1, which is conceptually the name of the main script,
+  // will be resolved to __filename and the base of __dirname in the main
+  // script. If they do not want to include the build-time paths into
+  // snapshot, use the string returned by GetAnonymousSnapshotMainName()
+  // as args[1] to anonymize the main script.
   //
   // Snapshots are an *experimental* feature. In particular, the embedder API
   // exposed through this class is subject to change or removal between Node.js
@@ -909,6 +919,7 @@ std::unique_ptr<CommonEnvironmentSetup> CommonEnvironmentSetup::Create(
   if (!errors->empty()) ret.reset();
   return ret;
 }
+
 // Implementation for ::CreateFromSnapshot -- the ::Create() method
 // could call this with a nullptr snapshot_data in a major version.
 template <typename... EnvironmentArgs>
