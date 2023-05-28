@@ -300,6 +300,10 @@ MaybeLocal<Value> StartExecution(Environment* env, StartExecutionCallback cb) {
     return env->RunSnapshotDeserializeMain();
   }
 
+  if (env->isolate_data()->snapshot_data()->metadata.type == SnapshotMetadata::Type::kFullyCustomized) {
+    
+  }
+
   if (env->worker_context() != nullptr) {
     return StartExecution(env, "internal/main/worker_thread");
   }

@@ -127,10 +127,22 @@ NodeMainInstance::CreateMainEnvironment(ExitCode* exit_code) {
   DeleteFnPtr<Environment, FreeEnvironment> env;
 
   if (snapshot_data_ != nullptr) {
-    env.reset(CreateEnvironment(isolate_data_.get(),
-                                Local<Context>(),  // read from snapshot
-                                args_,
-                                exec_args_));
+    std::vector<std::string> modified_args;
+    bool should_use_modified_args = snapshot_data_->metadata.type ==
+                                    SnapshotMetadata::Type::kFullyCustomized;
+    if (should_use_modified_args) {
+      // For user-land snapshot we will fix up the argv[1].
+      // TODO(joyeecheung): this is currently following the convention of SEA.
+      // We should provide an API for users to customize this.
+      modified_args.reserve(args_.size() + 1);
+      modified_args.push_back(args_[0]);
+      modified_args.insert(modified_args.end(), args_.begin(), args_.end());
+    }
+    env.reset(
+        CreateEnvironment(isolate_data_.get(),
+                          Local<Context>(),  // read from snapshot
+                          should_use_modified_args ? modified_args : args_,
+                          exec_args_));
 #if HAVE_OPENSSL
     crypto::InitCryptoOnce(isolate_);
 #endif  // HAVE_OPENSSL

@@ -70,9 +70,8 @@ Maybe<bool> SecretKeyGenTraits::AdditionalConfig(
   return Just(true);
 }
 
-KeyGenJobStatus SecretKeyGenTraits::DoKeyGen(
-    Environment* env,
-    SecretKeyGenConfig* params) {
+KeyGenJobStatus SecretKeyGenTraits::DoKeyGen(Environment* env,
+                                             SecretKeyGenConfig* params) {
   CHECK_LE(params->length, INT_MAX);
   ByteSource::Builder bytes(params->length);
   if (CSPRNG(bytes.data<unsigned char>(), params->length).is_err())
