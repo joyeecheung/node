@@ -1488,6 +1488,15 @@ void RegisterSignalHandler(int signal,
                            bool reset_handler = false);
 #endif  // _WIN32
 
+// Configure the layout of the JavaScript object with a cppgc::GarbageCollected
+// instance so that when the JavaScript object becomes unreachable, the garbage
+// collected instance would have its Trace() method invoked per the cppgc
+// contract. To make it work, ProcessInitializationFlags::kNoInitializeCppgc
+// must *not* be set to 1 when the process is initialized (which is the case
+// for add-ons, but not necessarily for embedders).
+// The object must be created with at least two internal fields available,
+// and the first two internal fields would be configured by Node.js.
+void TraceWithCppGC(v8::Local<v8::Object> js_object, void* garbage_collected);
 }  // namespace node
 
 #endif  // SRC_NODE_H_

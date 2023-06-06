@@ -79,6 +79,13 @@ uint16_t kNodeEmbedderId = 0x90de;
 // confused by v8.
 uint16_t kNodeEmbedderIdForCppgc = kNodeEmbedderId + 1;
 
+// This is in the node.h API.
+void TraceWithCppGC(Local<Object> js_object, void* garbage_collected) {
+  js_object->SetAlignedPointerInInternalField(
+      0, const_cast<uint16_t*>(&kNodeEmbedderIdForCppgc));
+  js_object->SetAlignedPointerInInternalField(1, garbage_collected);
+}
+
 void BaseObject::LazilyInitializedJSTemplateConstructor(
     const FunctionCallbackInfo<Value>& args) {
   DCHECK(args.IsConstructCall());
