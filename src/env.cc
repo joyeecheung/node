@@ -19,6 +19,7 @@
 #include "tracing/agent.h"
 #include "tracing/traced_value.h"
 #include "util-inl.h"
+#include "v8-cppgc.h"
 #include "v8-profiler.h"
 
 #include <algorithm>
@@ -35,6 +36,8 @@ using errors::TryCatchScope;
 using v8::Array;
 using v8::Boolean;
 using v8::Context;
+using v8::CppHeap;
+using v8::CppHeapCreateParams;
 using v8::EmbedderGraph;
 using v8::EscapableHandleScope;
 using v8::Function;
@@ -59,6 +62,7 @@ using v8::TracingController;
 using v8::TryCatch;
 using v8::Undefined;
 using v8::Value;
+using v8::WrapperDescriptor;
 using worker::Worker;
 
 int const ContextEmbedderTag::kNodeContextTag = 0x6e6f64;
@@ -499,17 +503,35 @@ void IsolateData::CreateProperties() {
   contextify::ContextifyContext::InitializeGlobalTemplates(this);
 }
 
+// kNodeEmbedderIdForCppgc is used when Node.js is responsible of managing
+// the CppHeap for the isolate. This needs to be different from
+// kNodeEmbedderId which is used to signify that the internal field is not
+// cppgc-managed. If the embedder needs a different id, they would use
+// IsolateDataFlags::kDoNotOwnCppHeap and configure the layout themselves.
+static uint16_t kNodeEmbedderIdForCppgc = kNodeEmbedderId + 1;
 IsolateData::IsolateData(Isolate* isolate,
                          uv_loop_t* event_loop,
                          MultiIsolatePlatform* platform,
                          ArrayBufferAllocator* node_allocator,
-                         const SnapshotData* snapshot_data)
+                         const SnapshotData* snapshot_data,
+                         IsolateDataFlags::Flags flags)
     : isolate_(isolate),
       event_loop_(event_loop),
       node_allocator_(node_allocator == nullptr ? nullptr
                                                 : node_allocator->GetImpl()),
       platform_(platform),
-      snapshot_data_(snapshot_data) {
+      snapshot_data_(snapshot_data),
+      flags_(flags) {
+  if (!(flags & IsolateDataFlags::kDoNotOwnCppHeap)) {
+    cpp_heap_ = CppHeap::Create(
+        platform,
+        CppHeapCreateParams{{},
+                            WrapperDescriptor(BaseObject::kEmbedderType,
+                                              BaseObject::kSlot,
+                                              kNodeEmbedderIdForCppgc)});
+    isolate->AttachCppHeap(cpp_heap_.get());
+  }
+
   options_.reset(
       new PerIsolateOptions(*(per_process::cli_options->per_isolate)));
 
@@ -517,6 +539,13 @@ IsolateData::IsolateData(Isolate* isolate,
     CreateProperties();
   } else {
     DeserializeProperties(&snapshot_data->isolate_data_info);
+  }
+}
+
+IsolateData::~IsolateData() {
+  if (!(flags_ & IsolateDataFlags::kDoNotOwnCppHeap)) {
+    isolate_->DetachCppHeap();
+    cpp_heap_->Terminate();
   }
 }
 

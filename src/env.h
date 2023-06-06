@@ -62,6 +62,10 @@
 #include <unordered_set>
 #include <vector>
 
+namespace v8 {
+class CppHeap;
+}
+
 namespace node {
 
 namespace shadow_realm {
@@ -130,7 +134,10 @@ class NODE_EXTERN_PRIVATE IsolateData : public MemoryRetainer {
               uv_loop_t* event_loop,
               MultiIsolatePlatform* platform = nullptr,
               ArrayBufferAllocator* node_allocator = nullptr,
-              const SnapshotData* snapshot_data = nullptr);
+              const SnapshotData* snapshot_data = nullptr,
+              IsolateDataFlags::Flags flags = IsolateDataFlags::kNoFlags);
+  ~IsolateData();
+
   SET_MEMORY_INFO_NAME(IsolateData)
   SET_SELF_SIZE(IsolateData)
   void MemoryInfo(MemoryTracker* tracker) const override;
@@ -220,6 +227,8 @@ class NODE_EXTERN_PRIVATE IsolateData : public MemoryRetainer {
   NodeArrayBufferAllocator* const node_allocator_;
   MultiIsolatePlatform* platform_;
   const SnapshotData* snapshot_data_;
+  IsolateDataFlags::Flags flags_;
+  std::unique_ptr<v8::CppHeap> cpp_heap_;
   std::shared_ptr<PerIsolateOptions> options_;
   worker::Worker* worker_context_ = nullptr;
   bool is_building_snapshot_ = false;

@@ -261,7 +261,9 @@ enum Flags : uint32_t {
   kNoUseLargePages = 1 << 11,
   // Skip printing output for --help, --version, --v8-options.
   kNoPrintHelpOrVersionOutput = 1 << 12,
-  // Do not perform cppgc initialization.
+  // Do not perform cppgc initialization. If set, the embedder must call
+  // cppgc::InitializeProcess() before creating a Node.js environment
+  // and call cppgc::ShutdownProcess() before process shutdown.
   kNoInitializeCppgc = 1 << 13,
 
   // Emulate the behavior of InitializeNodeWithArgs() when passing
@@ -594,6 +596,17 @@ NODE_EXTERN v8::Local<v8::Context> NewContext(
 // Return value indicates success of operation
 NODE_EXTERN v8::Maybe<bool> InitializeContext(v8::Local<v8::Context> context);
 
+namespace IsolateDataFlags {
+enum Flags : uint32_t {
+  kNoFlags = 0,
+  // Do not use the Node.js v8::CppHeap. When it's set, the embedder is
+  // responsible of creating/terminating a v8::CppHeap and attaching/detaching
+  // it to/from the v8::Isolate, and FreeIsolateData() must be called before
+  // UnregisterIsolate().
+  kDoNotOwnCppHeap = 1 << 0,
+};
+}  // namespace IsolateDataFlags
+
 // If `platform` is passed, it will be used to register new Worker instances.
 // It can be `nullptr`, in which case creating new Workers inside of
 // Environments that use this `IsolateData` will not work.
@@ -602,7 +615,8 @@ NODE_EXTERN IsolateData* CreateIsolateData(
     struct uv_loop_s* loop,
     MultiIsolatePlatform* platform = nullptr,
     ArrayBufferAllocator* allocator = nullptr,
-    const EmbedderSnapshotData* snapshot_data = nullptr);
+    const EmbedderSnapshotData* snapshot_data = nullptr,
+    IsolateDataFlags::Flags flags = IsolateDataFlags::kNoFlags);
 NODE_EXTERN void FreeIsolateData(IsolateData* isolate_data);
 
 struct ThreadId {

@@ -14,7 +14,6 @@
 #include "node_snapshotable.h"
 #include "node_v8_platform-inl.h"
 #include "util-inl.h"
-#include "v8-cppgc.h"
 #if defined(LEAK_SANITIZER)
 #include <sanitizer/lsan_interface.h>
 #endif
@@ -26,13 +25,10 @@
 namespace node {
 
 using v8::Context;
-using v8::CppHeap;
-using v8::CppHeapCreateParams;
 using v8::HandleScope;
 using v8::Isolate;
 using v8::Local;
 using v8::Locker;
-using v8::WrapperDescriptor;
 
 NodeMainInstance::NodeMainInstance(const SnapshotData* snapshot_data,
                                    uv_loop_t* event_loop,
@@ -53,14 +49,6 @@ NodeMainInstance::NodeMainInstance(const SnapshotData* snapshot_data,
       NewIsolate(isolate_params_.get(), event_loop, platform, snapshot_data);
   CHECK_NOT_NULL(isolate_);
 
-  cpp_heap_ = CppHeap::Create(
-      platform,
-      CppHeapCreateParams{{},
-                          WrapperDescriptor(BaseObject::kEmbedderType,
-                                            BaseObject::kSlot,
-                                            kNodeEmbedderIdForCppgc)});
-  isolate_->AttachCppHeap(cpp_heap_.get());
-
   // If the indexes are not nullptr, we are not deserializing
   isolate_data_.reset(
       CreateIsolateData(isolate_,
@@ -80,8 +68,8 @@ NodeMainInstance::~NodeMainInstance() {
     return;
   }
   // This should only be done on a main instance that owns its isolate.
-  isolate_->DetachCppHeap();
-  cpp_heap_->Terminate();
+  // IsolateData must be freed before UnregisterIsolate() is called.
+  isolate_data_.reset();
   platform_->UnregisterIsolate(isolate_);
   isolate_->Dispose();
 }
