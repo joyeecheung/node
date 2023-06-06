@@ -56,7 +56,6 @@ class NodeMainInstance {
   std::unique_ptr<ArrayBufferAllocator> array_buffer_allocator_;
   v8::Isolate* isolate_;
   MultiIsolatePlatform* platform_;
-  std::unique_ptr<v8::CppHeap> cpp_heap_;
   std::unique_ptr<IsolateData> isolate_data_;
   std::unique_ptr<v8::Isolate::CreateParams> isolate_params_;
   const SnapshotData* snapshot_data_ = nullptr;

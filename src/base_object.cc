@@ -73,11 +73,14 @@ void BaseObject::MakeWeak() {
 // collect them.
 uint16_t kNodeEmbedderId = 0x90de;
 
-// kNodeEmbedderIdForCppgc is used when we initialize cppgc for use in Node,
-// when its not part of Chromium.  Again, all that's required is that it
-// doesn't match kNodeEmbedderId, so that the two types of objects don't get
-// confused by v8.
-uint16_t kNodeEmbedderIdForCppgc = kNodeEmbedderId + 1;
+// Currently, most users of cppgc use the first internal field for the
+// embedder id and the second field for the cppgc-managed reference.
+// We enforce this layout here to ensure that our layout works with
+// other embedders. How other embedders/addons can set the correct embedder
+// id to enable/avoid cppgc tracing is being discussed in
+// https://bugs.chromium.org/p/v8/issues/detail?id=13960.
+static_assert(BaseObject::kEmbedderType == 0);
+static_assert(BaseObject::kSlot == 1);
 
 void BaseObject::LazilyInitializedJSTemplateConstructor(
     const FunctionCallbackInfo<Value>& args) {
