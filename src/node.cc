@@ -295,7 +295,7 @@ MaybeLocal<Value> StartExecution(Environment* env, StartExecutionCallback cb) {
 #ifndef DISABLE_SINGLE_EXECUTABLE_APPLICATION
   if (sea::IsSingleExecutable()) {
     sea::SeaResource sea = sea::FindSingleExecutableResource();
-    if (sea.produce_snapshot()) {
+    if (sea.use_snapshot()) {
       if (env->snapshot_deserialize_main().IsEmpty()) {
         fprintf(
             stderr,
@@ -1200,7 +1200,7 @@ bool LoadSnapshotData(const SnapshotData** snapshot_data_ptr) {
   if (sea::IsSingleExecutable()) {
     is_sea = true;
     sea::SeaResource sea = sea::FindSingleExecutableResource();
-    if (sea.produce_snapshot()) {
+    if (sea.use_snapshot()) {
       std::unique_ptr<SnapshotData> read_data =
           std::make_unique<SnapshotData>();
       std::string_view snapshot = sea.main_code_or_snapshot;

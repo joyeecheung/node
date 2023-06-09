@@ -7,8 +7,8 @@
 #include "node_external_reference.h"
 #include "node_internals.h"
 #include "node_snapshot_builder.h"
-#include "node_v8_platform-inl.h"
 #include "node_union_bytes.h"
+#include "node_v8_platform-inl.h"
 
 // The POSTJECT_SENTINEL_FUSE macro is a string of random characters selected by
 // the Node.js project that is present only once in the entire binary. It is
@@ -29,12 +29,12 @@
 using node::ExitCode;
 using v8::Context;
 using v8::FunctionCallbackInfo;
+using v8::HandleScope;
+using v8::Isolate;
 using v8::Local;
+using v8::Locker;
 using v8::Object;
 using v8::Value;
-using v8::Isolate;
-using v8::Locker;
-using v8::HandleScope;
 
 namespace node {
 namespace sea {
@@ -82,7 +82,8 @@ size_t SeaSerializer::Write(const SeaResource& sea) {
   Debug("Write SEA resource code %p, size=%zu\n",
         sea.main_code_or_snapshot.data(),
         sea.main_code_or_snapshot.size());
-  written_total += WriteStringView(sea.main_code_or_snapshot, StringLogMode::kAddressAndContent);
+  written_total += WriteStringView(sea.main_code_or_snapshot,
+                                   StringLogMode::kAddressAndContent);
   return written_total;
 }
 
@@ -137,6 +138,10 @@ std::string_view FindSingleExecutableBlob() {
 }
 
 }  // anonymous namespace
+
+bool SeaResource::use_snapshot() const {
+  return static_cast<bool>(flags & SeaFlags::kuseSnapshot);
+}
 
 SeaResource FindSingleExecutableResource() {
   static const SeaResource sea_resource = []() -> SeaResource {
@@ -240,16 +245,16 @@ std::optional<SeaConfig> ParseSingleExecutableConfig(
     result.flags |= SeaFlags::kDisableExperimentalSeaWarning;
   }
 
-  std::optional<bool> build_snapshot_from_main =
-      parser.GetTopLevelBoolField("buildSnapshotFromMain");
-  if (!build_snapshot_from_main.has_value()) {
+  std::optional<bool> use_snapshot =
+      parser.GetTopLevelBoolField("useSnapshot");
+  if (!use_snapshot.has_value()) {
     FPrintF(stderr,
-            "\"buildSnapshotFromMain\" field of %s is not a Boolean\n",
+            "\"useSnapshot\" field of %s is not a Boolean\n",
             config_path);
     return std::nullopt;
   }
-  if (build_snapshot_from_main.value()) {
-    result.flags |= SeaFlags::kBuildSnapshotFromMain;
+  if (use_snapshot.value()) {
+    result.flags |= SeaFlags::kuseSnapshot;
   }
 
   return result;
@@ -268,42 +273,23 @@ ExitCode GenerateSingleExecutableBlob(
     return ExitCode::kGenericUserError;
   }
 
-  std::vector<char> snapshot;
+  std::vector<char> snapshot_blob;
   bool builds_snapshot_from_main =
-      static_cast<bool>(config.flags & SeaFlags::kBuildSnapshotFromMain);
+      static_cast<bool>(config.flags & SeaFlags::kuseSnapshot);
   if (builds_snapshot_from_main) {
-    std::vector<std::string> errors;
-    std::unique_ptr<CommonEnvironmentSetup> setup = CommonEnvironmentSetup::CreateForSnapshotting(
-                per_process::v8_platform.Platform(), &errors, args, exec_args);
-  if (!setup) {
-    for (const std::string& err : errors)
-      fprintf(stderr, "%s: %s\n", args[0].c_str(), err.c_str());
-    return ExitCode::kGenericUserError;
-  }
-
-  Isolate* isolate = setup->isolate();
-  Environment* env = setup->env();
-  {
-    Locker locker(isolate);
-    Isolate::Scope isolate_scope(isolate);
-    HandleScope handle_scope(isolate);
-    Context::Scope context_scope(setup->context());
-  }
-    ExitCode exit_code = SnapshotBuilder::Generate(
-        &snapshot,
-        args,
-        exec_args,
-        static_cast<uint8_t>(SnapshotMetadata::Type::kFullyCustomized),
-        main_script);
+    SnapshotData snapshot;
+    ExitCode exit_code =
+        SnapshotBuilder::Generate(&snapshot, args, exec_args, main_script);
     if (exit_code != ExitCode::kNoFailure) {
       return exit_code;
     }
+    snapshot.ToBlob(&snapshot_blob);
   }
 
   SeaResource sea{
       config.flags,
       builds_snapshot_from_main
-          ? std::string_view{snapshot.data(), snapshot.size()}
+          ? std::string_view{snapshot_blob.data(), snapshot_blob.size()}
           : std::string_view{main_script.data(), main_script.size()}};
 
   SeaSerializer serializer;

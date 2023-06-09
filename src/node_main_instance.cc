@@ -93,7 +93,7 @@ void NodeMainInstance::Run(ExitCode* exit_code, Environment* env) {
 #ifndef DISABLE_SINGLE_EXECUTABLE_APPLICATION
     if (sea::IsSingleExecutable()) {
       sea::SeaResource sea = sea::FindSingleExecutableResource();
-      if (!sea.produce_snapshot()) {
+      if (!sea.use_snapshot()) {
         runs_sea_code = true;
         std::string_view code = sea.main_code_or_snapshot;
         LoadEnvironment(env, code);
