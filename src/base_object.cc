@@ -82,6 +82,22 @@ uint16_t kNodeEmbedderId = 0x90de;
 static_assert(BaseObject::kEmbedderType == 0);
 static_assert(BaseObject::kSlot == 1);
 
+// kNodeEmbedderIdForCppgc is used when Node.js is responsible of managing
+// the CppHeap for the isolate. This needs to be different from
+// kNodeEmbedderId which is used to signify that the internal field is not
+// cppgc-managed. If the embedder needs a different id, they would use
+// IsolateDataFlags::kDoNotOwnCppHeap and configure the layout themselves.
+uint16_t kNodeEmbedderIdForCppgc = kNodeEmbedderId + 1;
+
+// Currently, most users of cppgc use the first internal field for the
+// embedder id and the second field for the cppgc-managed reference.
+// We enforce this layout here to ensure that our layout works with
+// other embedders. How other embedders/addons can set the correct embedder
+// id to enable/avoid cppgc tracing is being discussed in
+// https://bugs.chromium.org/p/v8/issues/detail?id=13960.
+static_assert(BaseObject::kEmbedderType == 0);
+static_assert(BaseObject::kSlot == 1);
+
 void BaseObject::LazilyInitializedJSTemplateConstructor(
     const FunctionCallbackInfo<Value>& args) {
   DCHECK(args.IsConstructCall());

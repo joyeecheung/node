@@ -6,6 +6,7 @@
 #include "base_object-inl.h"
 #include "node_context_data.h"
 #include "node_errors.h"
+#include "cppgc/garbage-collected.h"
 
 namespace node {
 class ExternalReferenceRegistry;
@@ -181,25 +182,28 @@ class ContextifyScript : public BaseObject {
   uint32_t id_;
 };
 
-class CompiledFnEntry final : public BaseObject {
+class CompiledFnEntry final : public MemoryRetainer,
+                              public cppgc::GarbageCollected<CompiledFnEntry> {
  public:
+  enum InternalFields { kEmbedderType, kSlot, kInternalFieldCount };
   SET_NO_MEMORY_INFO()
   SET_MEMORY_INFO_NAME(CompiledFnEntry)
   SET_SELF_SIZE(CompiledFnEntry)
 
-  CompiledFnEntry(Environment* env,
+  CompiledFnEntry(Realm* realm,
                   v8::Local<v8::Object> object,
                   uint32_t id,
                   v8::Local<v8::Function> fn);
   ~CompiledFnEntry();
-
-  bool IsNotIndicativeOfMemoryLeakAtExit() const override { return true; }
+  void Trace(cppgc::Visitor* visitor) const;
+  v8::Local<v8::Object> object();
+  static void DeleteMe(void* data);
 
  private:
+  Realm* realm_;
+  v8::TracedReference<v8::Object> object_;
   uint32_t id_;
-  v8::Global<v8::Function> fn_;
-
-  static void WeakCallback(const v8::WeakCallbackInfo<CompiledFnEntry>& data);
+  v8::TracedReference<v8::Function> fn_;
 };
 
 v8::Maybe<bool> StoreCodeCacheResult(

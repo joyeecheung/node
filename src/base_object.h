@@ -43,6 +43,7 @@ class TransferData;
 
 // kNodeEmbedderId is used for non-cppgc objects.
 extern uint16_t kNodeEmbedderId;
+extern uint16_t kNodeEmbedderIdForCppgc;
 
 class BaseObject : public MemoryRetainer {
  public:

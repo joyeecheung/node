@@ -503,12 +503,6 @@ void IsolateData::CreateProperties() {
   contextify::ContextifyContext::InitializeGlobalTemplates(this);
 }
 
-// kNodeEmbedderIdForCppgc is used when Node.js is responsible of managing
-// the CppHeap for the isolate. This needs to be different from
-// kNodeEmbedderId which is used to signify that the internal field is not
-// cppgc-managed. If the embedder needs a different id, they would use
-// IsolateDataFlags::kDoNotOwnCppHeap and configure the layout themselves.
-static uint16_t kNodeEmbedderIdForCppgc = kNodeEmbedderId + 1;
 IsolateData::IsolateData(Isolate* isolate,
                          uv_loop_t* event_loop,
                          MultiIsolatePlatform* platform,

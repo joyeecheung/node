@@ -31,6 +31,7 @@
 #endif
 #include "callback_queue.h"
 #include "cleanup_queue-inl.h"
+#include "cppgc/persistent.h"
 #include "debug_utils.h"
 #include "env_properties.h"
 #include "handle_wrap.h"
@@ -734,7 +735,9 @@ class Environment : public MemoryRetainer {
   std::unordered_map<uint32_t, loader::ModuleWrap*> id_to_module_map;
   std::unordered_map<uint32_t, contextify::ContextifyScript*>
       id_to_script_map;
-  std::unordered_map<uint32_t, contextify::CompiledFnEntry*> id_to_function_map;
+  std::unordered_map<uint32_t,
+                     contextify::CompiledFnEntry*>
+      id_to_function_map;
 
   inline uint32_t get_next_module_id();
   inline uint32_t get_next_script_id();

@@ -22,6 +22,9 @@
 #include "node_contextify.h"
 
 #include "base_object-inl.h"
+#include "cppgc/allocation.h"
+#include "cppgc/garbage-collected.h"
+#include "cppgc/persistent.h"
 #include "memory_tracker-inl.h"
 #include "module_wrap.h"
 #include "node_context_data.h"
@@ -31,6 +34,7 @@
 #include "node_snapshot_builder.h"
 #include "node_watchdog.h"
 #include "util-inl.h"
+#include "v8-cppgc.h"
 
 namespace node {
 namespace contextify {
@@ -1119,6 +1123,44 @@ ContextifyScript::~ContextifyScript() {
   env()->id_to_script_map.erase(id_);
 }
 
+CompiledFnEntry::CompiledFnEntry(Realm* realm,
+                                 Local<Object> object,
+                                 uint32_t id,
+                                 Local<Function> fn)
+    : realm_(realm),
+      object_(realm->isolate(), object),
+      id_(id),
+      fn_(realm->isolate(), fn) {
+  realm->env()->id_to_function_map.emplace(id, this);
+  object->SetAlignedPointerInInternalField(kEmbedderType,
+                                           &kNodeEmbedderIdForCppgc);
+  object->SetAlignedPointerInInternalField(kSlot, this);
+  fn->SetPrivate(realm->context(),
+                 realm->isolate_data()->compiled_function_entry(),
+                 object);
+  realm->AddCleanupHook(DeleteMe, static_cast<void*>(this));
+}
+
+CompiledFnEntry::~CompiledFnEntry() {
+  if (realm_ != nullptr) {
+    realm_->RemoveCleanupHook(DeleteMe, static_cast<void*>(this));
+    realm_->env()->id_to_function_map.erase(id_);
+  }
+}
+
+void CompiledFnEntry::DeleteMe(void* data) {
+  CompiledFnEntry* self = static_cast<CompiledFnEntry*>(data);
+  self->realm_ = nullptr;
+}
+
+void CompiledFnEntry::Trace(cppgc::Visitor* visitor) const {
+  visitor->Trace(object_);
+  visitor->Trace(fn_);
+}
+
+Local<Object> CompiledFnEntry::object() {
+  return object_.Get(realm_->isolate());
+}
 
 void ContextifyContext::CompileFunction(
     const FunctionCallbackInfo<Value>& args) {
@@ -1270,9 +1312,9 @@ void ContextifyContext::CompileFunction(
            context).ToLocal(&cache_key)) {
     return;
   }
-  CompiledFnEntry* entry = new CompiledFnEntry(env, cache_key, id, fn);
-  env->id_to_function_map.emplace(id, entry);
-
+  auto& handle = env->isolate()->GetCppHeap()->GetAllocationHandle();
+  cppgc::MakeGarbageCollected<CompiledFnEntry>(
+      handle, env->principal_realm(), cache_key, id, fn);
   Local<Object> result = Object::New(isolate);
   if (result->Set(parsing_context, env->function_string(), fn).IsNothing())
     return;
@@ -1301,25 +1343,6 @@ void ContextifyContext::CompileFunction(
   }
 
   args.GetReturnValue().Set(result);
-}
-
-void CompiledFnEntry::WeakCallback(
-    const WeakCallbackInfo<CompiledFnEntry>& data) {
-  CompiledFnEntry* entry = data.GetParameter();
-  delete entry;
-}
-
-CompiledFnEntry::CompiledFnEntry(Environment* env,
-                                 Local<Object> object,
-                                 uint32_t id,
-                                 Local<Function> fn)
-    : BaseObject(env, object), id_(id), fn_(env->isolate(), fn) {
-  fn_.SetWeak(this, WeakCallback, v8::WeakCallbackType::kParameter);
-}
-
-CompiledFnEntry::~CompiledFnEntry() {
-  env()->id_to_function_map.erase(id_);
-  fn_.ClearWeak();
 }
 
 static void StartSigintWatchdog(const FunctionCallbackInfo<Value>& args) {
