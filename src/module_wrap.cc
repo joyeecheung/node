@@ -442,6 +442,24 @@ void ModuleWrap::GetNamespace(const FunctionCallbackInfo<Value>& args) {
   }
 
   Local<Value> result = module->GetModuleNamespace();
+
+  if (!obj->module_.IsWeak()) {
+    // V8 strongly references the module from the module namespace object,
+    // so we reference the module namespace object from the wrapper object to
+    // make sure that the module is alive as long as the wrapper is alive.
+    if (obj->object()
+            ->SetPrivate(isolate->GetCurrentContext(),
+                         env->module_namespace_symbol(),
+                         result)
+            .IsNothing()) {
+      return;
+    }
+    // As long as the module is alive, the host defined option symbol should be
+    // alive, which should in turn keep the wrapper object alive through the JS
+    // land moduleMap.
+    obj->module_.SetWeak();
+  }
+
   args.GetReturnValue().Set(result);
 }
 

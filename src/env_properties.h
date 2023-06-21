@@ -22,6 +22,7 @@
   V(contextify_context_private_symbol, "node:contextify:context")              \
   V(decorated_private_symbol, "node:decorated")                                \
   V(host_defined_option_symbol, "node:host_defined_option_symbol")             \
+  V(module_namespace_symbol, "node:module_namespace_symbol")                   \
   V(napi_type_tag, "node:napi:type_tag")                                       \
   V(napi_wrapper, "node:napi:wrapper")                                         \
   V(untransferable_object_private_symbol, "node:untransferableObject")         \
