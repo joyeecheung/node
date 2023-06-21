@@ -58,6 +58,7 @@ ModuleWrap::ModuleWrap(Environment* env,
   object->SetInternalField(kURLSlot, url);
   object->SetInternalField(kSyntheticEvaluationStepsSlot, undefined);
   object->SetInternalField(kContextObjectSlot, undefined);
+  MakeWeak();
 }
 
 ModuleWrap::~ModuleWrap() {
