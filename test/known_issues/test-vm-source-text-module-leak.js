@@ -33,5 +33,5 @@ if (process.argv[2] === 'child') {
     __filename,
     'child']
   );
-  assert.strictEqual(child.status, null);
+  assert.strictEqual(child.status, 0);
 }
