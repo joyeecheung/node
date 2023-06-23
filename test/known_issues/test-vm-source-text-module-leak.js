@@ -31,7 +31,7 @@ if (process.argv[2] === 'child') {
     '--experimental-vm-modules',
     '--max-heap-size=20',
     __filename,
-    'child']
-  );
+    'child',
+  ]);
   assert.strictEqual(child.status, 0);
 }
