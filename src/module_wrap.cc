@@ -53,18 +53,21 @@ ModuleWrap::ModuleWrap(Environment* env,
                        Local<Object> object,
                        Local<Module> module,
                        Local<String> url)
-    : BaseObject(env, object), module_(env->isolate(), module) {
+    : BaseObject(env, object),
+      module_(env->isolate(), module),
+      module_hash_(module->GetIdentityHash()) {
   Local<Value> undefined = Undefined(env->isolate());
+  object->SetDataInInternalField(kModuleSlot, module);
   object->SetInternalField(kURLSlot, url);
   object->SetInternalField(kSyntheticEvaluationStepsSlot, undefined);
   object->SetInternalField(kContextObjectSlot, undefined);
   MakeWeak();
+  module_.SetWeak();
 }
 
 ModuleWrap::~ModuleWrap() {
   HandleScope scope(env()->isolate());
-  Local<Module> module = module_.Get(env()->isolate());
-  auto range = env()->hash_to_module_map.equal_range(module->GetIdentityHash());
+  auto range = env()->hash_to_module_map.equal_range(module_hash_);
   for (auto it = range.first; it != range.second; ++it) {
     if (it->second == this) {
       env()->hash_to_module_map.erase(it);
