@@ -55,7 +55,7 @@ class V8_EXPORT ScriptOrModule {
 /**
  * A compiled JavaScript script, not yet tied to a Context.
  */
-class V8_EXPORT UnboundScript {
+class V8_EXPORT UnboundScript : public Data {
  public:
   /**
    * Binds the script to the currently entered context.

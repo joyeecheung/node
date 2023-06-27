@@ -480,6 +480,12 @@ class V8_EXPORT Object : public Value {
   /** Sets the value in an internal field. */
   void SetInternalField(int index, Local<Value> value);
 
+  /** Gets the value from an internal field. */
+  V8_INLINE Local<Data> GetDataInInternalField(int index);
+
+  /** Sets the value in an internal field. */
+  void SetDataInInternalField(int index, Local<Data> data);
+
   /**
    * Gets a 2-byte-aligned native pointer from an internal field. This field
    * must have been set by SetAlignedPointerInInternalField, everything else
@@ -710,13 +716,18 @@ class V8_EXPORT Object : public Value {
  private:
   Object();
   static void CheckCast(Value* obj);
-  Local<Value> SlowGetInternalField(int index);
+  Local<Data> SlowGetInternalField(int index);
   void* SlowGetAlignedPointerFromInternalField(int index);
 };
 
 // --- Implementation ---
 
 Local<Value> Object::GetInternalField(int index) {
+  Local<Data> result = GetDataInInternalField(index);
+  return Local<Value>::Cast(result);
+}
+
+Local<Data> Object::GetDataInInternalField(int index) {
 #ifndef V8_ENABLE_CHECKS
   using A = internal::Address;
   using I = internal::Internals;
@@ -734,12 +745,12 @@ Local<Value> Object::GetInternalField(int index) {
 #endif
 
 #ifdef V8_ENABLE_CONSERVATIVE_STACK_SCANNING
-    return Local<Value>(reinterpret_cast<Value*>(value));
+    return Local<Data>(reinterpret_cast<Data*>(value));
 #else
     internal::Isolate* isolate =
         internal::IsolateFromNeverReadOnlySpaceObject(obj);
     A* result = HandleScope::CreateHandle(isolate, value);
-    return Local<Value>(reinterpret_cast<Value*>(result));
+    return Local<Data>(reinterpret_cast<Data*>(result));
 #endif
   }
 #endif
