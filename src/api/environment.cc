@@ -398,12 +398,10 @@ IsolateData* CreateIsolateData(
     uv_loop_t* loop,
     MultiIsolatePlatform* platform,
     ArrayBufferAllocator* allocator,
-    const EmbedderSnapshotData* embedder_snapshot_data,
-    IsolateDataFlags::Flags flags) {
+    const EmbedderSnapshotData* embedder_snapshot_data) {
   const SnapshotData* snapshot_data =
       SnapshotData::FromEmbedderWrapper(embedder_snapshot_data);
-  return new IsolateData(
-      isolate, loop, platform, allocator, snapshot_data, flags);
+  return new IsolateData(isolate, loop, platform, allocator, snapshot_data);
 }
 
 void FreeIsolateData(IsolateData* isolate_data) {

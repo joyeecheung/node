@@ -1,9 +1,11 @@
 #include "base_object.h"
 #include "env-inl.h"
 #include "node_realm-inl.h"
+#include "v8-cppgc.h"
 
 namespace node {
 
+using v8::Context;
 using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
 using v8::HandleScope;
@@ -86,6 +88,25 @@ Local<FunctionTemplate> BaseObject::MakeLazilyInitializedJSTemplate(
       isolate_data->isolate(), LazilyInitializedJSTemplateConstructor);
   t->InstanceTemplate()->SetInternalFieldCount(BaseObject::kInternalFieldCount);
   return t;
+}
+
+void SetCppgcReference(Local<Context> context,
+                       Local<Object> object,
+                       void* wrappable) {
+  Environment* env = Environment::GetCurrent(context);
+  CHECK_NOT_NULL(env);
+  v8::CppHeap* heap = env->isolate()->GetCppHeap();
+  CHECK_NOT_NULL(heap);
+  v8::WrapperDescriptor descriptor = heap->wrapper_descriptor();
+  uint16_t required_size = std::max(descriptor.wrappable_instance_index,
+                                    descriptor.wrappable_type_index) +
+                           1;
+  CHECK_GE(object->InternalFieldCount(), required_size);
+  object->SetAlignedPointerInInternalField(
+      descriptor.wrappable_type_index,
+      env->isolate_data()->embedder_id_for_cppgc());
+  object->SetAlignedPointerInInternalField(descriptor.wrappable_instance_index,
+                                           wrappable);
 }
 
 BaseObject::PointerData* BaseObject::pointer_data() {

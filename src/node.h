@@ -1503,8 +1503,9 @@ void RegisterSignalHandler(int signal,
 // the object must be created with at least two internal fields available,
 // and the first two internal fields would be configured by Node.js.
 // This helper is only available in a Node.js context.
-bool SetCppgcReference(v8::Local<v8::Context> context, v8::Local<v8::Object> object,
-                       void* wrapper);
+NODE_EXTERN void SetCppgcReference(v8::Local<v8::Context> context,
+                                   v8::Local<v8::Object> object,
+                                   void* wrappable);
 
 }  // namespace node
 

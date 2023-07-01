@@ -16,7 +16,6 @@ class CppGCed : public cppgc::GarbageCollected<CppGCed> {
   static void New(const v8::FunctionCallbackInfo<v8::Value>& args) {
     v8::Isolate* isolate = args.GetIsolate();
     v8::Local<v8::Object> js_object = args.This();
-    v8::HandleScope scope(isolate);
     CppGCed* gc_object = cppgc::MakeGarbageCollected<CppGCed>(
         isolate->GetCppHeap()->GetAllocationHandle());
     node::SetCppgcReference(isolate->GetCurrentContext(), js_object, gc_object);
@@ -31,10 +30,6 @@ class CppGCed : public cppgc::GarbageCollected<CppGCed> {
 };
 
 uint16_t CppGCed::states[] = {0, 0};
-// TODO: this hard-coding would not be necessary if V8
-// introduces a better API to address multi-tenancy cppgc-tracing:
-// https://bugs.chromium.org/p/v8/issues/detail?id=13960
-const uint16_t CppGCed::kNodeEmbedderIdForCppgc = 0x90de + 1;
 
 void InitModule(v8::Local<v8::Object> exports) {
   v8::Isolate* isolate = v8::Isolate::GetCurrent();
@@ -53,19 +48,26 @@ void InitModule(v8::Local<v8::Object> exports) {
       nullptr);
   auto ab = v8::ArrayBuffer::New(isolate, std::move(store));
 
-  exports->Set(context,
-               v8::String::NewFromUtf8(isolate, "CppGCed").ToLocalChecked(),
-               ft->GetFunction(context).ToLocalChecked()).FromJust();
-  exports->Set(context,
-               v8::String::NewFromUtf8(isolate, "states").ToLocalChecked(),
-               v8::Uint16Array::New(ab, 0, 2)).FromJust();
-  exports->Set(
-      context,
-      v8::String::NewFromUtf8(isolate, "kDestructCount").ToLocalChecked(),
-      v8::Integer::New(isolate, CppGCed::kDestructCount)).FromJust();
-  exports->Set(context,
-               v8::String::NewFromUtf8(isolate, "kTraceCount").ToLocalChecked(),
-               v8::Integer::New(isolate, CppGCed::kTraceCount)).FromJust();
+  exports
+      ->Set(context,
+            v8::String::NewFromUtf8(isolate, "CppGCed").ToLocalChecked(),
+            ft->GetFunction(context).ToLocalChecked())
+      .FromJust();
+  exports
+      ->Set(context,
+            v8::String::NewFromUtf8(isolate, "states").ToLocalChecked(),
+            v8::Uint16Array::New(ab, 0, 2))
+      .FromJust();
+  exports
+      ->Set(context,
+            v8::String::NewFromUtf8(isolate, "kDestructCount").ToLocalChecked(),
+            v8::Integer::New(isolate, CppGCed::kDestructCount))
+      .FromJust();
+  exports
+      ->Set(context,
+            v8::String::NewFromUtf8(isolate, "kTraceCount").ToLocalChecked(),
+            v8::Integer::New(isolate, CppGCed::kTraceCount))
+      .FromJust();
 }
 
 NODE_MODULE(NODE_GYP_MODULE_NAME, InitModule)

@@ -520,7 +520,6 @@ IsolateData::IsolateData(Isolate* isolate,
                                                 : node_allocator->GetImpl()),
       platform_(platform),
       snapshot_data_(snapshot_data) {
-
   options_.reset(
       new PerIsolateOptions(*(per_process::cli_options->per_isolate)));
   v8::CppHeap* cpp_heap = isolate->GetCppHeap();
@@ -547,10 +546,10 @@ IsolateData::IsolateData(Isolate* isolate,
   } else {
     cpp_heap_ = CppHeap::Create(
         platform,
-        CppHeapCreateParams{{},
-                            WrapperDescriptor(BaseObject::kEmbedderType,
-                                              BaseObject::kSlot,
-                                              cppgc_id)});
+        CppHeapCreateParams{
+            {},
+            WrapperDescriptor(
+                BaseObject::kEmbedderType, BaseObject::kSlot, cppgc_id)});
     isolate->AttachCppHeap(cpp_heap_.get());
   }
   // We do not care about overflow since we just want this to be different
