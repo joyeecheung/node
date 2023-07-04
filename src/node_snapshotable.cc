@@ -1086,9 +1086,9 @@ ExitCode SnapshotBuilder::Generate(
 SnapshotableObject::SnapshotableObject(Realm* realm,
                                        Local<Object> wrap,
                                        EmbedderObjectType type)
-    : BaseObject(realm, wrap), type_(type) {}
+    : BaseObject(realm, wrap), SnapshotableBase(type) {}
 
-std::string SnapshotableObject::GetTypeName() const {
+std::string SnapshotableBase::GetTypeName() const {
   switch (type_) {
 #define V(PropertyName, NativeTypeName)                                        \
   case EmbedderObjectType::k_##PropertyName: {                                 \
