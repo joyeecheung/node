@@ -157,7 +157,7 @@ Local<Object> BaseObject::WrappedObject() const {
 }
 
 bool BaseObject::IsRootNode() const {
-  return !persistent_handle_.IsWeak();
+  return false;  // The CleanupQueue would show up as root.
 }
 
 bool BaseObject::IsNotIndicativeOfMemoryLeakAtExit() const {
