@@ -120,7 +120,7 @@ CommonEnvironmentSetup::CommonEnvironmentSetup(
     impl_->snapshot_creator.emplace(isolate, external_references.data());
     isolate->SetCaptureStackTraceForUncaughtExceptions(
         true, 10, v8::StackTrace::StackTraceOptions::kDetailed);
-    SetIsolateMiscHandlers(isolate, {});
+    SetIsolateUpForNode(isolate, {});
   } else {
     impl_->allocator = ArrayBufferAllocator::Create();
     isolate = impl_->isolate =

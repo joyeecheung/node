@@ -923,14 +923,6 @@ ExitCode SnapshotBuilder::Generate(
 
   {
     HandleScope scope(isolate);
-    TryCatch bootstrapCatch(isolate);
-
-    auto print_Exception = OnScopeLeave([&]() {
-      if (bootstrapCatch.HasCaught()) {
-        PrintCaughtException(
-            isolate, isolate->GetCurrentContext(), bootstrapCatch);
-      }
-    });
 
     // Run the custom main script for fully customized snapshots.
     if (snapshot_type == SnapshotMetadata::Type::kFullyCustomized) {

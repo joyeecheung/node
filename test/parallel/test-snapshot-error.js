@@ -71,3 +71,23 @@ const entry = fixtures.path('snapshot', 'error.js');
   assert.match(stderr, /error\.js:1/);
   assert(!fs.existsSync(path.join(tmpdir.path, 'snapshot.blob')));
 }
+
+// Running an script that throws an error asynchronously should result in
+// an exit code of 1.
+{
+  const child = spawnSync(process.execPath, [
+    '--snapshot-blob',
+    blobPath,
+    '--build-snapshot',
+    fixtures.path('snapshot', 'error-async.js'),
+  ], {
+    cwd: tmpdir.path
+  });
+  const stderr = child.stderr.toString();
+  console.log(child.status);
+  console.log(stderr);
+  console.log(child.stdout.toString());
+  assert.strictEqual(child.status, 1);
+  assert.match(stderr, /error-async\.js:2/);
+  assert(!fs.existsSync(path.join(tmpdir.path, 'snapshot.blob')));
+}

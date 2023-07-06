@@ -2,6 +2,7 @@
 #include <cinttypes>
 #include <vector>
 #include "base_object-inl.h"
+#include "node_errors.h"
 #include "util.h"
 
 namespace node {
@@ -17,6 +18,11 @@ const std::vector<intptr_t>& ExternalReferenceRegistry::external_references() {
 
 ExternalReferenceRegistry::ExternalReferenceRegistry() {
   this->Register(BaseObject::LazilyInitializedJSTemplateConstructor);
+  this->Register(errors::PerIsolateMessageListener);
+  this->Register(ShouldAbortOnUncaughtException);
+  this->Register(OnFatalError);
+  this->Register(OOMErrorHandler);
+  this->Register(PrepareStackTraceCallback);
 
 #define V(modname) _register_external_reference_##modname(this);
   EXTERNAL_REFERENCE_BINDING_LIST(V)

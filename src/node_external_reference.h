@@ -40,6 +40,11 @@ class ExternalReferenceRegistry {
   V(CFunctionWithUint32)                                                       \
   V(const v8::CFunctionInfo*)                                                  \
   V(v8::FunctionCallback)                                                      \
+  V(v8::MessageCallback)                                                       \
+  V(v8::Isolate::AbortOnUncaughtExceptionCallback)                             \
+  V(v8::FatalErrorCallback)                                                    \
+  V(v8::OOMErrorCallback)                                                      \
+  V(v8::PrepareStackTraceCallback)                                             \
   V(v8::AccessorGetterCallback)                                                \
   V(v8::AccessorSetterCallback)                                                \
   V(v8::AccessorNameGetterCallback)                                            \
