@@ -51,6 +51,7 @@ int main(int argc, char* argv[]) {
   setvbuf(stderr, nullptr, _IONBF, 0);
 #endif  // _WIN32
 
+  v8::V8::SetFlagsFromString("--predictable");
   v8::V8::SetFlagsFromString("--random_seed=42");
   v8::V8::SetFlagsFromString("--harmony-import-assertions");
   return BuildSnapshot(argc, argv);
