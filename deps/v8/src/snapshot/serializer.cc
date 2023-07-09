@@ -1260,6 +1260,10 @@ void Serializer::ObjectSerializer::OutputRawData(Address up_to) {
                     data_bytes_to_output, "SeqStringData");
       sink_->PutN(sizes.padding_size, 0, "SeqStringPadding");
     } else {
+      if (sink_->should_print()) {
+        PrintF("%zu at OutputRawData\n", sink_->data()->size());
+        object_->Print();
+      }
       sink_->PutRaw(reinterpret_cast<byte*>(object_start + base),
                     bytes_to_output, "Bytes");
     }

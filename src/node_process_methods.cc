@@ -465,14 +465,27 @@ static void ReallyExit(const FunctionCallbackInfo<Value>& args) {
 
 namespace process {
 
-BindingData::BindingData(Realm* realm, v8::Local<v8::Object> object)
+BindingData::BindingData(
+  Realm* realm,
+  v8::Local<v8::Object> object,
+  InternalFieldInfo* info)
     : SnapshotableObject(realm, object, type_int) {
   Isolate* isolate = realm->isolate();
   Local<Context> context = realm->context();
-  Local<ArrayBuffer> ab = ArrayBuffer::New(isolate, kBufferSize);
-  array_buffer_.Reset(isolate, ab);
-  object->Set(context, FIXED_ONE_BYTE_STRING(isolate, "hrtimeBuffer"), ab)
-      .ToChecked();
+
+  Local<ArrayBuffer> ab;
+  if (info == nullptr) {
+    ab = ArrayBuffer::New(isolate, kBufferSize);
+    object
+        ->Set(realm->context(),
+              FIXED_ONE_BYTE_STRING(realm->isolate(), "hrtimeBuffer"),
+              ab)
+        .Check();
+  } else {
+    ab = context->GetDataFromSnapshotOnce<ArrayBuffer>(info->hr_time_buffer).ToLocalChecked();
+  }
+  hr_time_buffer_.Reset(isolate, ab);
+  hr_time_buffer_.SetWeak();
   backing_store_ = ab->GetBackingStore();
 }
 
@@ -503,7 +516,7 @@ BindingData* BindingData::FromV8Value(Local<Value> value) {
 }
 
 void BindingData::MemoryInfo(MemoryTracker* tracker) const {
-  tracker->TrackField("array_buffer", array_buffer_);
+  tracker->TrackField("hr_time_buffer", hr_time_buffer_);
 }
 
 // This is the legacy version of hrtime before BigInt was introduced in
@@ -517,7 +530,7 @@ void BindingData::MemoryInfo(MemoryTracker* tracker) const {
 // The third entry contains the remaining nanosecond part of the value.
 void BindingData::NumberImpl(BindingData* receiver) {
   // Make sure we don't accidentally access buffers wiped for snapshot.
-  CHECK(!receiver->array_buffer_.IsEmpty());
+  CHECK(!receiver->hr_time_buffer_.IsEmpty());
   uint64_t t = uv_hrtime();
   uint32_t* fields = static_cast<uint32_t*>(receiver->backing_store_->Data());
   fields[0] = (t / NANOS_PER_SEC) >> 32;
@@ -527,7 +540,7 @@ void BindingData::NumberImpl(BindingData* receiver) {
 
 void BindingData::BigIntImpl(BindingData* receiver) {
   // Make sure we don't accidentally access buffers wiped for snapshot.
-  CHECK(!receiver->array_buffer_.IsEmpty());
+  CHECK(!receiver->hr_time_buffer_.IsEmpty());
   uint64_t t = uv_hrtime();
   uint64_t* fields = static_cast<uint64_t*>(receiver->backing_store_->Data());
   fields[0] = t;
@@ -543,9 +556,16 @@ void BindingData::SlowNumber(const v8::FunctionCallbackInfo<v8::Value>& args) {
 
 bool BindingData::PrepareForSerialization(Local<Context> context,
                                           v8::SnapshotCreator* creator) {
-  // It's not worth keeping.
-  // Release it, we will recreate it when the instance is dehydrated.
-  array_buffer_.Reset();
+  DCHECK_NULL(internal_field_info_);
+
+  // Reset the buffer to improve determinism of the snapshot.
+  Local<ArrayBuffer> buffer = hr_time_buffer_.Get(context->GetIsolate());
+  uint8_t* fields = static_cast<uint8_t*>(buffer->Data());
+  memset(fields, 0, kBufferSize);
+  backing_store_.reset();
+
+  internal_field_info_ = InternalFieldInfoBase::New<InternalFieldInfo>(type());
+  internal_field_info_->hr_time_buffer = creator->AddData(context, buffer);
   // Return true because we need to maintain the reference to the binding from
   // JS land.
   return true;
@@ -553,8 +573,8 @@ bool BindingData::PrepareForSerialization(Local<Context> context,
 
 InternalFieldInfoBase* BindingData::Serialize(int index) {
   DCHECK_EQ(index, BaseObject::kEmbedderType);
-  InternalFieldInfo* info =
-      InternalFieldInfoBase::New<InternalFieldInfo>(type());
+  InternalFieldInfo* info = internal_field_info_;
+  internal_field_info_ = nullptr;
   return info;
 }
 
@@ -566,7 +586,9 @@ void BindingData::Deserialize(Local<Context> context,
   v8::HandleScope scope(context->GetIsolate());
   Realm* realm = Realm::GetCurrent(context);
   // Recreate the buffer in the constructor.
-  BindingData* binding = realm->AddBindingData<BindingData>(context, holder);
+  InternalFieldInfo* casted_info = static_cast<InternalFieldInfo*>(info);
+  BindingData* binding =
+      realm->AddBindingData<BindingData>(context, holder, casted_info);
   CHECK_NOT_NULL(binding);
 }
 

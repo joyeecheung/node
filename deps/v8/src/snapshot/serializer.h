@@ -181,6 +181,7 @@ class Serializer : public SerializerDeserializer {
   Serializer& operator=(const Serializer&) = delete;
 
   const std::vector<byte>* Payload() const { return sink_.data(); }
+  void set_should_print(bool should) { sink_.set_should_print(should); }
 
   bool ReferenceMapContains(Handle<HeapObject> o) {
     return reference_map()->LookupReference(o) != nullptr;

@@ -48,16 +48,19 @@ void PatchProcessObject(const v8::FunctionCallbackInfo<v8::Value>& args);
 namespace process {
 class BindingData : public SnapshotableObject {
  public:
+  struct InternalFieldInfo : public node::InternalFieldInfoBase {
+    SnapshotIndex hr_time_buffer;
+  };
   static void AddMethods(v8::Isolate* isolate,
                          v8::Local<v8::ObjectTemplate> target);
   static void RegisterExternalReferences(ExternalReferenceRegistry* registry);
 
-  using InternalFieldInfo = InternalFieldInfoBase;
-
   SERIALIZABLE_OBJECT_METHODS()
   SET_BINDING_ID(process_binding_data)
 
-  BindingData(Realm* realm, v8::Local<v8::Object> object);
+  BindingData(Realm* realm,
+              v8::Local<v8::Object> object,
+              InternalFieldInfo* info = nullptr);
 
   void MemoryInfo(MemoryTracker* tracker) const override;
   SET_MEMORY_INFO_NAME(BindingData)
@@ -83,8 +86,9 @@ class BindingData : public SnapshotableObject {
  private:
   static constexpr size_t kBufferSize =
       std::max(sizeof(uint64_t), sizeof(uint32_t) * 3);
-  v8::Global<v8::ArrayBuffer> array_buffer_;
+  v8::Global<v8::ArrayBuffer> hr_time_buffer_;
   std::shared_ptr<v8::BackingStore> backing_store_;
+  InternalFieldInfo* internal_field_info_ = nullptr;
 
   // These need to be static so that we have their addresses available to
   // register as external references in the snapshot at environment creation

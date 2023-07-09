@@ -406,12 +406,20 @@ v8::StartupData Snapshot::Create(
   for (int i = 0; i < num_contexts; i++) {
     ContextSerializer context_serializer(isolate, flags, &startup_serializer,
                                          embedder_fields_serializers[i]);
+    if (i == 3) {
+      PrintF("At Context 3\n\n");
+      context_serializer.set_should_print(true);
+    }
     context_serializer.Serialize(&contexts->at(i), no_gc);
     can_be_rehashed = can_be_rehashed && context_serializer.can_be_rehashed();
     context_snapshots.push_back(new SnapshotData(&context_serializer));
     if (v8_flags.serialization_statistics) {
       context_allocation_sizes.push_back(
           context_serializer.TotalAllocationSize());
+    }
+    if (i == 3) {
+      PrintF("Finish Context 3\n\n");
+      context_serializer.set_should_print(false);
     }
   }
 
@@ -579,6 +587,9 @@ v8::StartupData SnapshotImpl::CreateSnapshotBlob(
         data, SnapshotImpl::ContextSnapshotOffsetOffset(i), payload_offset);
     SnapshotData* context_snapshot = (*context_snapshots)[i];
     payload_length = context_snapshot->RawData().length();
+    if (i == 3) {
+      PrintF("payload_offset of context 3 %zu\n", payload_offset);
+    }
     CopyBytes(
         data + payload_offset,
         reinterpret_cast<const char*>(context_snapshot->RawData().begin()),

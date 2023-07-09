@@ -130,9 +130,12 @@ class SnapshotByteSink {
   int Position() const { return static_cast<int>(data_.size()); }
 
   const std::vector<byte>* data() const { return &data_; }
+  void set_should_print(bool should) { should_print_ = should; }
+  bool should_print() const;
 
  private:
   std::vector<byte> data_;
+  bool should_print_ = false;
 };
 
 }  // namespace internal

@@ -13,6 +13,27 @@
 namespace v8 {
 namespace internal {
 
+std::vector<size_t> targets = {
+  3276,
+  30358,
+  35555,
+  98637,
+  162919,
+  210680,
+  210749,
+  210802,
+};
+bool in_range(size_t size) {
+  for (auto t : targets) {
+    if (size >= t - 8 && size <= t + 8) return true;
+  }
+  return false;
+}
+
+bool SnapshotByteSink::should_print() const {
+  return should_print_ && in_range(data_.size());
+}
+
 void SnapshotByteSink::PutN(int number_of_bytes, const byte v,
                             const char* description) {
   data_.insert(data_.end(), number_of_bytes, v);
@@ -34,6 +55,15 @@ void SnapshotByteSink::PutInt(uintptr_t integer, const char* description) {
 
 void SnapshotByteSink::PutRaw(const byte* data, int number_of_bytes,
                               const char* description) {
+  if (should_print()) {
+    PrintF("%zu at PutRaw %s: ", data_.size(), description);
+    std::vector<char> char_seq(number_of_bytes);
+    memcpy(char_seq.data(), data, number_of_bytes);
+    for (int i = 0; i < number_of_bytes; ++i) {
+      PrintF("%d,", char_seq[i]);
+    }
+    PrintF("\n");
+  }
   data_.insert(data_.end(), data, data + number_of_bytes);
 }
 
