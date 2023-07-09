@@ -715,6 +715,11 @@ template <typename T>
 void WriteVector(std::ostream* ss, const T* vec, size_t size) {
   for (size_t i = 0; i < size; i++) {
     *ss << std::to_string(vec[i]) << (i == size - 1 ? '\n' : ',');
+    if (i % 64 == 63) {
+      // Print a newline every 64 units and a offset to improve
+      // readability.
+      *ss << "  // " << (i / 64) << "\n";
+    }
   }
 }
 
