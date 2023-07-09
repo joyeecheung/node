@@ -123,6 +123,8 @@ void SerializeSnapshotableObjects(Realm* realm,
                                   v8::SnapshotCreator* creator,
                                   RealmSerializeInfo* info);
 
+#define DCHECK_IS_SNAPSHOT_SLOT(index) DCHECK_EQ(index, BaseObject::kSlot)
+
 namespace mksnapshot {
 class BindingData : public SnapshotableObject {
  public:

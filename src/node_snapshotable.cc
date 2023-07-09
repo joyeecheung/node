@@ -1110,21 +1110,26 @@ void DeserializeNodeInternalFields(Local<Object> holder,
                                    StartupData payload,
                                    void* env) {
   if (payload.raw_size == 0) {
-    holder->SetAlignedPointerInInternalField(index, nullptr);
     return;
   }
+
   per_process::Debug(DebugCategory::MKSNAPSHOT,
                      "Deserialize internal field %d of %p, size=%d\n",
                      static_cast<int>(index),
                      (*holder),
                      static_cast<int>(payload.raw_size));
 
-  if (payload.raw_size == 0) {
-    holder->SetAlignedPointerInInternalField(index, nullptr);
+  if (index == BaseObject::kEmbedderType) {
+    int size = sizeof(uint16_t) * 1;
+    DCHECK_EQ(payload.raw_size, size);
+    uint16_t read_data;
+    memcpy(&read_data, payload.data, size);
+    CHECK_EQ(read_data, kNodeEmbedderId);
+    holder->SetAlignedPointerInInternalField(index, &kNodeEmbedderId);
     return;
   }
 
-  DCHECK_EQ(index, BaseObject::kEmbedderType);
+  DCHECK_IS_SNAPSHOT_SLOT(index);
 
   Environment* env_ptr = static_cast<Environment*>(env);
   const InternalFieldInfoBase* info =
@@ -1165,13 +1170,13 @@ void DeserializeNodeInternalFields(Local<Object> holder,
 StartupData SerializeNodeContextInternalFields(Local<Object> holder,
                                                int index,
                                                void* env) {
-  // We only do one serialization for the kEmbedderType slot, the result
-  // contains everything necessary for deserializing the entire object,
-  // including the fields whose index is bigger than kEmbedderType
-  // (most importantly, BaseObject::kSlot).
-  // For Node.js this design is enough for all the native binding that are
-  // serializable.
-  if (index != BaseObject::kEmbedderType || !BaseObject::IsBaseObject(holder)) {
+  if (!BaseObject::IsBaseObject(holder)) {
+    if (holder->IsArrayBuffer() || holder->IsArrayBufferView()) {
+      return StartupData{nullptr, 0};
+    }
+    printf("Serialize special object, index=%d, holder=%p\n",
+           static_cast<int>(index),
+           *holder);
     return StartupData{nullptr, 0};
   }
 
@@ -1179,10 +1184,18 @@ StartupData SerializeNodeContextInternalFields(Local<Object> holder,
                      "Serialize internal field, index=%d, holder=%p\n",
                      static_cast<int>(index),
                      *holder);
-
-  void* native_ptr =
-      holder->GetAlignedPointerFromInternalField(BaseObject::kSlot);
+  void* native_ptr = holder->GetAlignedPointerFromInternalField(index);
   per_process::Debug(DebugCategory::MKSNAPSHOT, "native = %p\n", native_ptr);
+
+  if (index == BaseObject::kEmbedderType) {
+    uint16_t* src = static_cast<uint16_t*>(native_ptr);
+    int size = sizeof(uint16_t) * 1;
+    char* data = new char[size];
+    memcpy(data, src, size);
+    return StartupData{data, size};
+  }
+
+  DCHECK_IS_SNAPSHOT_SLOT(index);
   DCHECK(static_cast<BaseObject*>(native_ptr)->is_snapshotable());
   SnapshotableObject* obj = static_cast<SnapshotableObject*>(native_ptr);
 
@@ -1348,7 +1361,7 @@ bool BindingData::PrepareForSerialization(Local<Context> context,
 }
 
 InternalFieldInfoBase* BindingData::Serialize(int index) {
-  DCHECK_EQ(index, BaseObject::kEmbedderType);
+  DCHECK_IS_SNAPSHOT_SLOT(index);
   InternalFieldInfo* info = internal_field_info_;
   internal_field_info_ = nullptr;
   return info;
@@ -1358,7 +1371,7 @@ void BindingData::Deserialize(Local<Context> context,
                               Local<Object> holder,
                               int index,
                               InternalFieldInfoBase* info) {
-  DCHECK_EQ(index, BaseObject::kEmbedderType);
+  DCHECK_IS_SNAPSHOT_SLOT(index);
   v8::HandleScope scope(context->GetIsolate());
   Realm* realm = Realm::GetCurrent(context);
   // Recreate the buffer in the constructor.
