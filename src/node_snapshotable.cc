@@ -1043,9 +1043,40 @@ ExitCode SnapshotBuilder::CreateSnapshot(SnapshotData* out,
     CHECK_EQ(index, SnapshotData::kNodeMainContextIndex);
   }
 
+  std::unordered_map<int, void*> pointers_in_context_data;
+  std::vector<int> indices = {
+      ContextEmbedderIndex::kEnvironment,
+      // This could be merged into kRealm
+      ContextEmbedderIndex::kBindingDataStoreIndex,
+      ContextEmbedderIndex::kRealm,
+      ContextEmbedderIndex::kContextTag,
+  };
+
+  {
+    HandleScope handle_scope(isolate);
+    Local<Context> main_context = setup->context();
+    for (size_t i = 0; i < indices.size(); ++i) {
+      int index = indices[i];
+      void* ptr = main_context->GetAlignedPointerFromEmbedderData(index);
+      pointers_in_context_data.emplace(i, ptr);
+      main_context->SetAlignedPointerInEmbedderData(index, nullptr);
+    }
+  }
+
   // Must be out of HandleScope
   out->v8_snapshot_blob_data =
       creator->CreateBlob(SnapshotCreator::FunctionCodeHandling::kKeep);
+
+  {
+    HandleScope handle_scope(isolate);
+    Local<Context> main_context = setup->context();
+    for (size_t i = 0; i < indices.size(); ++i) {
+      int index = indices[i];
+      auto it = pointers_in_context_data.find(i);
+      DCHECK_NE(it, pointers_in_context_data.end());
+      main_context->SetAlignedPointerInEmbedderData(index, it->second);
+    }
+  }
 
   // We must be able to rehash the blob when we restore it or otherwise
   // the hash seed would be fixed by V8, introducing a vulnerability.
