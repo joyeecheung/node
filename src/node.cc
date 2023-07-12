@@ -932,6 +932,13 @@ InitializeOncePerProcessInternal(const std::vector<std::string>& args,
     }
   }
 
+  if (!!(flags & ProcessInitializationFlags::kGeneratePredictableSnapshot) ||
+      per_process::cli_options->per_isolate->build_snapshot) {
+    v8::V8::SetFlagsFromString("--predictable");
+    v8::V8::SetFlagsFromString("--random_seed=42");
+    v8::V8::SetFlagsFromString("--harmony-import-assertions");
+  }
+
   if (!(flags & ProcessInitializationFlags::kNoUseLargePages) &&
       (per_process::cli_options->use_largepages == "on" ||
        per_process::cli_options->use_largepages == "silent")) {

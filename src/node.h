@@ -261,6 +261,8 @@ enum Flags : uint32_t {
   kNoUseLargePages = 1 << 11,
   // Skip printing output for --help, --version, --v8-options.
   kNoPrintHelpOrVersionOutput = 1 << 12,
+  // Initialize the process for predictable snapshot generation.
+  kGeneratePredictableSnapshot = 1 << 13,
 
   // Emulate the behavior of InitializeNodeWithArgs() when passing
   // a flags argument to the InitializeOncePerProcess() replacement
