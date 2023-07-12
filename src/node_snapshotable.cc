@@ -715,6 +715,11 @@ template <typename T>
 void WriteVector(std::ostream* ss, const T* vec, size_t size) {
   for (size_t i = 0; i < size; i++) {
     *ss << std::to_string(vec[i]) << (i == size - 1 ? '\n' : ',');
+    if (i % 64 == 63) {
+      // Print a newline every 64 units and a offset to improve
+      // readability.
+      *ss << "  // " << (i / 64) << "\n";
+    }
   }
 }
 
@@ -742,7 +747,6 @@ static std::string FormatSize(size_t size) {
   return buf;
 }
 
-#ifdef NODE_MKSNAPSHOT_USE_STRING_LITERALS
 static void WriteDataAsCharString(std::ostream* ss,
                                   const uint8_t* data,
                                   size_t length) {
@@ -776,14 +780,13 @@ static void WriteStaticCodeCacheDataAsStringLiteral(
   WriteDataAsCharString(ss, info.data.data, info.data.length);
   *ss << "\");\n";
 }
-#else
+
 static void WriteStaticCodeCacheDataAsArray(
     std::ostream* ss, const builtins::CodeCacheInfo& info) {
   *ss << "static const uint8_t " << GetCodeCacheDefName(info.id) << "[] = {\n";
   WriteVector(ss, info.data.data, info.data.length);
   *ss << "};\n";
 }
-#endif
 
 static void WriteCodeCacheInitializer(std::ostream* ss,
                                       const std::string& id,
@@ -796,7 +799,9 @@ static void WriteCodeCacheInitializer(std::ostream* ss,
   *ss << "    },\n";
 }
 
-void FormatBlob(std::ostream& ss, const SnapshotData* data) {
+void FormatBlob(std::ostream& ss,
+                const SnapshotData* data,
+                bool use_string_literals) {
   ss << R"(#include <cstddef>
 #include "env.h"
 #include "node_snapshot_builder.h"
@@ -807,32 +812,32 @@ void FormatBlob(std::ostream& ss, const SnapshotData* data) {
 namespace node {
 )";
 
-#ifdef NODE_MKSNAPSHOT_USE_STRING_LITERALS
-  ss << R"(static const char *v8_snapshot_blob_data = ")";
-  WriteDataAsCharString(
-      &ss,
-      reinterpret_cast<const uint8_t*>(data->v8_snapshot_blob_data.data),
-      data->v8_snapshot_blob_data.raw_size);
-  ss << R"(";)";
-#else
-  ss << R"(static const char v8_snapshot_blob_data[] = {)";
-  WriteVector(&ss,
-              data->v8_snapshot_blob_data.data,
-              data->v8_snapshot_blob_data.raw_size);
-  ss << R"(};)";
-#endif
+  if (use_string_literals) {
+    ss << R"(static const char *v8_snapshot_blob_data = ")";
+    WriteDataAsCharString(
+        &ss,
+        reinterpret_cast<const uint8_t*>(data->v8_snapshot_blob_data.data),
+        data->v8_snapshot_blob_data.raw_size);
+    ss << R"(";)";
+  } else {
+    ss << R"(static const char v8_snapshot_blob_data[] = {)";
+    WriteVector(&ss,
+                data->v8_snapshot_blob_data.data,
+                data->v8_snapshot_blob_data.raw_size);
+    ss << R"(};)";
+  }
 
   ss << R"(static const int v8_snapshot_blob_size = )"
      << data->v8_snapshot_blob_data.raw_size << ";";
 
   for (const auto& item : data->code_cache) {
-#ifdef NODE_MKSNAPSHOT_USE_STRING_LITERALS
-    WriteStaticCodeCacheDataAsStringLiteral(&ss, item);
-#else
-    // Windows can't deal with too many large vector initializers.
-    // Store the data into static arrays first.
-    WriteStaticCodeCacheDataAsArray(&ss, item);
-#endif
+    if (use_string_literals) {
+      WriteStaticCodeCacheDataAsStringLiteral(&ss, item);
+    } else {
+      // Windows can't deal with too many large vector initializers.
+      // Store the data into static arrays first.
+      WriteStaticCodeCacheDataAsArray(&ss, item);
+    }
   }
 
   ss << R"(const SnapshotData snapshot_data {
@@ -1069,17 +1074,45 @@ ExitCode SnapshotBuilder::CreateSnapshot(SnapshotData* out,
   return ExitCode::kNoFailure;
 }
 
-ExitCode SnapshotBuilder::Generate(
-    std::ostream& out,
+ExitCode SnapshotBuilder::GenerateAsSource(
+    std::string_view out_path,
     const std::vector<std::string>& args,
     const std::vector<std::string>& exec_args,
-    std::optional<std::string_view> main_script) {
+    std::optional<std::string_view> main_script_path,
+    bool use_string_literals) {
+  std::string main_script_content;
+  std::optional<std::string_view> main_script_optional;
+  if (main_script_path.has_value()) {
+    int r = ReadFileSync(&main_script_content, main_script_path.value().data());
+    if (r != 0) {
+      FPrintF(stderr,
+              "Cannot read main script %s for building snapshot. %s: %s",
+              main_script_path.value(),
+              uv_err_name(r),
+              uv_strerror(r));
+      return ExitCode::kGenericUserError;
+    }
+    main_script_optional = main_script_content;
+  }
+
+  std::ofstream out(out_path, std::ios::out | std::ios::binary);
+  if (!out) {
+    FPrintF(stderr, "Cannot open %s for output.\n", out_path);
+    return ExitCode::kGenericUserError;
+  }
+
   SnapshotData data;
-  ExitCode exit_code = Generate(&data, args, exec_args, main_script);
+  ExitCode exit_code = Generate(&data, args, exec_args, main_script_optional);
   if (exit_code != ExitCode::kNoFailure) {
     return exit_code;
   }
-  FormatBlob(out, &data);
+  FormatBlob(out, &data, use_string_literals);
+
+  if (!out) {
+    std::cerr << "Failed to write to " << out_path << "\n";
+    exit_code = node::ExitCode::kGenericUserError;
+  }
+
   return exit_code;
 }
 

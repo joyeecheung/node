@@ -1143,10 +1143,25 @@ ExitCode GenerateAndWriteSnapshotData(const SnapshotData** snapshot_data_ptr,
   // nullptr indicates there's no snapshot data.
   DCHECK_NULL(*snapshot_data_ptr);
 
+  const std::string& main_script_path = result->args()[1];
+  if (main_script_path == "node:default_snapshot_main") {
+    // This is a special switch to generate the default snapshot and
+    // write it as a C++ source file for testing.
+    std::string output_path;
+    if (!per_process::cli_options->snapshot_blob.empty()) {
+      output_path = per_process::cli_options->snapshot_blob;
+    } else {
+      // Defaults to snapshot.cc in the current working directory.
+      output_path = std::string("snapshot.cc");
+    }
+
+    return node::SnapshotBuilder::GenerateAsSource(
+        output_path, result->args(), result->exec_args(), std::nullopt, false);
+  }
+
   // node:embedded_snapshot_main indicates that we are using the
   // embedded snapshot and we are not supposed to clean it up.
-  const std::string& main_script = result->args()[1];
-  if (main_script == "node:embedded_snapshot_main") {
+  if (main_script_path == "node:embedded_snapshot_main") {
     *snapshot_data_ptr = SnapshotBuilder::GetEmbeddedSnapshotData();
     if (*snapshot_data_ptr == nullptr) {
       // The Node.js binary is built without embedded snapshot
@@ -1162,11 +1177,11 @@ ExitCode GenerateAndWriteSnapshotData(const SnapshotData** snapshot_data_ptr,
     std::unique_ptr<SnapshotData> generated_data =
         std::make_unique<SnapshotData>();
     std::string main_script_content;
-    int r = ReadFileSync(&main_script_content, main_script.c_str());
+    int r = ReadFileSync(&main_script_content, main_script_path.c_str());
     if (r != 0) {
       FPrintF(stderr,
               "Cannot read main script %s for building snapshot. %s: %s",
-              main_script,
+              main_script_path,
               uv_err_name(r),
               uv_strerror(r));
       return ExitCode::kGenericUserError;
