@@ -838,6 +838,13 @@ static ExitCode InitializeNodeWithArgsInternal(
   V8::SetFlagsFromString(NODE_V8_OPTIONS, sizeof(NODE_V8_OPTIONS) - 1);
 #endif
 
+  if (!!(flags & ProcessInitializationFlags::kGeneratePredictableSnapshot) ||
+      per_process::cli_options->per_isolate->build_snapshot) {
+    v8::V8::SetFlagsFromString("--predictable");
+    v8::V8::SetFlagsFromString("--random_seed=42");
+    v8::V8::SetFlagsFromString("--harmony-import-assertions");
+  }
+
   HandleEnvOptions(per_process::cli_options->per_isolate->per_env);
 
   std::string node_options;
