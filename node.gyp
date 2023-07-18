@@ -818,6 +818,7 @@
         'deps/uvwasi/uvwasi.gyp:uvwasi',
         'deps/simdutf/simdutf.gyp:simdutf',
         'deps/ada/ada.gyp:ada',
+        'deps/lz4/lz4.gyp:lz4#target',
         'node_js2c#host',
       ],
 
@@ -1236,6 +1237,7 @@
         'deps/histogram/histogram.gyp:histogram',
         'deps/uvwasi/uvwasi.gyp:uvwasi',
         'deps/ada/ada.gyp:ada',
+        'deps/lz4/lz4.gyp:lz4#target',
       ],
 
       'includes': [
