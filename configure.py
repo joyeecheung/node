@@ -629,6 +629,13 @@ parser.add_argument('--without-node-code-cache',
     default=None,
     help='Turn off V8 Code cache integration.')
 
+parser.add_argument('--compress-rodata',
+    action='store_true',
+    dest='node_compress_rodata',
+    default=None,
+    help='Compress read-only data in the binary. Currently only ' +
+         'snapshot data and code cache are supported.')
+
 intl_optgroup.add_argument('--download',
     action='store',
     dest='download_list',
@@ -1302,6 +1309,11 @@ def configure_node(o):
      o['variables']['node_write_snapshot_as_array_literals'] = b(options.write_snapshot_as_array_literals)
   else:
      o['variables']['node_write_snapshot_as_array_literals'] = b(flavor != 'mac' and flavor != 'linux')
+
+  if options.node_compress_rodata:
+    o['variables']['node_compress_rodata'] = 'true'
+  else:
+    o['variables']['node_compress_rodata'] = 'false'
 
   if target_arch == 'arm':
     configure_arm(o)

@@ -45,6 +45,7 @@
 #include "node_snapshotable.h"
 #include "permission/permission.h"
 #include "req_wrap.h"
+#include "rodata_compression.h"
 #include "util.h"
 #include "uv.h"
 #include "v8.h"
@@ -547,6 +548,7 @@ struct SnapshotData {
   static const SnapshotIndex kNodeMainContextIndex = kNodeBaseContextIndex + 1;
 
   DataOwnership data_ownership = DataOwnership::kOwned;
+  RODataCompression compression = RODataCompression::kNone;
 
   SnapshotMetadata metadata;
 
@@ -577,6 +579,7 @@ struct SnapshotData {
       const EmbedderSnapshotData* data);
   EmbedderSnapshotData::Pointer AsEmbedderWrapper() const;
 
+  bool MaybeDecompress();
   ~SnapshotData();
 };
 

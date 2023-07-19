@@ -9,6 +9,7 @@
 #include <string_view>
 #include "node_exit_code.h"
 #include "node_mutex.h"
+#include "rodata_compression.h"
 #include "v8.h"
 
 namespace node {

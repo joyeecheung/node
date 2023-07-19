@@ -667,6 +667,7 @@ enum class SnapshotFlags : uint32_t {
   // in the snapshot at the expense of a bigger snapshot size and
   // potentially breaking portability of the snapshot.
   kWithoutCodeCache = 1 << 0,
+  kCompressROData = 1 << 1,
 };
 
 struct SnapshotConfig {

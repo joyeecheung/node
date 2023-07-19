@@ -28,6 +28,9 @@ typedef size_t SnapshotIndex;
 bool WithoutCodeCache(const SnapshotFlags& flags);
 bool WithoutCodeCache(const SnapshotConfig& config);
 
+bool ShouldCompressROData(const SnapshotFlags& flags);
+bool ShouldCompressROData(const SnapshotConfig& config);
+
 // When serializing an embedder object, we'll serialize the native states
 // into a chunk that can be mapped into a subclass of InternalFieldInfoBase,
 // and pass it into the V8 callback as the payload of StartupData.

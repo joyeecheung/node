@@ -87,10 +87,16 @@ int BuildSnapshot(int argc, char* argv[]) {
   node::SnapshotConfig snapshot_config;
   snapshot_config.builder_script_path = builder_script_path;
 
-#ifdef NODE_USE_NODE_CODE_CACHE
-  snapshot_config.flags = node::SnapshotFlags::kDefault;
-#else
-  snapshot_config.flags = node::SnapshotFlags::kWithoutCodeCache;
+#ifndef NODE_USE_NODE_CODE_CACHE
+  snapshot_config.flags = static_cast<node::SnapshotFlags>(
+      static_cast<uint32_t>(snapshot_config.flags) |
+          static_cast<uint32_t>(node::SnapshotFlags::kWithoutCodeCache););
+#endif
+
+#ifdef NODE_COMPRESS_RODATA
+  snapshot_config.flags = static_cast<node::SnapshotFlags>(
+      static_cast<uint32_t>(snapshot_config.flags) |
+          static_cast<uint32_t>(node::SnapshotFlags::kCompressROData););
 #endif
 
   node::ExitCode exit_code =

@@ -886,6 +886,11 @@
             'NODE_USE_NODE_CODE_CACHE=1',
           ],
         }],
+        [ 'node_compress_rodata=="true"', {
+          'defines': [
+            'NODE_COMPRESS_RODATA=1',
+          ],
+        }],
         ['node_shared=="true" and OS in "aix os400"', {
           'product_name': 'node_base',
         }],
@@ -1272,6 +1277,11 @@
         [ 'node_use_node_code_cache=="true"', {
           'defines': [
             'NODE_USE_NODE_CODE_CACHE=1',
+          ],
+        }],
+        [ 'node_compress_rodata=="true"', {
+          'defines': [
+            'NODE_COMPRESS_RODATA=1',
           ],
         }],
         ['v8_enable_inspector==1', {
