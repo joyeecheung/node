@@ -3215,7 +3215,7 @@ assert.strictEqual(
     '[GeneratorFunction: generator] {\n' +
     '  [length]: 0,\n' +
     "  [name]: 'generator',\n" +
-    "  [prototype]: Object [Generator] { [Symbol(Symbol.toStringTag)]: 'Generator' },\n" + // eslint-disable-line max-len
+    "  [prototype]: Iterator [Generator] { [Symbol(Symbol.toStringTag)]: 'Generator' },\n" + // eslint-disable-line max-len
     "  [Symbol(Symbol.toStringTag)]: 'GeneratorFunction'\n" +
     '}'
   );
