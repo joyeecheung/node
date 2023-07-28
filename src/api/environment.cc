@@ -46,9 +46,11 @@ using v8::Value;
 
 bool AllowWasmCodeGenerationCallback(Local<Context> context,
                                      Local<String>) {
-  Local<Value> wasm_code_gen =
-      context->GetEmbedderData(ContextEmbedderIndex::kAllowWasmCodeGeneration);
-  return wasm_code_gen->IsUndefined() || wasm_code_gen->IsTrue();
+  ContextFlags flags = ContextFlags::kNone;
+  if (!GetContextFlags(context).To(&flags)) {
+    return false;
+  }
+  return static_cast<bool>(flags & ContextFlags::kAllowWasmCodeGeneration);
 }
 
 bool ShouldAbortOnUncaughtException(Isolate* isolate) {
@@ -669,9 +671,11 @@ Maybe<bool> InitializeContextRuntime(Local<Context> context) {
   bool is_code_generation_from_strings_allowed =
       context->IsCodeGenerationFromStringsAllowed();
   context->AllowCodeGenerationFromStrings(false);
-  context->SetEmbedderData(
-      ContextEmbedderIndex::kAllowCodeGenerationFromStrings,
-      Boolean::New(isolate, is_code_generation_from_strings_allowed));
+  if (is_code_generation_from_strings_allowed) {
+    SetContextFlag(context, ContextFlags::kAllowCodeGenerationFromStrings);
+  } else {
+    ClearContextFlag(context, ContextFlags::kAllowCodeGenerationFromStrings);
+  }
 
   if (per_process::cli_options->disable_proto == "") {
     return Just(true);
@@ -765,11 +769,9 @@ Maybe<bool> InitializeMainContextForSnapshot(Local<Context> context) {
   HandleScope handle_scope(isolate);
 
   // Initialize the default values.
-  context->SetEmbedderData(ContextEmbedderIndex::kAllowWasmCodeGeneration,
-                           True(isolate));
-  context->SetEmbedderData(
-      ContextEmbedderIndex::kAllowCodeGenerationFromStrings, True(isolate));
-
+  ResetContextFlags(context,
+                    ContextFlags::kAllowCodeGenerationFromStrings |
+                        ContextFlags::kAllowWasmCodeGeneration);
   if (InitializeBaseContextForSnapshot(context).IsNothing()) {
     return Nothing<bool>();
   }

@@ -579,10 +579,8 @@ v8::ModifyCodeGenerationFromStringsResult ModifyCodeGenerationFromStrings(
     }
   }
 
-  Local<Value> allow_code_gen = context->GetEmbedderData(
-      ContextEmbedderIndex::kAllowCodeGenerationFromStrings);
   bool codegen_allowed =
-      allow_code_gen->IsUndefined() || allow_code_gen->IsTrue();
+      TestContextFlag(context, ContextFlags::kAllowCodeGenerationFromStrings);
   return {
       codegen_allowed,
       {},

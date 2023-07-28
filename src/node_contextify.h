@@ -37,8 +37,8 @@ class MicrotaskQueueWrap : public BaseObject {
 struct ContextOptions {
   v8::Local<v8::String> name;
   v8::Local<v8::String> origin;
-  v8::Local<v8::Boolean> allow_code_gen_strings;
-  v8::Local<v8::Boolean> allow_code_gen_wasm;
+  bool allow_code_gen_strings;
+  bool allow_code_gen_wasm;
   BaseObjectPtr<MicrotaskQueueWrap> microtask_queue_wrap;
 };
 

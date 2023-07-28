@@ -45,9 +45,12 @@ using v8::HeapProfiler;
 using v8::HeapSpaceStatistics;
 using v8::Integer;
 using v8::Isolate;
+using v8::Just;
 using v8::Local;
+using v8::Maybe;
 using v8::MaybeLocal;
 using v8::NewStringType;
+using v8::Nothing;
 using v8::Number;
 using v8::Object;
 using v8::ObjectTemplate;
@@ -59,6 +62,7 @@ using v8::String;
 using v8::Symbol;
 using v8::TracingController;
 using v8::TryCatch;
+using v8::Uint32;
 using v8::Undefined;
 using v8::Value;
 using worker::Worker;
@@ -611,6 +615,85 @@ void TrackingTraceStateObserver::UpdateTraceCategoryState() {
   try_catch.SetVerbose(true);
   Local<Value> args[] = {Boolean::New(isolate, async_hooks_enabled)};
   USE(cb->Call(env_->context(), Undefined(isolate), arraysize(args), args));
+}
+
+ContextFlags operator|(ContextFlags x, ContextFlags y) {
+  return static_cast<ContextFlags>(static_cast<uint32_t>(x) |
+                                   static_cast<uint32_t>(y));
+}
+
+ContextFlags operator&(ContextFlags x, ContextFlags y) {
+  return static_cast<ContextFlags>(static_cast<uint32_t>(x) &
+                                   static_cast<uint32_t>(y));
+}
+
+ContextFlags operator|=(/* NOLINT (runtime/references) */ ContextFlags& x,
+                        ContextFlags y) {
+  return x = x | y;
+}
+
+ContextFlags operator&=(/* NOLINT (runtime/references) */ ContextFlags& x,
+                        ContextFlags y) {
+  return x = x & y;
+}
+
+ContextFlags operator~(ContextFlags x) {
+  return static_cast<ContextFlags>(~(static_cast<uint32_t>(x)));
+}
+
+Maybe<ContextFlags> GetContextFlags(Local<Context> context) {
+  Local<Value> flags_value =
+      context->GetEmbedderData(ContextEmbedderIndex::kFlags);
+  // If it crashes, the context slot is not initialized.
+  // If it's not a Uint32, then it's initialized by someone other than Node.js.
+  if (!flags_value->IsUint32()) {
+    return Nothing<ContextFlags>();
+  }
+  ContextFlags flags =
+      static_cast<ContextFlags>(flags_value.As<Uint32>()->Value());
+  return Just<ContextFlags>(flags);
+}
+
+void ResetContextFlags(Local<Context> context, ContextFlags flags) {
+  context->SetEmbedderData(
+      ContextEmbedderIndex::kFlags,
+      Uint32::New(context->GetIsolate(), static_cast<uint32_t>(flags)));
+}
+
+bool TestContextFlag(Local<Context> context, ContextFlags mask) {
+  ContextFlags value = ContextFlags::kNone;
+  if (!GetContextFlags(context).To(&value)) {
+    return false;
+  }
+  return static_cast<bool>(value & mask);
+}
+
+void SetContextFlag(Local<Context> context, ContextFlags mask) {
+  ContextFlags value = ContextFlags::kNone;
+  if (!GetContextFlags(context).To(&value)) {
+    // Not set by Node.js, just reset the entire field.
+    ResetContextFlags(context, mask);
+    return;
+  }
+  // Skip if the the flags are all set.
+  if ((value & mask) == mask) {
+    return;
+  }
+  ResetContextFlags(context, value | mask);
+}
+
+void ClearContextFlag(Local<Context> context, ContextFlags mask) {
+  ContextFlags value = ContextFlags::kNone;
+  if (!GetContextFlags(context).To(&value)) {
+    // Not set by Node.js, just reset the entire field to none.
+    ResetContextFlags(context, ContextFlags::kNone);
+    return;
+  }
+  // Skip if the flags are already cleared.
+  if ((value | ~mask) == ContextFlags::kNone) {
+    return;
+  }
+  ResetContextFlags(context, value & ~mask);
 }
 
 void Environment::AssignToContext(Local<v8::Context> context,

@@ -20,8 +20,8 @@ namespace node {
 #define NODE_CONTEXT_SANDBOX_OBJECT_INDEX 33
 #endif
 
-#ifndef NODE_CONTEXT_ALLOW_WASM_CODE_GENERATION_INDEX
-#define NODE_CONTEXT_ALLOW_WASM_CODE_GENERATION_INDEX 34
+#ifndef NODE_CONTEXT_FLAGS_INDEX
+#define NODE_CONTEXT_FLAGS_INDEX 34
 #endif
 
 #ifndef NODE_BINDING_DATA_STORE_INDEX
@@ -50,13 +50,36 @@ namespace node {
 enum ContextEmbedderIndex {
   kEnvironment = NODE_CONTEXT_EMBEDDER_DATA_INDEX,
   kSandboxObject = NODE_CONTEXT_SANDBOX_OBJECT_INDEX,
-  kAllowWasmCodeGeneration = NODE_CONTEXT_ALLOW_WASM_CODE_GENERATION_INDEX,
-  kAllowCodeGenerationFromStrings =
-      NODE_CONTEXT_ALLOW_CODE_GENERATION_FROM_STRINGS_INDEX,
+  kFlags = NODE_CONTEXT_FLAGS_INDEX,
   kContextifyContext = NODE_CONTEXT_CONTEXTIFY_CONTEXT_INDEX,
   kRealm = NODE_CONTEXT_REALM_INDEX,
   kContextTag = NODE_CONTEXT_TAG,
 };
+
+enum class ContextFlags : uint32_t {
+  kNone = 0,
+  kAllowWasmCodeGeneration = 1 << 0,
+  kAllowCodeGenerationFromStrings = 1 << 1,
+};
+ContextFlags operator|(ContextFlags x, ContextFlags y);
+ContextFlags operator&(ContextFlags x, ContextFlags y);
+ContextFlags operator|=(/* NOLINT (runtime/references) */ ContextFlags& x,
+                        ContextFlags y);
+ContextFlags operator&=(/* NOLINT (runtime/references) */ ContextFlags& x,
+                        ContextFlags y);
+ContextFlags operator~(ContextFlags x);
+
+// Get the context flags, if it's not set by Node.js, return empty.
+v8::Maybe<ContextFlags> GetContextFlags(v8::Local<v8::Context> context);
+// Set the context flags in one go.
+void ResetContextFlags(v8::Local<v8::Context> context, ContextFlags flags);
+// If the flag is not set by Node.js, return false,
+// otherwise if all the bits in the mask are set, return true.
+bool TestContextFlag(v8::Local<v8::Context> context, ContextFlags mask);
+// Set all the flags in the mask.
+void SetContextFlag(v8::Local<v8::Context> context, ContextFlags mask);
+// Clear all the flags in the mask.
+void ClearContextFlag(v8::Local<v8::Context> context, ContextFlags mask);
 
 class ContextEmbedderTag {
  public:

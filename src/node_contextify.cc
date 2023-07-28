@@ -242,6 +242,22 @@ BaseObjectPtr<ContextifyContext> ContextifyContext::New(
     Local<Object> sandbox_obj,
     const ContextOptions& options) {
   HandleScope scope(env->isolate());
+
+  // Delegate the code generation validation to
+  // node::ModifyCodeGenerationFromStrings.
+  v8_context->AllowCodeGenerationFromStrings(false);
+
+  ContextFlags flags = ContextFlags::kNone;
+  if (options.allow_code_gen_strings) {
+    flags |= ContextFlags::kAllowCodeGenerationFromStrings;
+  }
+  if (options.allow_code_gen_wasm) {
+    flags |= ContextFlags::kAllowWasmCodeGeneration;
+  }
+  // Do this before InitializeContextRuntime() to initialize the context
+  // flags.
+  ResetContextFlags(v8_context, flags);
+
   // This only initializes part of the context. The primordials are
   // only initialized when needed because even deserializing them slows
   // things down significantly and they are only needed in rare occasions
@@ -262,15 +278,6 @@ BaseObjectPtr<ContextifyContext> ContextifyContext::New(
   // the context from its constructor.
   v8_context->SetEmbedderData(ContextEmbedderIndex::kSandboxObject,
                               sandbox_obj);
-
-  // Delegate the code generation validation to
-  // node::ModifyCodeGenerationFromStrings.
-  v8_context->AllowCodeGenerationFromStrings(false);
-  v8_context->SetEmbedderData(
-      ContextEmbedderIndex::kAllowCodeGenerationFromStrings,
-      options.allow_code_gen_strings);
-  v8_context->SetEmbedderData(ContextEmbedderIndex::kAllowWasmCodeGeneration,
-                              options.allow_code_gen_wasm);
 
   Utf8Value name_val(env->isolate(), options.name);
   ContextInfo info(*name_val);
@@ -369,10 +376,10 @@ void ContextifyContext::MakeContext(const FunctionCallbackInfo<Value>& args) {
   }
 
   CHECK(args[3]->IsBoolean());
-  options.allow_code_gen_strings = args[3].As<Boolean>();
+  options.allow_code_gen_strings = args[3].As<Boolean>()->Value();
 
   CHECK(args[4]->IsBoolean());
-  options.allow_code_gen_wasm = args[4].As<Boolean>();
+  options.allow_code_gen_wasm = args[4].As<Boolean>()->Value();
 
   if (args[5]->IsObject() &&
       !env->microtask_queue_ctor_template().IsEmpty() &&

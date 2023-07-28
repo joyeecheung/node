@@ -997,6 +997,9 @@ ExitCode SnapshotBuilder::CreateSnapshot(SnapshotData* out,
     if (base_context.IsEmpty()) {
       return ExitCode::kBootstrapFailure;
     }
+    ResetContextFlags(base_context,
+                      ContextFlags::kAllowCodeGenerationFromStrings |
+                          ContextFlags::kAllowWasmCodeGeneration);
     ResetContextSettingsBeforeSnapshot(base_context);
 
     {
