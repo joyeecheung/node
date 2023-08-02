@@ -46,7 +46,7 @@ class BindingData : public SnapshotableObject {
 
  private:
   static constexpr size_t kEncodeIntoResultsLength = 2;
-  AliasedUint32Array encode_into_results_buffer_;
+  AliasedUint32Array* encode_into_results_buffer_;
   InternalFieldInfo* internal_field_info_ = nullptr;
 };
 

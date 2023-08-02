@@ -70,7 +70,8 @@ class BindingData : public SnapshotableObject {
 
  private:
   static constexpr size_t kURLComponentsLength = 9;
-  AliasedUint32Array url_components_buffer_;
+  // TODO(joyeecheung): allocate it in cpp heap
+  AliasedUint32Array* url_components_buffer_;
 
   void UpdateComponents(const ada::url_components& components,
                         const ada::scheme::type type);

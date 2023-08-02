@@ -6,6 +6,7 @@
 #include <cinttypes>
 #include "memory_tracker.h"
 #include "v8.h"
+#include "v8-cppgc.h"
 
 namespace node {
 
@@ -28,8 +29,9 @@ typedef size_t AliasedBufferIndex;
  * The encapsulation herein provides a placeholder where such writes can be
  * observed. Any notification APIs will be left as a future exercise.
  */
+
 template <class NativeT, class V8T>
-class AliasedBufferBase : public MemoryRetainer {
+class AliasedBufferBase final : public cppgc::GarbageCollected<AliasedBufferBase<NativeT, V8T>>, public MemoryRetainer{
  public:
   static_assert(std::is_scalar<NativeT>::value);
 
@@ -53,14 +55,16 @@ class AliasedBufferBase : public MemoryRetainer {
       const AliasedBufferBase<uint8_t, v8::Uint8Array>& backing_buffer,
       const AliasedBufferIndex* index = nullptr);
 
-  AliasedBufferBase(const AliasedBufferBase& that);
+  // AliasedBufferBase(const AliasedBufferBase& that);
 
   AliasedBufferIndex Serialize(v8::Local<v8::Context> context,
                                v8::SnapshotCreator* creator);
 
   inline void Deserialize(v8::Local<v8::Context> context);
 
-  AliasedBufferBase& operator=(AliasedBufferBase&& that) noexcept;
+  void Trace(cppgc::Visitor* visitor) const;
+
+  // AliasedBufferBase& operator=(AliasedBufferBase&& that) noexcept;
 
   /**
    * Helper class that is returned from operator[] to support assignment into

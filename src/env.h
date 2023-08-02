@@ -370,12 +370,12 @@ class AsyncHooks : public MemoryRetainer {
   [[noreturn]] void FailWithCorruptedAsyncStack(double expected_async_id);
 
   // Stores the ids of the current execution context stack.
-  AliasedFloat64Array async_ids_stack_;
+  AliasedFloat64Array* async_ids_stack_;
   // Attached to a Uint32Array that tracks the number of active hooks for
   // each type.
-  AliasedUint32Array fields_;
+  AliasedUint32Array* fields_;
   // Attached to a Float64Array that tracks the state of async resources.
-  AliasedFloat64Array async_id_fields_;
+  AliasedFloat64Array* async_id_fields_;
 
   void grow_async_ids_stack();
 
@@ -420,7 +420,7 @@ class ImmediateInfo : public MemoryRetainer {
 
   enum Fields { kCount, kRefCount, kHasOutstanding, kFieldsCount };
 
-  AliasedUint32Array fields_;
+  AliasedUint32Array* fields_;
 };
 
 class TickInfo : public MemoryRetainer {
@@ -452,7 +452,7 @@ class TickInfo : public MemoryRetainer {
 
   enum Fields { kHasTickScheduled = 0, kHasRejectionToWarn, kFieldsCount };
 
-  AliasedUint8Array fields_;
+  AliasedUint8Array* fields_;
 };
 
 class TrackingTraceStateObserver :
@@ -1096,14 +1096,15 @@ class Environment : public MemoryRetainer {
   uint32_t script_id_counter_ = 0;
   uint32_t function_id_counter_ = 0;
 
-  AliasedInt32Array exit_info_;
+  // TODO(joyeecheung): allocate it in cpp heap
+  AliasedInt32Array* exit_info_;
 
-  AliasedUint32Array should_abort_on_uncaught_toggle_;
+  AliasedUint32Array* should_abort_on_uncaught_toggle_;
   int should_not_abort_scope_counter_ = 0;
 
   std::unique_ptr<TrackingTraceStateObserver> trace_state_observer_;
 
-  AliasedInt32Array stream_base_state_;
+  AliasedInt32Array* stream_base_state_;
 
   // As PerformanceNodeTiming is exposed in worker_threads, the per_process
   // time origin is exposed in the worker threads. This is an intentional

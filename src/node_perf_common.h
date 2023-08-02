@@ -70,9 +70,10 @@ class PerformanceState {
   void Deserialize(v8::Local<v8::Context> context, uint64_t time_origin);
   friend std::ostream& operator<<(std::ostream& o, const SerializeInfo& i);
 
-  AliasedUint8Array root;
-  AliasedFloat64Array milestones;
-  AliasedUint32Array observers;
+  // TODO(joyeecheung): allocate it in cpp heap
+  AliasedUint8Array* root;
+  AliasedFloat64Array* milestones;
+  AliasedUint32Array* observers;
 
   uint64_t performance_last_gc_start_mark = 0;
   uint16_t current_gc_type = 0;

@@ -113,13 +113,14 @@ class Http2State : public BaseObject {
                         IDX_SETTINGS_COUNT + 1,
                         root_buffer) {}
 
-  AliasedUint8Array root_buffer;
-  AliasedFloat64Array session_state_buffer;
-  AliasedFloat64Array stream_state_buffer;
-  AliasedFloat64Array stream_stats_buffer;
-  AliasedFloat64Array session_stats_buffer;
-  AliasedUint32Array options_buffer;
-  AliasedUint32Array settings_buffer;
+  // TODO(joyeecheung): allocate it in cpp heap
+  AliasedUint8Array* root_buffer;
+  AliasedFloat64Array* session_state_buffer;
+  AliasedFloat64Array* stream_state_buffer;
+  AliasedFloat64Array* stream_stats_buffer;
+  AliasedFloat64Array* session_stats_buffer;
+  AliasedUint32Array* options_buffer;
+  AliasedUint32Array* settings_buffer;
 
   void MemoryInfo(MemoryTracker* tracker) const override;
   SET_SELF_SIZE(Http2State)

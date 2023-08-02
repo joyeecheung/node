@@ -84,10 +84,10 @@ void ReadWriteTest(v8::Isolate* isolate) {
   WriteViaSetValue(&ab, oracle);
 
   // validate copy constructor
-  {
-    AliasedBufferBase<NativeT, V8T> ab2(ab);
-    ReadAndValidate(isolate, context, &ab2, oracle);
-  }
+  // {
+  //   AliasedBufferBase<NativeT, V8T> ab2(ab);
+  //   ReadAndValidate(isolate, context, &ab2, oracle);
+  // }
   ReadAndValidate(isolate, context, &ab, oracle);
 }
 

@@ -29,6 +29,8 @@ AliasedBufferBase<NativeT, V8T>::AliasedBufferBase(
 
   // allocate v8 TypedArray
   v8::Local<V8T> js_array = V8T::New(ab, byte_offset_, count);
+  SetCppgcReference(isolate, js_array, this);
+  // TODO(joyeecheung): use TracedReference?
   js_array_ = v8::Global<V8T>(isolate, js_array);
 }
 
@@ -60,19 +62,21 @@ AliasedBufferBase<NativeT, V8T>::AliasedBufferBase(
       const_cast<uint8_t*>(backing_buffer.GetNativeBuffer() + byte_offset));
 
   v8::Local<V8T> js_array = V8T::New(ab, byte_offset, count);
+  SetCppgcReference(isolate, js_array, this);
+  // TODO(joyeecheung): use TracedReference?
   js_array_ = v8::Global<V8T>(isolate, js_array);
 }
 
-template <typename NativeT, typename V8T>
-AliasedBufferBase<NativeT, V8T>::AliasedBufferBase(
-    const AliasedBufferBase& that)
-    : isolate_(that.isolate_),
-      count_(that.count_),
-      byte_offset_(that.byte_offset_),
-      buffer_(that.buffer_) {
-  js_array_ = v8::Global<V8T>(that.isolate_, that.GetJSArray());
-  DCHECK(is_valid());
-}
+// template <typename NativeT, typename V8T>
+// AliasedBufferBase<NativeT, V8T>::AliasedBufferBase(
+//     const AliasedBufferBase& that)
+//     : isolate_(that.isolate_),
+//       count_(that.count_),
+//       byte_offset_(that.byte_offset_),
+//       buffer_(that.buffer_) {
+//   js_array_ = v8::Global<V8T>(that.isolate_, that.GetJSArray());
+//   DCHECK(is_valid());
+// }
 
 template <typename NativeT, typename V8T>
 AliasedBufferIndex AliasedBufferBase<NativeT, V8T>::Serialize(
@@ -93,26 +97,27 @@ inline void AliasedBufferBase<NativeT, V8T>::Deserialize(
   DCHECK_EQ(byte_offset_, arr->ByteOffset());
   uint8_t* raw = static_cast<uint8_t*>(arr->Buffer()->Data());
   buffer_ = reinterpret_cast<NativeT*>(raw + byte_offset_);
+  SetCppgcReference(isolate_, arr, this);
   js_array_.Reset(isolate_, arr);
   index_ = nullptr;
 }
 
-template <typename NativeT, typename V8T>
-AliasedBufferBase<NativeT, V8T>& AliasedBufferBase<NativeT, V8T>::operator=(
-    AliasedBufferBase<NativeT, V8T>&& that) noexcept {
-  DCHECK(is_valid());
-  this->~AliasedBufferBase();
-  isolate_ = that.isolate_;
-  count_ = that.count_;
-  byte_offset_ = that.byte_offset_;
-  buffer_ = that.buffer_;
+// template <typename NativeT, typename V8T>
+// AliasedBufferBase<NativeT, V8T>& AliasedBufferBase<NativeT, V8T>::operator=(
+//     AliasedBufferBase<NativeT, V8T>&& that) noexcept {
+//   DCHECK(is_valid());
+//   this->~AliasedBufferBase();
+//   isolate_ = that.isolate_;
+//   count_ = that.count_;
+//   byte_offset_ = that.byte_offset_;
+//   buffer_ = that.buffer_;
 
-  js_array_.Reset(isolate_, that.js_array_.Get(isolate_));
+//   js_array_.Reset(isolate_, that.js_array_.Get(isolate_));
 
-  that.buffer_ = nullptr;
-  that.js_array_.Reset();
-  return *this;
-}
+//   that.buffer_ = nullptr;
+//   that.js_array_.Reset();
+//   return *this;
+// }
 
 template <typename NativeT, typename V8T>
 v8::Local<V8T> AliasedBufferBase<NativeT, V8T>::GetJSArray() const {
@@ -220,6 +225,11 @@ inline bool AliasedBufferBase<NativeT, V8T>::is_valid() const {
 template <typename NativeT, typename V8T>
 inline size_t AliasedBufferBase<NativeT, V8T>::SelfSize() const {
   return sizeof(*this);
+}
+
+template <typename NativeT, typename V8T>
+inline void AliasedBufferBase<NativeT, V8T>::Trace(cppgc::Visitor* visitor) const {
+  // TODO(joyeecheung): use traced reference?
 }
 
 #define VM(NativeT, V8T)                                                       \

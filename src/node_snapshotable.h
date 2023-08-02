@@ -151,7 +151,8 @@ class BindingData : public SnapshotableObject {
   SET_MEMORY_INFO_NAME(BindingData)
 
  private:
-  AliasedUint8Array is_building_snapshot_buffer_;
+  // TODO(joyeecheung): allocate it in cpp heap
+  AliasedUint8Array* is_building_snapshot_buffer_;
   InternalFieldInfo* internal_field_info_ = nullptr;
 };
 
