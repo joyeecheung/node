@@ -496,7 +496,7 @@ BlobBindingData::StoredDataObject::StoredDataObject(
       type(type_) {}
 
 BlobBindingData::BlobBindingData(Realm* realm, Local<Object> wrap)
-    : SnapshotableObject(realm, wrap, type_int) {
+    : SnapshotableBaseObject(realm, wrap, type_int) {
   MakeWeak();
 }
 

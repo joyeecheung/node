@@ -110,7 +110,7 @@ class Blob : public BaseObject {
   std::shared_ptr<DataQueue> data_queue_;
 };
 
-class BlobBindingData : public SnapshotableObject {
+class BlobBindingData : public SnapshotableBaseObject {
  public:
   explicit BlobBindingData(Realm* realm, v8::Local<v8::Object> wrap);
 

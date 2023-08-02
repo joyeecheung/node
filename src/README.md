@@ -535,7 +535,7 @@ type. For example, for `http_parser::BindingData`, the identifier can be
 If the binding should be supported in a snapshot, the id and the
 fully-specified class name should be added to the `SERIALIZABLE_BINDING_TYPES`
 list in `base_object_types.h`, and the class should implement the serialization
-and deserialization methods. See the comments of `SnapshotableObject` on how to
+and deserialization methods. See the comments of `SnapshotableBaseObject` on how to
 implement them. Otherwise, add the id and the class name to the
 `UNSERIALIZABLE_BINDING_TYPES` list instead.
 

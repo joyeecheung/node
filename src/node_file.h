@@ -55,7 +55,7 @@ enum class FsStatFsOffset {
 constexpr size_t kFsStatFsBufferLength =
     static_cast<size_t>(FsStatFsOffset::kFsStatFsFieldsNumber);
 
-class BindingData : public SnapshotableObject {
+class BindingData : public SnapshotableBaseObject {
  public:
   struct InternalFieldInfo : public node::InternalFieldInfoBase {
     AliasedBufferIndex stats_field_array;

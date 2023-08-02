@@ -33,7 +33,7 @@ void BindingData::MemoryInfo(MemoryTracker* tracker) const {
 }
 
 BindingData::BindingData(Realm* realm, v8::Local<v8::Object> object)
-    : SnapshotableObject(realm, object, type_int),
+    : SnapshotableBaseObject(realm, object, type_int),
       url_components_buffer_(realm->isolate(), kURLComponentsLength) {
   object
       ->Set(realm->context(),

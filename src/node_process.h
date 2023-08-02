@@ -46,7 +46,7 @@ v8::MaybeLocal<v8::Object> CreateProcessObject(Realm* env);
 void PatchProcessObject(const v8::FunctionCallbackInfo<v8::Value>& args);
 
 namespace process {
-class BindingData : public SnapshotableObject {
+class BindingData : public SnapshotableBaseObject {
  public:
   static void AddMethods(v8::Isolate* isolate,
                          v8::Local<v8::ObjectTemplate> target);

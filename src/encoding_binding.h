@@ -12,7 +12,7 @@ namespace node {
 class ExternalReferenceRegistry;
 
 namespace encoding_binding {
-class BindingData : public SnapshotableObject {
+class BindingData : public SnapshotableBaseObject {
  public:
   struct InternalFieldInfo : public node::InternalFieldInfoBase {
     AliasedBufferIndex encode_into_results_buffer;

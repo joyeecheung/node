@@ -10,7 +10,7 @@
 namespace node {
 namespace util {
 
-class WeakReference : public SnapshotableObject {
+class WeakReference : public SnapshotableBaseObject {
  public:
   SERIALIZABLE_OBJECT_METHODS()
 

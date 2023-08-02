@@ -32,7 +32,7 @@ enum url_update_action {
   kHref = 9,
 };
 
-class BindingData : public SnapshotableObject {
+class BindingData : public SnapshotableBaseObject {
  public:
   BindingData(Realm* realm, v8::Local<v8::Object> obj);
 

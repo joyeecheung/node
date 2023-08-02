@@ -95,7 +95,7 @@ static const size_t kHeapCodeStatisticsPropertiesCount =
 BindingData::BindingData(Realm* realm,
                          Local<Object> obj,
                          InternalFieldInfo* info)
-    : SnapshotableObject(realm, obj, type_int),
+    : SnapshotableBaseObject(realm, obj, type_int),
       heap_statistics_buffer(realm->isolate(),
                              kHeapStatisticsPropertiesCount,
                              MAYBE_FIELD_PTR(info, heap_statistics_buffer)),

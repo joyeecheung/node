@@ -84,7 +84,7 @@ void BindingData::ToggleImmediateRefImpl(BindingData* data, bool ref) {
 }
 
 BindingData::BindingData(Realm* realm, Local<Object> object)
-    : SnapshotableObject(realm, object, type_int) {}
+    : SnapshotableBaseObject(realm, object, type_int) {}
 
 bool BindingData::PrepareForSerialization(Local<Context> context,
                                           v8::SnapshotCreator* creator) {

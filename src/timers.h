@@ -10,7 +10,7 @@ namespace node {
 class ExternalReferenceRegistry;
 
 namespace timers {
-class BindingData : public SnapshotableObject {
+class BindingData : public SnapshotableBaseObject {
  public:
   BindingData(Realm* env, v8::Local<v8::Object> obj);
 

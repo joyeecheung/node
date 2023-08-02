@@ -466,7 +466,7 @@ static void ReallyExit(const FunctionCallbackInfo<Value>& args) {
 namespace process {
 
 BindingData::BindingData(Realm* realm, v8::Local<v8::Object> object)
-    : SnapshotableObject(realm, object, type_int) {
+    : SnapshotableBaseObject(realm, object, type_int) {
   Isolate* isolate = realm->isolate();
   Local<Context> context = realm->context();
   Local<ArrayBuffer> ab = ArrayBuffer::New(isolate, kBufferSize);

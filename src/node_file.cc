@@ -3060,7 +3060,7 @@ void BindingData::MemoryInfo(MemoryTracker* tracker) const {
 BindingData::BindingData(Realm* realm,
                          v8::Local<v8::Object> wrap,
                          InternalFieldInfo* info)
-    : SnapshotableObject(realm, wrap, type_int),
+    : SnapshotableBaseObject(realm, wrap, type_int),
       stats_field_array(realm->isolate(),
                         kFsStatsBufferLength,
                         MAYBE_FIELD_PTR(info, stats_field_array)),

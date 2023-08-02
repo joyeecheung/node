@@ -1088,10 +1088,8 @@ ExitCode SnapshotBuilder::Generate(
   return exit_code;
 }
 
-SnapshotableObject::SnapshotableObject(Realm* realm,
-                                       Local<Object> wrap,
-                                       EmbedderObjectType type)
-    : BaseObject(realm, wrap), type_(type) {}
+SnapshotableObject::SnapshotableObject(EmbedderObjectType type)
+    : type_(type) {}
 
 std::string SnapshotableObject::GetTypeName() const {
   switch (type_) {
@@ -1104,6 +1102,11 @@ std::string SnapshotableObject::GetTypeName() const {
     default: { UNREACHABLE(); }
   }
 }
+
+SnapshotableBaseObject::SnapshotableBaseObject(Realm* realm,
+                                       Local<Object> wrap,
+                                       EmbedderObjectType type)
+    : SnapshotableObject(type), BaseObject(realm, wrap) {}
 
 void DeserializeNodeInternalFields(Local<Object> holder,
                                    int index,
@@ -1203,7 +1206,7 @@ StartupData SerializeNodeContextInternalFields(Local<Object> holder,
   }
 
   DCHECK(object_ptr->is_snapshotable());
-  SnapshotableObject* obj = static_cast<SnapshotableObject*>(object_ptr);
+  SnapshotableBaseObject* obj = static_cast<SnapshotableBaseObject*>(object_ptr);
 
   // To serialize the type field, save data in a EmbedderTypeInfo.
   if (index == BaseObject::kEmbedderType) {
@@ -1234,8 +1237,8 @@ StartupData SerializeNodeContextInternalFields(Local<Object> holder,
 }
 
 void SerializeSnapshotableObjects(Realm* realm,
-                                  SnapshotCreator* creator,
-                                  RealmSerializeInfo* info) {
+                                 SnapshotCreator* creator,
+                                 RealmSerializeInfo* info) {
   HandleScope scope(realm->isolate());
   Local<Context> context = realm->context();
   uint32_t i = 0;
@@ -1246,7 +1249,7 @@ void SerializeSnapshotableObjects(Realm* realm,
     if (!obj->is_snapshotable()) {
       return;
     }
-    SnapshotableObject* ptr = static_cast<SnapshotableObject*>(obj);
+    SnapshotableBaseObject* ptr = static_cast<SnapshotableBaseObject*>(obj);
 
     std::string type_name = ptr->GetTypeName();
     per_process::Debug(DebugCategory::MKSNAPSHOT,
@@ -1347,7 +1350,7 @@ namespace mksnapshot {
 BindingData::BindingData(Realm* realm,
                          v8::Local<v8::Object> object,
                          InternalFieldInfo* info)
-    : SnapshotableObject(realm, object, type_int),
+    : SnapshotableBaseObject(realm, object, type_int),
       is_building_snapshot_buffer_(
           realm->isolate(),
           1,

@@ -33,7 +33,7 @@ void BindingData::MemoryInfo(MemoryTracker* tracker) const {
 BindingData::BindingData(Realm* realm,
                          v8::Local<v8::Object> object,
                          InternalFieldInfo* info)
-    : SnapshotableObject(realm, object, type_int),
+    : SnapshotableBaseObject(realm, object, type_int),
       encode_into_results_buffer_(
           realm->isolate(),
           kEncodeIntoResultsLength,

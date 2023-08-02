@@ -16,7 +16,7 @@ class Environment;
 struct InternalFieldInfoBase;
 
 namespace v8_utils {
-class BindingData : public SnapshotableObject {
+class BindingData : public SnapshotableBaseObject {
  public:
   struct InternalFieldInfo : public node::InternalFieldInfoBase {
     AliasedBufferIndex heap_statistics_buffer;

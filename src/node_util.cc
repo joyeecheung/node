@@ -190,7 +190,7 @@ WeakReference::WeakReference(Realm* realm,
                              Local<Object> object,
                              Local<Object> target,
                              uint64_t reference_count)
-    : SnapshotableObject(realm, object, type_int),
+    : SnapshotableBaseObject(realm, object, type_int),
       reference_count_(reference_count) {
   MakeWeak();
   if (!target.IsEmpty()) {

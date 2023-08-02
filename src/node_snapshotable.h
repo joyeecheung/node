@@ -92,23 +92,28 @@ struct EmbedderTypeInfo {
 //   deserialized and the object graph is complete, once for each
 //   embedder field of the object. Use this to restore native states
 //   in the object.
-class SnapshotableObject : public BaseObject {
+class SnapshotableObject {
  public:
-  SnapshotableObject(Realm* realm,
-                     v8::Local<v8::Object> wrap,
-                     EmbedderObjectType type);
+  SnapshotableObject(EmbedderObjectType type);
   std::string GetTypeName() const;
 
   // If returns false, the object will not be serialized.
   virtual bool PrepareForSerialization(v8::Local<v8::Context> context,
                                        v8::SnapshotCreator* creator) = 0;
   virtual InternalFieldInfoBase* Serialize(int index) = 0;
-  bool is_snapshotable() const override { return true; }
   // We'll make sure that the type is set in the constructor
   EmbedderObjectType type() { return type_; }
 
  private:
   EmbedderObjectType type_;
+};
+
+class SnapshotableBaseObject : public SnapshotableObject, public BaseObject {
+ public:
+  SnapshotableBaseObject(Realm* realm,
+                     v8::Local<v8::Object> wrap,
+                     EmbedderObjectType type);
+  bool is_snapshotable() const override { return true; }
 };
 
 #define SERIALIZABLE_OBJECT_METHODS()                                          \
@@ -134,7 +139,7 @@ void SerializeSnapshotableObjects(Realm* realm,
 #define DCHECK_IS_SNAPSHOT_SLOT(index) DCHECK_EQ(index, BaseObject::kSlot)
 
 namespace mksnapshot {
-class BindingData : public SnapshotableObject {
+class BindingData : public SnapshotableBaseObject {
  public:
   struct InternalFieldInfo : public node::InternalFieldInfoBase {
     AliasedBufferIndex is_building_snapshot_buffer;
