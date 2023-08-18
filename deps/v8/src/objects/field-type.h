@@ -24,19 +24,16 @@ class FieldType : public Object {
   V8_EXPORT_PRIVATE static FieldType Class(Map map);
   V8_EXPORT_PRIVATE static Handle<FieldType> Class(Handle<Map> map,
                                                    Isolate* isolate);
-  V8_EXPORT_PRIVATE static FieldType cast(Object object);
-  static FieldType unchecked_cast(Object object) {
-    return FieldType(object.ptr());
+  V8_EXPORT_PRIVATE static Tagged<FieldType> cast(Tagged<Object> object);
+  static constexpr Tagged<FieldType> unchecked_cast(Tagged<Object> object) {
+    return Tagged<FieldType>(object.ptr());
   }
 
   bool NowContains(Object value) const;
 
   bool NowContains(Handle<Object> value) const { return NowContains(*value); }
 
-  bool IsClass() const;
   Map AsClass() const;
-  bool IsNone() const { return *this == None(); }
-  bool IsAny() const { return *this == Any(); }
   bool NowStable() const;
   bool NowIs(FieldType other) const;
   bool NowIs(Handle<FieldType> other) const;
@@ -45,8 +42,17 @@ class FieldType : public Object {
   V8_EXPORT_PRIVATE void PrintTo(std::ostream& os) const;
 
  private:
-  explicit constexpr FieldType(Address ptr) : Object(ptr) {}
+  friend class Tagged<FieldType>;
+
+  explicit constexpr FieldType(Address ptr) : Object(ptr) {
+    // TODO(leszeks): Typecheck that this is Map or Smi.
+  }
+  explicit constexpr FieldType(Address ptr, SkipTypeCheckTag) : Object(ptr) {}
 };
+
+bool IsClass(Tagged<FieldType> obj);
+inline bool IsNone(Tagged<FieldType> obj) { return obj == FieldType::None(); }
+inline bool IsAny(Tagged<FieldType> obj) { return obj == FieldType::Any(); }
 
 }  // namespace internal
 }  // namespace v8

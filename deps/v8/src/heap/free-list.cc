@@ -9,6 +9,7 @@
 #include "src/heap/free-list-inl.h"
 #include "src/heap/heap.h"
 #include "src/heap/memory-chunk-inl.h"
+#include "src/heap/page-inl.h"
 #include "src/objects/free-space-inl.h"
 
 namespace v8 {
@@ -32,12 +33,12 @@ FreeSpace FreeListCategory::PickNodeFromList(size_t minimum_size,
   FreeSpace node = top();
   DCHECK(!node.is_null());
   DCHECK(Page::FromHeapObject(node)->CanAllocate());
-  if (static_cast<size_t>(node.Size()) < minimum_size) {
+  if (static_cast<size_t>(node->Size()) < minimum_size) {
     *node_size = 0;
     return FreeSpace();
   }
-  set_top(node.next());
-  *node_size = node.Size();
+  set_top(node->next());
+  *node_size = node->Size();
   UpdateCountersAfterAllocation(*node_size);
   return node;
 }
@@ -46,22 +47,19 @@ FreeSpace FreeListCategory::SearchForNodeInList(size_t minimum_size,
                                                 size_t* node_size) {
   FreeSpace prev_non_evac_node;
   for (FreeSpace cur_node = top(); !cur_node.is_null();
-       cur_node = cur_node.next()) {
+       cur_node = cur_node->next()) {
     DCHECK(Page::FromHeapObject(cur_node)->CanAllocate());
-    size_t size = cur_node.size(kRelaxedLoad);
+    size_t size = cur_node->size(kRelaxedLoad);
     if (size >= minimum_size) {
       DCHECK_GE(available_, size);
       UpdateCountersAfterAllocation(size);
       if (cur_node == top()) {
-        set_top(cur_node.next());
+        set_top(cur_node->next());
       }
       if (!prev_non_evac_node.is_null()) {
-        MemoryChunk* chunk = MemoryChunk::FromHeapObject(prev_non_evac_node);
-        if (chunk->owner_identity() == CODE_SPACE) {
-          chunk->heap()->UnprotectAndRegisterMemoryChunk(
-              chunk, UnprotectMemoryOrigin::kMaybeOffMainThread);
-        }
-        prev_non_evac_node.set_next(cur_node.next());
+        CodePageMemoryModificationScope code_modification_scope(
+            BasicMemoryChunk::FromHeapObject(prev_non_evac_node));
+        prev_non_evac_node->set_next(cur_node->next());
       }
       *node_size = size;
       return cur_node;
@@ -75,7 +73,12 @@ FreeSpace FreeListCategory::SearchForNodeInList(size_t minimum_size,
 void FreeListCategory::Free(Address start, size_t size_in_bytes, FreeMode mode,
                             FreeList* owner) {
   FreeSpace free_space = FreeSpace::cast(HeapObject::FromAddress(start));
-  free_space.set_next(top());
+  DCHECK_EQ(free_space->Size(), size_in_bytes);
+  {
+    CodePageMemoryModificationScope memory_modification_scope(
+        BasicMemoryChunk::FromAddress(start));
+    free_space->set_next(top());
+  }
   set_top(free_space);
   available_ += size_in_bytes;
   if (mode == kLinkCategory) {
@@ -91,13 +94,13 @@ void FreeListCategory::RepairFreeList(Heap* heap) {
   Map free_space_map = ReadOnlyRoots(heap).free_space_map();
   FreeSpace n = top();
   while (!n.is_null()) {
-    ObjectSlot map_slot = n.map_slot();
+    ObjectSlot map_slot = n->map_slot();
     if (map_slot.contains_map_value(kNullAddress)) {
       map_slot.store_map(free_space_map);
     } else {
       DCHECK(map_slot.contains_map_value(free_space_map.ptr()));
     }
-    n = n.next();
+    n = n->next();
   }
 }
 
@@ -109,10 +112,12 @@ void FreeListCategory::Relink(FreeList* owner) {
 // ------------------------------------------------
 // Generic FreeList methods (alloc/free related)
 
-FreeList* FreeList::CreateFreeList() { return new FreeListManyCachedOrigin(); }
+std::unique_ptr<FreeList> FreeList::CreateFreeList() {
+  return std::make_unique<FreeListManyCachedOrigin>();
+}
 
-FreeList* FreeList::CreateFreeListForNewSpace() {
-  return new FreeListManyCachedFastPathForNewSpace();
+std::unique_ptr<FreeList> FreeList::CreateFreeListForNewSpace() {
+  return std::make_unique<FreeListManyCachedFastPathForNewSpace>();
 }
 
 FreeSpace FreeList::TryFindNodeIn(FreeListCategoryType type,
@@ -122,7 +127,7 @@ FreeSpace FreeList::TryFindNodeIn(FreeListCategoryType type,
   FreeSpace node = category->PickNodeFromList(minimum_size, node_size);
   if (!node.is_null()) {
     DecreaseAvailableBytes(*node_size);
-    DCHECK(IsVeryLong() || Available() == SumFreeLists());
+    VerifyAvailable();
   }
   if (category->is_empty()) {
     RemoveCategory(category);
@@ -140,7 +145,7 @@ FreeSpace FreeList::SearchForNodeInList(FreeListCategoryType type,
     node = current->SearchForNodeInList(minimum_size, node_size);
     if (!node.is_null()) {
       DecreaseAvailableBytes(*node_size);
-      DCHECK(IsVeryLong() || Available() == SumFreeLists());
+      VerifyAvailable();
       if (current->is_empty()) {
         RemoveCategory(current);
       }
@@ -157,7 +162,6 @@ size_t FreeList::Free(Address start, size_t size_in_bytes, FreeMode mode) {
   // Blocks have to be a minimum size to hold free list items.
   if (size_in_bytes < min_block_size_) {
     page->add_wasted_memory(size_in_bytes);
-    wasted_bytes_ += size_in_bytes;
     return size_in_bytes;
   }
 
@@ -232,7 +236,7 @@ FreeSpace FreeListMany::Allocate(size_t size_in_bytes, size_t* node_size,
     Page::FromHeapObject(node)->IncreaseAllocatedBytes(*node_size);
   }
 
-  DCHECK(IsVeryLong() || Available() == SumFreeLists());
+  VerifyAvailable();
   return node;
 }
 
@@ -283,7 +287,6 @@ size_t FreeListManyCached::Free(Address start, size_t size_in_bytes,
   // Blocks have to be a minimum size to hold free list items.
   if (size_in_bytes < min_block_size_) {
     page->add_wasted_memory(size_in_bytes);
-    wasted_bytes_ += size_in_bytes;
     return size_in_bytes;
   }
 
@@ -338,7 +341,7 @@ FreeSpace FreeListManyCached::Allocate(size_t size_in_bytes, size_t* node_size,
     Page::FromHeapObject(node)->IncreaseAllocatedBytes(*node_size);
   }
 
-  DCHECK(IsVeryLong() || Available() == SumFreeLists());
+  VerifyAvailable();
   return node;
 }
 
@@ -404,7 +407,7 @@ FreeSpace FreeListManyCachedFastPathBase::Allocate(size_t size_in_bytes,
   CheckCacheIntegrity();
 #endif
 
-  DCHECK(IsVeryLong() || Available() == SumFreeLists());
+  VerifyAvailable();
   return node;
 }
 
@@ -510,13 +513,13 @@ size_t FreeListCategory::SumFreeList() {
     // We can't use "cur->map()" here because both cur's map and the
     // root can be null during bootstrapping.
     DCHECK(
-        cur.map_slot().contains_map_value(Page::FromHeapObject(cur)
-                                              ->heap()
-                                              ->isolate()
-                                              ->root(RootIndex::kFreeSpaceMap)
-                                              .ptr()));
-    sum += cur.size(kRelaxedLoad);
-    cur = cur.next();
+        cur->map_slot().contains_map_value(Page::FromHeapObject(cur)
+                                               ->heap()
+                                               ->isolate()
+                                               ->root(RootIndex::kFreeSpaceMap)
+                                               .ptr()));
+    sum += cur->size(kRelaxedLoad);
+    cur = cur->next();
   }
   return sum;
 }
@@ -525,7 +528,7 @@ int FreeListCategory::FreeListLength() {
   FreeSpace cur = top();
   while (!cur.is_null()) {
     length++;
-    cur = cur.next();
+    cur = cur->next();
   }
   return length;
 }

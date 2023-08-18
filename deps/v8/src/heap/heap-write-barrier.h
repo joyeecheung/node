@@ -42,11 +42,14 @@ void CombinedWriteBarrier(HeapObject object, MaybeObjectSlot slot,
 
 void CombinedEphemeronWriteBarrier(EphemeronHashTable object, ObjectSlot slot,
                                    Object value, WriteBarrierMode mode);
+void IndirectPointerWriteBarrier(HeapObject host, IndirectPointerSlot slot,
+                                 HeapObject value, WriteBarrierMode mode);
 
 // Generational write barrier.
-void GenerationalBarrierForCode(RelocInfo* rinfo, HeapObject object);
+void GenerationalBarrierForCode(InstructionStream host, RelocInfo* rinfo,
+                                HeapObject object);
 
-inline bool IsReadOnlyHeapObject(HeapObject object);
+inline bool IsReadOnlyHeapObject(Tagged<HeapObject> object);
 
 class V8_EXPORT_PRIVATE WriteBarrier {
  public:
@@ -58,12 +61,14 @@ class V8_EXPORT_PRIVATE WriteBarrier {
                              HeapObject value);
   static inline void Marking(JSArrayBuffer host, ArrayBufferExtension*);
   static inline void Marking(DescriptorArray, int number_of_own_descriptors);
+  static inline void Marking(HeapObject host, IndirectPointerSlot slot);
 
   static inline void Shared(InstructionStream host, RelocInfo*,
                             HeapObject value);
 
   // It is invoked from generated code and has to take raw addresses.
   static int MarkingFromCode(Address raw_host, Address raw_slot);
+  static int IndirectPointerMarkingFromCode(Address raw_host, Address raw_slot);
   static int SharedMarkingFromCode(Address raw_host, Address raw_slot);
   static int SharedFromCode(Address raw_host, Address raw_slot);
 
@@ -95,6 +100,7 @@ class V8_EXPORT_PRIVATE WriteBarrier {
   static void MarkingSlow(InstructionStream host, RelocInfo*, HeapObject value);
   static void MarkingSlow(JSArrayBuffer host, ArrayBufferExtension*);
   static void MarkingSlow(DescriptorArray, int number_of_own_descriptors);
+  static void MarkingSlow(HeapObject host, IndirectPointerSlot slot);
   static void MarkingSlowFromGlobalHandle(HeapObject value);
   static void MarkingSlowFromInternalFields(Heap* heap, JSObject host);
 
@@ -104,7 +110,7 @@ class V8_EXPORT_PRIVATE WriteBarrier {
                                                            size_t argc,
                                                            void** values);
 
-  static void SharedSlow(RelocInfo*, HeapObject value);
+  static void SharedSlow(InstructionStream host, RelocInfo*, HeapObject value);
 
   friend class Heap;
 };

@@ -17,6 +17,7 @@
 #include "src/logging/log.h"
 #include "src/objects/objects-inl.h"
 #include "src/objects/string-inl.h"
+#include "src/objects/tagged.h"
 #include "src/strings/string-stream.h"
 #include "src/utils/version.h"
 
@@ -114,10 +115,10 @@ void LogFile::MessageBuilder::AppendString(String str,
   DisallowGarbageCollection no_gc;  // Ensure string stays valid.
   PtrComprCageBase cage_base = GetPtrComprCageBase(str);
   SharedStringAccessGuardIfNeeded access_guard(str);
-  int length = str.length();
+  int length = str->length();
   if (length_limit) length = std::min(length, *length_limit);
   for (int i = 0; i < length; i++) {
-    uint16_t c = str.Get(i, cage_base, access_guard);
+    uint16_t c = str->Get(i, cage_base, access_guard);
     if (c <= 0xFF) {
       AppendCharacter(static_cast<char>(c));
     } else {
@@ -195,12 +196,12 @@ void LogFile::MessageBuilder::AppendSymbolName(Symbol symbol) {
   DCHECK(!symbol.is_null());
   OFStream& os = log_->os_;
   os << "symbol(";
-  if (!symbol.description().IsUndefined()) {
+  if (!IsUndefined(symbol->description())) {
     os << "\"";
-    AppendSymbolNameDetails(String::cast(symbol.description()), false);
+    AppendSymbolNameDetails(String::cast(symbol->description()), false);
     os << "\" ";
   }
-  os << "hash " << std::hex << symbol.hash() << std::dec << ")";
+  os << "hash " << std::hex << symbol->hash() << std::dec << ")";
 }
 
 void LogFile::MessageBuilder::AppendSymbolNameDetails(String str,
@@ -209,13 +210,13 @@ void LogFile::MessageBuilder::AppendSymbolNameDetails(String str,
 
   DisallowGarbageCollection no_gc;  // Ensure string stays valid.
   OFStream& os = log_->os_;
-  int limit = str.length();
+  int limit = str->length();
   if (limit > 0x1000) limit = 0x1000;
   if (show_impl_info) {
-    os << (str.IsOneByteRepresentation() ? 'a' : '2');
+    os << (str->IsOneByteRepresentation() ? 'a' : '2');
     if (StringShape(str).IsExternal()) os << 'e';
     if (StringShape(str).IsInternalized()) os << '#';
-    os << ':' << str.length() << ':';
+    os << ':' << str->length() << ':';
   }
   AppendString(str, limit);
 }
@@ -277,20 +278,41 @@ LogFile::MessageBuilder& LogFile::MessageBuilder::operator<<<char>(char c) {
 template <>
 LogFile::MessageBuilder& LogFile::MessageBuilder::operator<<<String>(
     String string) {
+  static_assert(kTaggedCanConvertToRawObjects);
+  return operator<<(Tagged(string));
+}
+
+template <>
+LogFile::MessageBuilder& LogFile::MessageBuilder::operator<< <Symbol>(
+    Symbol symbol) {
+  static_assert(kTaggedCanConvertToRawObjects);
+  return operator<<(Tagged(symbol));
+}
+
+template <>
+LogFile::MessageBuilder& LogFile::MessageBuilder::operator<< <Name>(Name name) {
+  static_assert(kTaggedCanConvertToRawObjects);
+  return operator<<(Tagged(name));
+}
+
+template <>
+LogFile::MessageBuilder& LogFile::MessageBuilder::operator<< <Tagged<String>>(
+    Tagged<String> string) {
   this->AppendString(string);
   return *this;
 }
 
 template <>
-LogFile::MessageBuilder& LogFile::MessageBuilder::operator<<<Symbol>(
-    Symbol symbol) {
+LogFile::MessageBuilder& LogFile::MessageBuilder::operator<< <Tagged<Symbol>>(
+    Tagged<Symbol> symbol) {
   this->AppendSymbolName(symbol);
   return *this;
 }
 
 template <>
-LogFile::MessageBuilder& LogFile::MessageBuilder::operator<<<Name>(Name name) {
-  if (name.IsString()) {
+LogFile::MessageBuilder& LogFile::MessageBuilder::operator<< <Tagged<Name>>(
+    Tagged<Name> name) {
+  if (IsString(name)) {
     this->AppendString(String::cast(name));
   } else {
     this->AppendSymbolName(Symbol::cast(name));

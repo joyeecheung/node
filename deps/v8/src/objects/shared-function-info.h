@@ -43,11 +43,13 @@ class WasmExportedFunctionData;
 class WasmJSFunctionData;
 class WasmResumeData;
 
+#if V8_ENABLE_WEBASSEMBLY
 namespace wasm {
 struct WasmModule;
 class ValueType;
 using FunctionSig = Signature<ValueType>;
 }  // namespace wasm
+#endif
 
 #include "torque-generated/src/objects/shared-function-info-tq.inc"
 
@@ -79,9 +81,9 @@ class PreparseData
   inline int inner_start_offset() const;
   inline ObjectSlot inner_data_start() const;
 
-  inline byte get(int index) const;
-  inline void set(int index, byte value);
-  inline void copy_in(int index, const byte* buffer, int length);
+  inline uint8_t get(int index) const;
+  inline void set(int index, uint8_t value);
+  inline void copy_in(int index, const uint8_t* buffer, int length);
 
   inline PreparseData get_child(int index) const;
   inline void set_child(int index, PreparseData value,
@@ -231,9 +233,14 @@ class SharedFunctionInfo
 
   static const int kNotFound = -1;
 
+  static constexpr int kAgeSize = kAgeOffsetEnd - kAgeOffset + 1;
+  static constexpr uint16_t kMaxAge = UINT16_MAX;
+
   DECL_ACQUIRE_GETTER(scope_info, ScopeInfo)
   // Deprecated, use the ACQUIRE version instead.
   DECL_GETTER(scope_info, ScopeInfo)
+  // Slow but safe:
+  inline ScopeInfo EarlyScopeInfo(AcquireLoadTag tag);
 
   // Set scope_info without moving the existing name onto the ScopeInfo.
   inline void set_raw_scope_info(ScopeInfo scope_info,
@@ -323,7 +330,7 @@ class SharedFunctionInfo
 
   inline bool IsApiFunction() const;
   inline bool is_class_constructor() const;
-  inline FunctionTemplateInfo get_api_func_data() const;
+  inline FunctionTemplateInfo api_func_data() const;
   inline void set_api_func_data(FunctionTemplateInfo data);
   DECL_GETTER(HasBytecodeArray, bool)
   template <typename IsolateT>
@@ -388,15 +395,16 @@ class SharedFunctionInfo
   inline bool HasInferredName();
   inline String inferred_name() const;
 
-  // Break infos are contained in DebugInfo, this is a convenience method
-  // to simplify access.
-  V8_EXPORT_PRIVATE bool HasBreakInfo() const;
-  bool BreakAtEntry() const;
-
-  // Coverage infos are contained in DebugInfo, this is a convenience method
-  // to simplify access.
-  bool HasCoverageInfo() const;
-  CoverageInfo GetCoverageInfo() const;
+  // All DebugInfo accessors forward to the Debug object which stores DebugInfo
+  // objects in a sidetable.
+  bool HasDebugInfo(Isolate* isolate) const;
+  V8_EXPORT_PRIVATE DebugInfo GetDebugInfo(Isolate* isolate) const;
+  V8_EXPORT_PRIVATE base::Optional<DebugInfo> TryGetDebugInfo(
+      Isolate* isolate) const;
+  V8_EXPORT_PRIVATE bool HasBreakInfo(Isolate* isolate) const;
+  bool BreakAtEntry(Isolate* isolate) const;
+  bool HasCoverageInfo(Isolate* isolate) const;
+  CoverageInfo GetCoverageInfo(Isolate* isolate) const;
 
   // The function's name if it is non-empty, otherwise the inferred name.
   std::unique_ptr<char[]> DebugNameCStr() const;
@@ -406,21 +414,20 @@ class SharedFunctionInfo
   // Used for flags such as --turbo-filter.
   bool PassesFilter(const char* raw_filter);
 
-  // [script_or_debug_info]: One of:
-  //  - Script from which the function originates.
-  //  - a DebugInfo which holds the actual script [HasDebugInfo()].
-  DECL_RELEASE_ACQUIRE_ACCESSORS(script_or_debug_info, HeapObject)
-
-  DECL_GETTER(script, HeapObject)
-  inline void set_script(HeapObject script);
+  // [script]: the Script from which the function originates, or undefined.
+  DECL_RELEASE_ACQUIRE_ACCESSORS(script, HeapObject)
+  // Use `raw_script` if deserialization of this SharedFunctionInfo may still
+  // be in progress and thus the `script` field still equal to
+  // Smi::uninitialized_deserialization_value.
+  DECL_RELEASE_ACQUIRE_ACCESSORS(raw_script, Object)
+  // TODO(jgruber): Remove these overloads and pass the kAcquireLoad tag
+  // explicitly.
+  inline HeapObject script() const;
+  inline HeapObject script(PtrComprCageBase cage_base) const;
+  inline bool has_script(AcquireLoadTag tag) const;
 
   // True if the underlying script was parsed and compiled in REPL mode.
   inline bool is_repl_mode() const;
-
-  // The function is subject to debugging if a debug info is attached.
-  DECL_GETTER(HasDebugInfo, bool)
-  DECL_GETTER(GetDebugInfo, DebugInfo)
-  inline void SetDebugInfo(DebugInfo debug_info);
 
   // The offset of the 'function' token in the script source relative to the
   // start position. Can return kFunctionTokenOutOfRange if offset doesn't
@@ -443,8 +450,10 @@ class SharedFunctionInfo
   DECL_RELAXED_INT32_ACCESSORS(flags)
   DECL_UINT8_ACCESSORS(flags2)
 
+  DECL_UINT16_ACCESSORS(age)
+
   // True if the outer class scope contains a private brand for
-  // private instance methdos.
+  // private instance methods.
   DECL_BOOLEAN_ACCESSORS(class_scope_has_private_brand)
   DECL_BOOLEAN_ACCESSORS(has_static_private_methods_or_accessors)
 
@@ -601,6 +610,11 @@ class SharedFunctionInfo
                                       Handle<SharedFunctionInfo> shared_info,
                                       FunctionLiteral* lit, bool is_toplevel);
 
+  template <typename IsolateT>
+  static void CreateAndSetUncompiledData(IsolateT* isolate,
+                                         Handle<SharedFunctionInfo> shared_info,
+                                         FunctionLiteral* lit);
+
   // Updates the expected number of properties based on estimate from parser.
   void UpdateExpectedNofPropertiesFromEstimate(FunctionLiteral* literal);
   void UpdateAndFinalizeExpectedNofPropertiesFromEstimate(
@@ -634,6 +648,13 @@ class SharedFunctionInfo
   // JSBuiltinsConstructStub or JSConstructStubGeneric should be called to
   // construct this function.
   inline void CalculateConstructAsBuiltin();
+
+  // Replaces the current age with a new value if the current value matches the
+  // one expected. Returns the value before this operation.
+  inline uint16_t CompareExchangeAge(uint16_t expected_age, uint16_t new_age);
+
+  // Bytecode aging
+  V8_EXPORT_PRIVATE static void EnsureOldForTesting(SharedFunctionInfo sfu);
 
   // Dispatched behavior.
   DECL_PRINTER(SharedFunctionInfo)
@@ -690,6 +711,12 @@ class SharedFunctionInfo
   static void UninstallDebugBytecode(SharedFunctionInfo shared,
                                      Isolate* isolate);
 
+#ifdef DEBUG
+  // Verifies that all SFI::unique_id values on the heap are unique, including
+  // Isolate::new_unique_sfi_id_.
+  static bool UniqueIdsAreUnique(Isolate* isolate);
+#endif  // DEBUG
+
  private:
 #ifdef VERIFY_HEAP
   void SharedFunctionInfoVerify(ReadOnlyRoots roots);
@@ -723,6 +750,11 @@ class SharedFunctionInfo
 
   TQ_OBJECT_CONSTRUCTORS(SharedFunctionInfo)
 };
+
+static constexpr int kStaticRootsSFISize = 44;
+#ifdef V8_STATIC_ROOTS
+static_assert(SharedFunctionInfo::kSize == kStaticRootsSFISize);
+#endif  // V8_STATIC_ROOTS
 
 // Printing support.
 struct SourceCodeOf {

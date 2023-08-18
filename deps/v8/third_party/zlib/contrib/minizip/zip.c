@@ -26,7 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "third_party/zlib/zlib.h"
+#include "zlib.h"
 #include "zip.h"
 
 #ifdef STDC
@@ -1082,6 +1082,12 @@ extern int ZEXPORT zipOpenNewFileInZip4_64 (zipFile file, const char* filename, 
     if ((method!=0) && (method!=Z_DEFLATED))
       return ZIP_PARAMERROR;
 #endif
+
+    // The filename and comment length must fit in 16 bits.
+    if ((filename!=NULL) && (strlen(filename)>0xffff))
+        return ZIP_PARAMERROR;
+    if ((comment!=NULL) && (strlen(comment)>0xffff))
+        return ZIP_PARAMERROR;
 
     zi = (zip64_internal*)file;
 

@@ -18,6 +18,8 @@
 #include <unordered_set>
 
 #include "src/base/functional.h"
+#include "src/base/intrusive-set.h"
+#include "src/base/small-vector.h"
 #include "src/zone/zone-allocator.h"
 
 namespace v8 {
@@ -61,7 +63,7 @@ class ZoneVector {
   // Constructs a new vector and fills it with {size} elements, each
   // constructed via the default constructor.
   ZoneVector(size_t size, Zone* zone) : zone_(zone) {
-    data_ = size > 0 ? zone->NewArray<T>(size) : nullptr;
+    data_ = size > 0 ? zone->AllocateArray<T>(size) : nullptr;
     end_ = capacity_ = data_ + size;
     for (T* p = data_; p < end_; p++) emplace(p);
   }
@@ -69,7 +71,7 @@ class ZoneVector {
   // Constructs a new vector and fills it with {size} elements, each
   // having the value {def}.
   ZoneVector(size_t size, T def, Zone* zone) : zone_(zone) {
-    data_ = size > 0 ? zone->NewArray<T>(size) : nullptr;
+    data_ = size > 0 ? zone->AllocateArray<T>(size) : nullptr;
     end_ = capacity_ = data_ + size;
     for (T* p = data_; p < end_; p++) emplace(p, def);
   }
@@ -79,7 +81,7 @@ class ZoneVector {
   ZoneVector(std::initializer_list<T> list, Zone* zone) : zone_(zone) {
     size_t size = list.size();
     if (size > 0) {
-      data_ = zone->NewArray<T>(size);
+      data_ = zone->AllocateArray<T>(size);
       CopyToNewStorage(data_, list.begin(), list.end());
     } else {
       data_ = nullptr;
@@ -96,7 +98,7 @@ class ZoneVector {
                       std::random_access_iterator_tag,
                       typename std::iterator_traits<It>::iterator_category>) {
       size_t size = last - first;
-      data_ = size > 0 ? zone->NewArray<T>(size) : nullptr;
+      data_ = size > 0 ? zone->AllocateArray<T>(size) : nullptr;
       end_ = capacity_ = data_ + size;
       for (T* p = data_; p < end_; p++) emplace(p, *first++);
     } else {
@@ -144,7 +146,7 @@ class ZoneVector {
       if (data_) zone_->DeleteArray(data_, capacity());
       size_t new_cap = other.capacity();
       if (new_cap > 0) {
-        data_ = zone_->NewArray<T>(new_cap);
+        data_ = zone_->AllocateArray<T>(new_cap);
         CopyToNewStorage(data_, other.data_, other.end_);
       } else {
         data_ = nullptr;
@@ -384,13 +386,13 @@ class ZoneVector {
     return new_capacity < minimum ? minimum : new_capacity;
   }
 
-  void EnsureOneMoreCapacity() {
-    if (end_ < capacity_) return;
+  V8_INLINE void EnsureOneMoreCapacity() {
+    if (V8_LIKELY(end_ < capacity_)) return;
     Grow(capacity() + 1);
   }
 
-  void EnsureCapacity(size_t minimum) {
-    if (minimum <= capacity()) return;
+  V8_INLINE void EnsureCapacity(size_t minimum) {
+    if (V8_LIKELY(minimum <= capacity())) return;
     Grow(minimum);
   }
 
@@ -462,12 +464,12 @@ class ZoneVector {
 
 #undef EMIT_TRIVIAL_CASE
 
-  void Grow(size_t minimum) {
+  V8_NOINLINE V8_PRESERVE_MOST void Grow(size_t minimum) {
     T* old_data = data_;
     T* old_end = end_;
     size_t old_size = size();
     size_t new_capacity = NewCapacity(minimum);
-    data_ = zone_->NewArray<T>(new_capacity);
+    data_ = zone_->AllocateArray<T>(new_capacity);
     end_ = data_ + old_size;
     if (old_data) {
       MoveToNewStorage(data_, old_data, old_end);
@@ -488,7 +490,7 @@ class ZoneVector {
       T* old_end = end_;
       size_t old_size = size();
       size_t new_capacity = NewCapacity(old_size + count);
-      data_ = zone_->NewArray<T>(new_capacity);
+      data_ = zone_->AllocateArray<T>(new_capacity);
       end_ = data_ + old_size + count;
       if (old_data) {
         MoveToNewStorage(data_, old_data, pos);
@@ -588,6 +590,16 @@ bool operator<(const ZoneVector<T>& lhs, const ZoneVector<T>& rhs) {
                                       rhs.end());
 }
 
+template <class T, class GetIntrusiveSetIndex>
+class ZoneIntrusiveSet
+    : public base::IntrusiveSet<T, GetIntrusiveSetIndex, ZoneVector<T>> {
+ public:
+  explicit ZoneIntrusiveSet(Zone* zone, GetIntrusiveSetIndex index_functor = {})
+      : base::IntrusiveSet<T, GetIntrusiveSetIndex, ZoneVector<T>>(
+            ZoneVector<T>(zone), std::move(index_functor)) {}
+};
+using base::IntrusiveSetIndex;
+
 // A wrapper subclass for std::deque to make it easy to construct one
 // that uses a zone allocator.
 template <typename T>
@@ -669,7 +681,7 @@ class ZoneSet : public std::set<K, Compare, ZoneAllocator<K>> {
 template <typename K, typename Compare = std::less<K>>
 class ZoneMultiset : public std::multiset<K, Compare, ZoneAllocator<K>> {
  public:
-  // Constructs an empty set.
+  // Constructs an empty multiset.
   explicit ZoneMultiset(Zone* zone)
       : std::multiset<K, Compare, ZoneAllocator<K>>(Compare(),
                                                     ZoneAllocator<K>(zone)) {}
@@ -710,7 +722,7 @@ template <typename K, typename Hash = base::hash<K>,
 class ZoneUnorderedSet
     : public std::unordered_set<K, Hash, KeyEqual, ZoneAllocator<K>> {
  public:
-  // Constructs an empty map.
+  // Constructs an empty set.
   explicit ZoneUnorderedSet(Zone* zone, size_t bucket_count = 100)
       : std::unordered_set<K, Hash, KeyEqual, ZoneAllocator<K>>(
             bucket_count, Hash(), KeyEqual(), ZoneAllocator<K>(zone)) {}
@@ -727,6 +739,20 @@ class ZoneMultimap
   explicit ZoneMultimap(Zone* zone)
       : std::multimap<K, V, Compare, ZoneAllocator<std::pair<const K, V>>>(
             Compare(), ZoneAllocator<std::pair<const K, V>>(zone)) {}
+};
+
+// A wrapper subclass for base::SmallVector to make it easy to construct one
+// that uses a zone allocator.
+template <typename T, size_t kSize>
+class SmallZoneVector : public base::SmallVector<T, kSize, ZoneAllocator<T>> {
+ public:
+  // Constructs an empty small vector.
+  explicit SmallZoneVector(Zone* zone)
+      : base::SmallVector<T, kSize, ZoneAllocator<T>>(ZoneAllocator<T>(zone)) {}
+
+  explicit SmallZoneVector(size_t size, Zone* zone)
+      : base::SmallVector<T, kSize, ZoneAllocator<T>>(
+            size, ZoneAllocator<T>(ZoneAllocator<T>(zone))) {}
 };
 
 // Typedefs to shorten commonly used vectors.

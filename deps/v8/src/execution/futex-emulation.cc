@@ -258,7 +258,7 @@ enum WaitReturnValue : int { kOk = 0, kNotEqualValue = 1, kTimedOut = 2 };
 namespace {
 
 Object WaitJsTranslateReturn(Isolate* isolate, Object res) {
-  if (res.IsSmi()) {
+  if (IsSmi(res)) {
     int val = Smi::ToInt(res);
     switch (val) {
       case WaitReturnValue::kOk:
@@ -445,7 +445,7 @@ Object FutexEmulation::WaitSync(Isolate* isolate,
       // be false, so we'll loop and then check interrupts.
       if (interrupted) {
         Object interrupt_object = isolate->stack_guard()->HandleInterrupts();
-        if (interrupt_object.IsException(isolate)) {
+        if (IsException(interrupt_object, isolate)) {
           result = handle(interrupt_object, isolate);
           callback_result = AtomicsWaitEvent::kTerminatedExecution;
           lock_guard.Lock();
@@ -522,8 +522,7 @@ FutexWaitListNode::FutexWaitListNode(
   promise_.Reset(v8_isolate, local_promise);
   promise_.SetWeak();
   Handle<NativeContext> native_context(isolate->native_context());
-  v8::Local<v8::Context> local_native_context =
-      Utils::ToLocal(Handle<Context>::cast(native_context));
+  v8::Local<v8::Context> local_native_context = Utils::ToLocal(native_context);
   native_context_.Reset(v8_isolate, local_native_context);
   native_context_.SetWeak();
 }

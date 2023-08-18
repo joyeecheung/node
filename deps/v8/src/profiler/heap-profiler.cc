@@ -91,8 +91,9 @@ HeapSnapshot* HeapProfiler::TakeSnapshot(
     if (result->expose_internals() && heap()->cpp_heap())
       use_cpp_class_name.emplace(heap()->cpp_heap());
 
-    HeapSnapshotGenerator generator(
-        result, options.control, options.global_object_name_resolver, heap());
+    HeapSnapshotGenerator generator(result, options.control,
+                                    options.global_object_name_resolver, heap(),
+                                    options.stack_state);
     if (!generator.GenerateSnapshot()) {
       delete result;
       result = nullptr;
@@ -101,12 +102,12 @@ HeapSnapshot* HeapProfiler::TakeSnapshot(
     }
   }
   ids_->RemoveDeadEntries();
+  if (native_move_listener_) {
+    native_move_listener_->StartListening();
+  }
   is_tracking_object_moves_ = true;
   heap()->isolate()->UpdateLogObjectRelocation();
   is_taking_snapshot_ = false;
-
-  heap()->isolate()->debug()->feature_tracker()->Track(
-      DebugFeatureTracker::kHeapSnapshot);
 
   return result;
 }
@@ -140,14 +141,15 @@ v8::AllocationProfile* HeapProfiler::GetAllocationProfile() {
 
 void HeapProfiler::StartHeapObjectsTracking(bool track_allocations) {
   ids_->UpdateHeapObjectsMap();
+  if (native_move_listener_) {
+    native_move_listener_->StartListening();
+  }
   is_tracking_object_moves_ = true;
   heap()->isolate()->UpdateLogObjectRelocation();
   DCHECK(!allocation_tracker_);
   if (track_allocations) {
     allocation_tracker_.reset(new AllocationTracker(ids_.get(), names_.get()));
     heap()->AddHeapObjectAllocationTracker(this);
-    heap()->isolate()->debug()->feature_tracker()->Track(
-        DebugFeatureTracker::kAllocationTracking);
   }
 }
 
@@ -176,8 +178,7 @@ HeapSnapshot* HeapProfiler::GetSnapshot(int index) {
 }
 
 SnapshotObjectId HeapProfiler::GetSnapshotObjectId(Handle<Object> obj) {
-  if (!obj->IsHeapObject())
-    return v8::HeapProfiler::kUnknownObjectId;
+  if (!IsHeapObject(*obj)) return v8::HeapProfiler::kUnknownObjectId;
   return ids_->FindEntry(HeapObject::cast(*obj).address());
 }
 
@@ -192,10 +193,16 @@ SnapshotObjectId HeapProfiler::GetSnapshotObjectId(NativeObject obj) {
   return id;
 }
 
-void HeapProfiler::ObjectMoveEvent(Address from, Address to, int size) {
+void HeapProfilerNativeMoveListener::ObjectMoveEvent(Address from, Address to,
+                                                     int size) {
+  profiler_->ObjectMoveEvent(from, to, size, /*is_native_object=*/true);
+}
+
+void HeapProfiler::ObjectMoveEvent(Address from, Address to, int size,
+                                   bool is_native_object) {
   base::MutexGuard guard(&profiler_mutex_);
   bool known_object = ids_->MoveObject(from, to, size);
-  if (!known_object && allocation_tracker_) {
+  if (!known_object && allocation_tracker_ && !is_native_object) {
     allocation_tracker_->address_to_trace()->MoveObject(from, to, size);
   }
 }
@@ -234,6 +241,9 @@ Handle<HeapObject> HeapProfiler::FindHeapObjectById(SnapshotObjectId id) {
 void HeapProfiler::ClearHeapObjectMap() {
   ids_.reset(new HeapObjectsMap(heap()));
   if (!allocation_tracker_) {
+    if (native_move_listener_) {
+      native_move_listener_->StopListening();
+    }
     is_tracking_object_moves_ = false;
     heap()->isolate()->UpdateLogObjectRelocation();
   }
@@ -254,10 +264,10 @@ void HeapProfiler::QueryObjects(Handle<Context> context,
         heap(), HeapObjectIterator::kFilterUnreachable);
     for (HeapObject heap_obj = heap_iterator.Next(); !heap_obj.is_null();
          heap_obj = heap_iterator.Next()) {
-      if (heap_obj.IsFeedbackVector()) {
-        FeedbackVector::cast(heap_obj).ClearSlots(isolate());
-      } else if (heap_obj.IsJSTypedArray() &&
-                 JSTypedArray::cast(heap_obj).is_on_heap()) {
+      if (IsFeedbackVector(heap_obj)) {
+        FeedbackVector::cast(heap_obj)->ClearSlots(isolate());
+      } else if (IsJSTypedArray(heap_obj) &&
+                 JSTypedArray::cast(heap_obj)->is_on_heap()) {
         // Cannot call typed_array->GetBuffer() here directly because it may
         // trigger GC. Defer that call by collecting the object in a vector.
         on_heap_typed_arrays.push_back(
@@ -278,8 +288,8 @@ void HeapProfiler::QueryObjects(Handle<Context> context,
   PtrComprCageBase cage_base(isolate());
   for (HeapObject heap_obj = heap_iterator.Next(); !heap_obj.is_null();
        heap_obj = heap_iterator.Next()) {
-    if (!heap_obj.IsJSObject(cage_base) ||
-        heap_obj.IsJSExternalObject(cage_base))
+    if (!IsJSObject(heap_obj, cage_base) ||
+        IsJSExternalObject(heap_obj, cage_base))
       continue;
     v8::Local<v8::Object> v8_obj(
         Utils::ToLocal(handle(JSObject::cast(heap_obj), isolate())));

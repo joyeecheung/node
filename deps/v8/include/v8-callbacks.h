@@ -147,14 +147,18 @@ using JitCodeEventHandler = void (*)(const JitCodeEvent* event);
  * the callback functions, you therefore cannot manipulate objects (set or
  * delete properties for example) since it is possible such operations will
  * result in the allocation of objects.
+ * TODO(v8:12612): Deprecate kGCTypeMinorMarkSweep after updating blink.
  */
 enum GCType {
   kGCTypeScavenge = 1 << 0,
-  kGCTypeMinorMarkCompact = 1 << 1,
+  kGCTypeMinorMarkSweep = 1 << 1,
+  kGCTypeMinorMarkCompact V8_DEPRECATE_SOON(
+      "Use kGCTypeMinorMarkSweep instead of kGCTypeMinorMarkCompact.") =
+      kGCTypeMinorMarkSweep,
   kGCTypeMarkSweepCompact = 1 << 2,
   kGCTypeIncrementalMarking = 1 << 3,
   kGCTypeProcessWeakCallbacks = 1 << 4,
-  kGCTypeAll = kGCTypeScavenge | kGCTypeMinorMarkCompact |
+  kGCTypeAll = kGCTypeScavenge | kGCTypeMinorMarkSweep |
                kGCTypeMarkSweepCompact | kGCTypeIncrementalMarking |
                kGCTypeProcessWeakCallbacks
 };
@@ -323,18 +327,19 @@ using WasmAsyncResolvePromiseCallback = void (*)(
 using WasmLoadSourceMapCallback = Local<String> (*)(Isolate* isolate,
                                                     const char* name);
 
-// --- Callback for checking if WebAssembly Simd is enabled ---
-using WasmSimdEnabledCallback = bool (*)(Local<Context> context);
-
-// --- Callback for checking if WebAssembly exceptions are enabled ---
-using WasmExceptionsEnabledCallback = bool (*)(Local<Context> context);
-
 // --- Callback for checking if WebAssembly GC is enabled ---
 // If the callback returns true, it will also enable Wasm stringrefs.
 using WasmGCEnabledCallback = bool (*)(Local<Context> context);
 
+// --- Callback for checking if WebAssembly imported strings are enabled ---
+using WasmImportedStringsEnabledCallback = bool (*)(Local<Context> context);
+
 // --- Callback for checking if the SharedArrayBuffer constructor is enabled ---
 using SharedArrayBufferConstructorEnabledCallback =
+    bool (*)(Local<Context> context);
+
+// --- Callback for checking if the compile hints magic comments are enabled ---
+using JavaScriptCompileHintsMagicEnabledCallback =
     bool (*)(Local<Context> context);
 
 /**

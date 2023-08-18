@@ -101,6 +101,10 @@ class ExistingCodeLogger {
       LogEventListener::CodeTag tag = LogEventListener::CodeTag::kFunction);
   void LogCodeObject(AbstractCode object);
 
+#if defined(V8_OS_WIN) && defined(V8_ENABLE_ETW_STACK_WALKING)
+  void LogInterpretedFunctions();
+#endif  // V8_OS_WIN && V8_ENABLE_ETW_STACK_WALKING
+
  private:
   Isolate* isolate_;
   LogEventListener* listener_;
@@ -214,7 +218,7 @@ class V8FileLogger : public LogEventListener {
                                   JitCodeEvent::CodeType code_type);
 #if V8_ENABLE_WEBASSEMBLY
   void WasmCodeLinePosInfoRecordEvent(
-      Address code_start, base::Vector<const byte> source_position_table);
+      Address code_start, base::Vector<const uint8_t> source_position_table);
 #endif  // V8_ENABLE_WEBASSEMBLY
 
   void CodeNameEvent(Address addr, int pos, const char* code_name);
@@ -228,6 +232,7 @@ class V8FileLogger : public LogEventListener {
                 Handle<HeapObject> name_or_sfi = Handle<HeapObject>());
   void MapCreate(Map map);
   void MapDetails(Map map);
+  void MapMoveEvent(Map from, Map to);
 
   void SharedLibraryEvent(const std::string& library_path, uintptr_t start,
                           uintptr_t end, intptr_t aslr_slide);
@@ -240,24 +245,21 @@ class V8FileLogger : public LogEventListener {
   static void EnterExternal(Isolate* isolate);
   static void LeaveExternal(Isolate* isolate);
 
-  static void DefaultEventLoggerSentinel(const char* name, int event) {}
-
-  V8_INLINE static void CallEventLoggerInternal(Isolate* isolate,
-                                                const char* name,
-                                                v8::LogEventStatus se,
-                                                bool expose_to_api) {
-    if (isolate->event_logger() == DefaultEventLoggerSentinel) {
-      LOG(isolate, TimerEvent(se, name));
-    } else if (expose_to_api) {
-      isolate->event_logger()(name, static_cast<v8::LogEventStatus>(se));
+  V8_NOINLINE V8_PRESERVE_MOST static void CallEventLoggerInternal(
+      Isolate* isolate, const char* name, v8::LogEventStatus se,
+      bool expose_to_api) {
+    LOG(isolate, TimerEvent(se, name));
+    if (V8_UNLIKELY(isolate->event_logger())) {
+      isolate->event_logger()(name, se);
     }
   }
 
   V8_INLINE static void CallEventLogger(Isolate* isolate, const char* name,
                                         v8::LogEventStatus se,
                                         bool expose_to_api) {
-    if (!isolate->event_logger()) return;
-    CallEventLoggerInternal(isolate, name, se, expose_to_api);
+    if (V8_UNLIKELY(v8_flags.log_timer_events)) {
+      CallEventLoggerInternal(isolate, name, se, expose_to_api);
+    }
   }
 
   V8_EXPORT_PRIVATE bool is_logging();
@@ -268,6 +270,14 @@ class V8FileLogger : public LogEventListener {
         etw_jit_logger_ != nullptr ||
 #endif
         is_logging() || jit_logger_ != nullptr;
+  }
+
+  bool allows_code_compaction() override {
+#if defined(V8_OS_WIN) && defined(V8_ENABLE_ETW_STACK_WALKING)
+    return etw_jit_logger_ == nullptr;
+#else
+    return true;
+#endif
   }
 
   void LogExistingFunction(Handle<SharedFunctionInfo> shared,
@@ -285,6 +295,10 @@ class V8FileLogger : public LogEventListener {
 
   // Converts tag to a corresponding NATIVE_... if the script is native.
   V8_INLINE static CodeTag ToNativeByScript(CodeTag tag, Script script);
+
+#if defined(V8_OS_WIN) && defined(V8_ENABLE_ETW_STACK_WALKING)
+  void LogInterpretedFunctions();
+#endif  // V8_OS_WIN && V8_ENABLE_ETW_STACK_WALKING
 
  private:
   void UpdateIsLogging(bool value);
