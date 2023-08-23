@@ -17,9 +17,23 @@ if (process.argv[2] === 'child') {
   console.log('parent prof file:', parentProf);
 
   const { Worker } = require('worker_threads');
-  const w = new Worker(fixtures.path('workload', 'spin.js'), {
-    env: { NODE_TEST_SPIN_MS: 1000 }
+  const w = new Worker(fixtures.path('workload', 'spin-and-log.js'), {
+    stdin: true,
+    stdout: true,
   });
+
+  const SPIN_MS = 1000;
+  let start = Date.now();
+  function write() {
+    w.stdin.write('0', () => {
+      if (Date.now() - start < SPIN_MS) {
+        setImmediate(write);
+      } else {
+        w.stdin.write('1');
+      }
+    });
+  }
+  write();
 
   w.on('exit', common.mustCall(() => {
     files = fs.readdirSync(process.cwd());
