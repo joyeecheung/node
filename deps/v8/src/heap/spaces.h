@@ -20,6 +20,7 @@
 #include "src/heap/list.h"
 #include "src/heap/memory-chunk-layout.h"
 #include "src/heap/memory-chunk.h"
+#include "src/heap/page.h"
 #include "src/heap/slot-set.h"
 #include "src/objects/objects.h"
 #include "src/utils/allocation.h"
@@ -41,7 +42,6 @@ class Isolate;
 class LargeObjectSpace;
 class LargePage;
 class ObjectIterator;
-class Page;
 class PagedSpaceBase;
 class SemiSpace;
 
@@ -113,10 +113,10 @@ class SemiSpace;
 // sealed after startup (i.e. not ReadOnlySpace).
 class V8_EXPORT_PRIVATE Space : public BaseSpace {
  public:
-  Space(Heap* heap, AllocationSpace id, FreeList* free_list,
+  Space(Heap* heap, AllocationSpace id, std::unique_ptr<FreeList> free_list,
         AllocationCounter& allocation_counter)
       : BaseSpace(heap, id),
-        free_list_(std::unique_ptr<FreeList>(free_list)),
+        free_list_(std::move(free_list)),
         allocation_counter_(allocation_counter) {
     external_backing_store_bytes_ =
         new std::atomic<size_t>[ExternalBackingStoreType::kNumTypes];
@@ -205,145 +205,13 @@ class V8_EXPORT_PRIVATE Space : public BaseSpace {
  protected:
   // The List manages the pages that belong to the given space.
   heap::List<MemoryChunk> memory_chunk_list_;
-
   // Tracks off-heap memory used by this space.
   std::atomic<size_t>* external_backing_store_bytes_;
-
   std::unique_ptr<FreeList> free_list_;
-
   AllocationCounter& allocation_counter_;
 };
 
 static_assert(sizeof(std::atomic<intptr_t>) == kSystemPointerSize);
-
-// -----------------------------------------------------------------------------
-// A page is a memory chunk of a size 256K. Large object pages may be larger.
-//
-// The only way to get a page pointer is by calling factory methods:
-//   Page* p = Page::FromAddress(addr); or
-//   Page* p = Page::FromAllocationAreaAddress(address);
-class Page : public MemoryChunk {
- public:
-  // Page flags copied from from-space to to-space when flipping semispaces.
-  static constexpr MainThreadFlags kCopyOnFlipFlagsMask =
-      MainThreadFlags(MemoryChunk::POINTERS_TO_HERE_ARE_INTERESTING) |
-      MainThreadFlags(MemoryChunk::POINTERS_FROM_HERE_ARE_INTERESTING) |
-      MainThreadFlags(MemoryChunk::INCREMENTAL_MARKING);
-
-  Page(Heap* heap, BaseSpace* space, size_t size, Address area_start,
-       Address area_end, VirtualMemory reservation, Executability executable);
-
-  // Returns the page containing a given address. The address ranges
-  // from [page_addr .. page_addr + kPageSize]. This only works if the object
-  // is in fact in a page.
-  static Page* FromAddress(Address addr) {
-    DCHECK(!V8_ENABLE_THIRD_PARTY_HEAP_BOOL);
-    return reinterpret_cast<Page*>(addr & ~kPageAlignmentMask);
-  }
-  static Page* FromHeapObject(HeapObject o) {
-    DCHECK(!V8_ENABLE_THIRD_PARTY_HEAP_BOOL);
-    return reinterpret_cast<Page*>(o.ptr() & ~kAlignmentMask);
-  }
-
-  static Page* cast(MemoryChunk* chunk) {
-    DCHECK(!chunk->IsLargePage());
-    return static_cast<Page*>(chunk);
-  }
-
-  // Returns the page containing the address provided. The address can
-  // potentially point righter after the page. To be also safe for tagged values
-  // we subtract a hole word. The valid address ranges from
-  // [page_addr + area_start_ .. page_addr + kPageSize + kTaggedSize].
-  static Page* FromAllocationAreaAddress(Address address) {
-    DCHECK(!V8_ENABLE_THIRD_PARTY_HEAP_BOOL);
-    return Page::FromAddress(address - kTaggedSize);
-  }
-
-  // Checks if address1 and address2 are on the same new space page.
-  static bool OnSamePage(Address address1, Address address2) {
-    return Page::FromAddress(address1) == Page::FromAddress(address2);
-  }
-
-  // Checks whether an address is page aligned.
-  static bool IsAlignedToPageSize(Address addr) {
-    return (addr & kPageAlignmentMask) == 0;
-  }
-
-  static Page* ConvertNewToOld(Page* old_page);
-
-  inline void MarkNeverAllocateForTesting();
-  inline void MarkEvacuationCandidate();
-  inline void ClearEvacuationCandidate();
-
-  Page* next_page() { return static_cast<Page*>(list_node_.next()); }
-  Page* prev_page() { return static_cast<Page*>(list_node_.prev()); }
-
-  const Page* next_page() const {
-    return static_cast<const Page*>(list_node_.next());
-  }
-  const Page* prev_page() const {
-    return static_cast<const Page*>(list_node_.prev());
-  }
-
-  template <typename Callback>
-  inline void ForAllFreeListCategories(Callback callback) {
-    for (int i = kFirstCategory;
-         i < owner()->free_list()->number_of_categories(); i++) {
-      callback(categories_[i]);
-    }
-  }
-
-  V8_EXPORT_PRIVATE size_t AvailableInFreeList();
-
-  size_t AvailableInFreeListFromAllocatedBytes() {
-    DCHECK_GE(area_size(), wasted_memory() + allocated_bytes());
-    return area_size() - wasted_memory() - allocated_bytes();
-  }
-
-  FreeListCategory* free_list_category(FreeListCategoryType type) {
-    return categories_[type];
-  }
-
-  V8_EXPORT_PRIVATE size_t ShrinkToHighWaterMark();
-
-  V8_EXPORT_PRIVATE void CreateBlackArea(Address start, Address end);
-  V8_EXPORT_PRIVATE void CreateBlackAreaBackground(Address start, Address end);
-  void DestroyBlackArea(Address start, Address end);
-  void DestroyBlackAreaBackground(Address start, Address end);
-
-  void InitializeFreeListCategories();
-  void AllocateFreeListCategories();
-  void ReleaseFreeListCategories();
-
-  ActiveSystemPages* active_system_pages() { return active_system_pages_; }
-
-  template <RememberedSetType remembered_set>
-  void ClearTypedSlotsInFreeMemory(const TypedSlotSet::FreeRangesMap& ranges) {
-    TypedSlotSet* typed_slot_set = this->typed_slot_set<remembered_set>();
-    if (typed_slot_set != nullptr) {
-      typed_slot_set->ClearInvalidSlots(ranges);
-    }
-  }
-
-  template <RememberedSetType remembered_set>
-  void AssertNoTypedSlotsInFreeMemory(
-      const TypedSlotSet::FreeRangesMap& ranges) {
-#if DEBUG
-    TypedSlotSet* typed_slot_set = this->typed_slot_set<OLD_TO_OLD>();
-    if (typed_slot_set != nullptr) {
-      typed_slot_set->AssertNoInvalidSlots(ranges);
-    }
-#endif  // DEBUG
-  }
-
- private:
-  friend class MemoryAllocator;
-};
-
-// Validate our estimates on the header size.
-static_assert(sizeof(BasicMemoryChunk) <= BasicMemoryChunk::kHeaderSize);
-static_assert(sizeof(MemoryChunk) <= MemoryChunk::kHeaderSize);
-static_assert(sizeof(Page) <= MemoryChunk::kHeaderSize);
 
 // -----------------------------------------------------------------------------
 // Interface for heap object iterator to be implemented by all object space
@@ -356,7 +224,7 @@ class V8_EXPORT_PRIVATE ObjectIterator : public Malloced {
   // compiler producing warnings about undefined inlines for Next()
   // on classes inheriting from it.
   virtual ~ObjectIterator() {}
-  virtual HeapObject Next() = 0;
+  virtual Tagged<HeapObject> Next() = 0;
 };
 
 template <class PAGE_TYPE>
@@ -388,7 +256,7 @@ class PageRange {
  public:
   using iterator = PageIterator;
   PageRange(Page* begin, Page* end) : begin_(begin), end_(end) {}
-  explicit PageRange(Page* page) : PageRange(page, page->next_page()) {}
+  inline explicit PageRange(Page* page);
   inline PageRange(Address start, Address limit);
 
   iterator begin() { return iterator(begin_); }
@@ -404,8 +272,7 @@ class ConstPageRange {
   using iterator = ConstPageIterator;
   ConstPageRange(const Page* begin, const Page* end)
       : begin_(begin), end_(end) {}
-  explicit ConstPageRange(const Page* page)
-      : ConstPageRange(page, page->next_page()) {}
+  inline explicit ConstPageRange(const Page* page);
   inline ConstPageRange(Address start, Address limit);
 
   iterator begin() { return iterator(begin_); }
@@ -521,11 +388,12 @@ class LinearAreaOriginalData {
 
 class SpaceWithLinearArea : public Space {
  public:
-  SpaceWithLinearArea(Heap* heap, AllocationSpace id, FreeList* free_list,
+  SpaceWithLinearArea(Heap* heap, AllocationSpace id,
+                      std::unique_ptr<FreeList> free_list,
                       AllocationCounter& allocation_counter,
                       LinearAllocationArea& allocation_info,
                       LinearAreaOriginalData& linear_area_original_data)
-      : Space(heap, id, free_list, allocation_counter),
+      : Space(heap, id, std::move(free_list), allocation_counter),
         allocation_info_(allocation_info),
         linear_area_original_data_(linear_area_original_data) {}
 

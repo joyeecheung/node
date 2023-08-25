@@ -8,7 +8,8 @@
 #include <stack>
 #include <vector>
 
-#include "src/deoptimizer/translation-array.h"
+#include "src/deoptimizer/frame-translation-builder.h"
+#include "src/objects/deoptimization-data.h"
 #include "src/objects/feedback-vector.h"
 #include "src/objects/heap-object.h"
 #include "src/objects/shared-function-info.h"
@@ -27,15 +28,15 @@ class TranslatedState;
 // TODO(jgruber): This duplicates decoding logic already present in
 // TranslatedState/TranslatedFrame. Deduplicate into one class, e.g. by basing
 // printing off TranslatedFrame.
-void TranslationArrayPrintSingleFrame(std::ostream& os,
-                                      TranslationArray translation_array,
-                                      int translation_index,
-                                      DeoptimizationLiteralArray literal_array);
+void DeoptimizationFrameTranslationPrintSingleOpcode(
+    std::ostream& os, TranslationOpcode opcode,
+    DeoptimizationFrameTranslation::Iterator& iterator,
+    DeoptimizationLiteralArray literal_array);
 
 // The Translated{Value,Frame,State} class hierarchy are a set of utility
 // functions to work with the combination of translations (built from a
-// TranslationArray) and the actual current CPU state (represented by
-// RegisterValues).
+// DeoptimizationFrameTranslation) and the actual current CPU state (represented
+// by RegisterValues).
 //
 // TranslatedState: describes the entire stack state of the current optimized
 // frame, contains:
@@ -78,6 +79,7 @@ class TranslatedValue {
     kBoolBit,
     kFloat,
     kDouble,
+    kHoleyDouble,
     kCapturedObject,   // Object captured by the escape analysis.
                        // The number of nested objects can be obtained
                        // with the DeferredObjectLength() method
@@ -108,6 +110,8 @@ class TranslatedValue {
   static TranslatedValue NewDuplicateObject(TranslatedState* container, int id);
   static TranslatedValue NewFloat(TranslatedState* container, Float32 value);
   static TranslatedValue NewDouble(TranslatedState* container, Float64 value);
+  static TranslatedValue NewHoleyDouble(TranslatedState* container,
+                                        Float64 value);
   static TranslatedValue NewInt32(TranslatedState* container, int32_t value);
   static TranslatedValue NewInt64(TranslatedState* container, int64_t value);
   static TranslatedValue NewInt64ToBigInt(TranslatedState* container,
@@ -161,7 +165,7 @@ class TranslatedValue {
     int64_t int64_value_;
     // kind is kFloat
     Float32 float_value_;
-    // kind is kDouble
+    // kind is kDouble or kHoleyDouble
     Float64 double_value_;
     // kind is kDuplicatedObject or kCapturedObject.
     MaterializedObjectInfo materialization_info_;
@@ -184,9 +188,11 @@ class TranslatedFrame {
   enum Kind {
     kUnoptimizedFunction,
     kInlinedExtraArguments,
-    kConstructStub,
+    kConstructCreateStub,
+    kConstructInvokeStub,
     kBuiltinContinuation,
 #if V8_ENABLE_WEBASSEMBLY
+    kWasmInlinedIntoJS,
     kJSToWasmBuiltinContinuation,
 #endif  // V8_ENABLE_WEBASSEMBLY
     kJavaScriptBuiltinContinuation,
@@ -284,12 +290,16 @@ class TranslatedFrame {
                                        SharedFunctionInfo shared_info);
   static TranslatedFrame InlinedExtraArguments(SharedFunctionInfo shared_info,
                                                int height);
-  static TranslatedFrame ConstructStubFrame(BytecodeOffset bailout_id,
-                                            SharedFunctionInfo shared_info,
-                                            int height);
+  static TranslatedFrame ConstructCreateStubFrame(
+      SharedFunctionInfo shared_info, int height);
+  static TranslatedFrame ConstructInvokeStubFrame(
+      SharedFunctionInfo shared_info);
   static TranslatedFrame BuiltinContinuationFrame(
       BytecodeOffset bailout_id, SharedFunctionInfo shared_info, int height);
 #if V8_ENABLE_WEBASSEMBLY
+  static TranslatedFrame WasmInlinedIntoJSFrame(BytecodeOffset bailout_id,
+                                                SharedFunctionInfo shared_info,
+                                                int height);
   static TranslatedFrame JSToWasmBuiltinContinuationFrame(
       BytecodeOffset bailout_id, SharedFunctionInfo shared_info, int height,
       base::Optional<wasm::ValueKind> return_type);
@@ -387,7 +397,8 @@ class TranslatedState {
   Isolate* isolate() { return isolate_; }
 
   void Init(Isolate* isolate, Address input_frame_pointer,
-            Address stack_frame_pointer, TranslationArrayIterator* iterator,
+            Address stack_frame_pointer,
+            DeoptimizationFrameTranslation::Iterator* iterator,
             DeoptimizationLiteralArray literal_array, RegisterValues* registers,
             FILE* trace_file, int parameter_count, int actual_argument_count);
 
@@ -404,13 +415,12 @@ class TranslatedState {
   enum Purpose { kDeoptimization, kFrameInspection };
 
   TranslatedFrame CreateNextTranslatedFrame(
-      TranslationArrayIterator* iterator,
+      DeoptimizationFrameTranslation::Iterator* iterator,
       DeoptimizationLiteralArray literal_array, Address fp, FILE* trace_file);
-  int CreateNextTranslatedValue(int frame_index,
-                                TranslationArrayIterator* iterator,
-                                DeoptimizationLiteralArray literal_array,
-                                Address fp, RegisterValues* registers,
-                                FILE* trace_file);
+  int CreateNextTranslatedValue(
+      int frame_index, DeoptimizationFrameTranslation::Iterator* iterator,
+      DeoptimizationLiteralArray literal_array, Address fp,
+      RegisterValues* registers, FILE* trace_file);
   Address DecompressIfNeeded(intptr_t value);
   void CreateArgumentsElementsTranslatedValues(int frame_index,
                                                Address input_frame_pointer,
@@ -445,7 +455,7 @@ class TranslatedState {
       TranslatedFrame* frame, int* value_index, TranslatedValue* slot,
       Handle<Map> map, const DisallowGarbageCollection& no_gc);
 
-  void ReadUpdateFeedback(TranslationArrayIterator* iterator,
+  void ReadUpdateFeedback(DeoptimizationFrameTranslation::Iterator* iterator,
                           DeoptimizationLiteralArray literal_array,
                           FILE* trace_file);
 

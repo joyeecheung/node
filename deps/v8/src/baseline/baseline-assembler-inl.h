@@ -48,7 +48,7 @@ namespace baseline {
 
 #define __ masm_->
 
-void BaselineAssembler::GetCode(Isolate* isolate, CodeDesc* desc) {
+void BaselineAssembler::GetCode(LocalIsolate* isolate, CodeDesc* desc) {
   __ GetCode(isolate, desc);
 }
 int BaselineAssembler::pc_offset() const { return __ pc_offset(); }
@@ -142,15 +142,6 @@ void BaselineAssembler::StoreRegister(interpreter::Register output,
 template <typename Field>
 void BaselineAssembler::DecodeField(Register reg) {
   __ DecodeField<Field>(reg);
-}
-
-SaveAccumulatorScope::SaveAccumulatorScope(BaselineAssembler* assembler)
-    : assembler_(assembler) {
-  assembler_->Push(kInterpreterAccumulatorRegister);
-}
-
-SaveAccumulatorScope::~SaveAccumulatorScope() {
-  assembler_->Pop(kInterpreterAccumulatorRegister);
 }
 
 EnsureAccumulatorPreservedScope::EnsureAccumulatorPreservedScope(

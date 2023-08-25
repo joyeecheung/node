@@ -119,10 +119,10 @@ Code Interpreter::GetBytecodeHandler(Bytecode bytecode,
 
 void Interpreter::SetBytecodeHandler(Bytecode bytecode,
                                      OperandScale operand_scale, Code handler) {
-  DCHECK(!handler.has_instruction_stream());
-  DCHECK(handler.kind() == CodeKind::BYTECODE_HANDLER);
+  DCHECK(!handler->has_instruction_stream());
+  DCHECK(handler->kind() == CodeKind::BYTECODE_HANDLER);
   size_t index = GetDispatchTableIndex(bytecode, operand_scale);
-  dispatch_table_[index] = handler.InstructionStart();
+  dispatch_table_[index] = handler->instruction_start();
 }
 
 // static
@@ -194,7 +194,7 @@ InterpreterCompilationJob::Status InterpreterCompilationJob::ExecuteJobImpl() {
     MaybePrintAst(parse_info(), compilation_info());
   }
 
-  ParkedScope parked_scope(local_isolate_);
+  ParkedScopeIfOnBackground parked_scope(local_isolate_);
 
   generator()->GenerateBytecode(stack_limit());
 
@@ -227,9 +227,9 @@ void InterpreterCompilationJob::CheckAndPrintBytecodeMismatch(
       std::cerr << "anonymous";
     }
     Object script_name = script->GetNameOrSourceURL();
-    if (script_name.IsString()) {
+    if (IsString(script_name)) {
       std::cerr << " ";
-      String::cast(script_name).PrintUC16(std::cerr);
+      String::cast(script_name)->PrintUC16(std::cerr);
       std::cerr << ":" << parse_info()->literal()->start_position();
     }
 #endif
@@ -343,7 +343,7 @@ void Interpreter::Initialize() {
   Handle<Code> code = BUILTIN_CODE(isolate_, InterpreterEntryTrampoline);
   DCHECK(builtins->is_initialized());
   DCHECK(!code->has_instruction_stream());
-  interpreter_entry_trampoline_instruction_start_ = code->InstructionStart();
+  interpreter_entry_trampoline_instruction_start_ = code->instruction_start();
 
   // Initialize the dispatch table.
   ForEachBytecode([=](Bytecode bytecode, OperandScale operand_scale) {

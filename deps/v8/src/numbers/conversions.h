@@ -16,8 +16,6 @@ namespace v8 {
 namespace internal {
 
 class BigInt;
-template <typename T>
-class Handle;
 
 // The limit for the the fractionDigits/precision for toFixed, toPrecision
 // and toExponential.
@@ -170,6 +168,7 @@ inline uint64_t PositiveNumberToUint64(Object number);
 
 double StringToDouble(Isolate* isolate, Handle<String> string, int flags,
                       double empty_string_val = 0.0);
+double FlatStringToDouble(String string, int flags, double empty_string_val);
 
 // String to double helper without heap allocation.
 // Returns base::nullopt if the string is longer than

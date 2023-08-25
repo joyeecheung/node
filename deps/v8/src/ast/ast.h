@@ -13,6 +13,7 @@
 #include "src/base/pointer-with-payload.h"
 #include "src/base/threaded-list.h"
 #include "src/codegen/bailout-reason.h"
+#include "src/codegen/handler-table.h"
 #include "src/codegen/label.h"
 #include "src/common/globals.h"
 #include "src/heap/factory.h"
@@ -1978,6 +1979,7 @@ class CompareOperation final : public Expression {
   bool IsLiteralStrictCompareBoolean(Expression** expr, Literal** literal);
   bool IsLiteralCompareUndefined(Expression** expr);
   bool IsLiteralCompareNull(Expression** expr);
+  bool IsLiteralCompareEqualVariable(Expression** expr, Literal** literal);
 
  private:
   friend class AstNodeFactory;

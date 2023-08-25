@@ -717,7 +717,7 @@ void TracedHandlesImpl::Copy(const TracedNode& from_node, Address** to) {
   SetSlotThreadSafe(to, o.location());
 #ifdef VERIFY_HEAP
   if (v8_flags.verify_heap) {
-    Object(**to).ObjectVerify(isolate_);
+    Object::ObjectVerify(Object(**to), isolate_);
   }
 #endif  // VERIFY_HEAP
 }
@@ -912,6 +912,12 @@ void TracedHandlesImpl::ProcessYoungObjects(
   auto* const handler = isolate_->heap()->GetEmbedderRootsHandler();
   if (!handler) return;
 
+  // If CppGC is attached, since the embeeder may trigger allocations in
+  // ResetRoot().
+  if (auto* cpp_heap = CppHeap::From(isolate_->heap()->cpp_heap())) {
+    cpp_heap->EnterNoGCScope();
+  }
+
   for (TracedNode* node : young_nodes_) {
     if (!node->is_in_use()) continue;
 
@@ -934,6 +940,10 @@ void TracedHandlesImpl::ProcessYoungObjects(
         }
       }
     }
+  }
+
+  if (auto* cpp_heap = CppHeap::From(isolate_->heap()->cpp_heap())) {
+    cpp_heap->LeaveNoGCScope();
   }
 }
 

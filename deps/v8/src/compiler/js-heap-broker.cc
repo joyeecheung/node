@@ -9,6 +9,7 @@
 #endif
 
 #include "src/codegen/optimized-compilation-info.h"
+#include "src/compiler/js-heap-broker-inl.h"
 #include "src/handles/handles-inl.h"
 #include "src/heap/heap-inl.h"
 #include "src/objects/allocation-site-inl.h"
@@ -54,27 +55,6 @@ JSHeapBroker::JSHeapBroker(Isolate* isolate, Zone* broker_zone,
 
 JSHeapBroker::~JSHeapBroker() { DCHECK_NULL(local_isolate_); }
 
-void JSHeapBroker::SetPersistentAndCopyCanonicalHandlesForTesting(
-    std::unique_ptr<PersistentHandles> persistent_handles,
-    std::unique_ptr<CanonicalHandlesMap> canonical_handles) {
-  set_persistent_handles(std::move(persistent_handles));
-  CopyCanonicalHandlesForTesting(std::move(canonical_handles));
-}
-
-void JSHeapBroker::CopyCanonicalHandlesForTesting(
-    std::unique_ptr<CanonicalHandlesMap> canonical_handles) {
-  DCHECK_NULL(canonical_handles_);
-  canonical_handles_ = std::make_unique<CanonicalHandlesMap>(
-      isolate_->heap(), ZoneAllocationPolicy(zone()));
-
-  CanonicalHandlesMap::IteratableScope it_scope(canonical_handles.get());
-  for (auto it = it_scope.begin(); it != it_scope.end(); ++it) {
-    Address* entry = *it.entry();
-    Object key = it.key();
-    canonical_handles_->Insert(key, entry);
-  }
-}
-
 std::string JSHeapBroker::Trace() const {
   std::ostringstream oss;
   oss << "[" << this << "] ";
@@ -102,7 +82,6 @@ JSHeapBroker* JSHeapBroker::Current() {
 
 void JSHeapBroker::AttachLocalIsolate(OptimizedCompilationInfo* info,
                                       LocalIsolate* local_isolate) {
-  set_canonical_handles(info->DetachCanonicalHandles());
   DCHECK_NULL(local_isolate_);
   local_isolate_ = local_isolate;
   DCHECK_NOT_NULL(local_isolate_);
@@ -116,7 +95,6 @@ void JSHeapBroker::DetachLocalIsolate(OptimizedCompilationInfo* info) {
   std::unique_ptr<PersistentHandles> ph =
       local_isolate_->heap()->DetachPersistentHandles();
   local_isolate_ = nullptr;
-  info->set_canonical_handles(DetachCanonicalHandles());
   info->set_persistent_handles(std::move(ph));
 }
 
@@ -134,9 +112,7 @@ void JSHeapBroker::Retire() {
 
 void JSHeapBroker::SetTargetNativeContextRef(
     Handle<NativeContext> native_context) {
-  DCHECK((mode() == kDisabled && !target_native_context_.has_value()) ||
-         (mode() == kSerializing &&
-          target_native_context_->object().is_identical_to(native_context)));
+  DCHECK(!target_native_context_.has_value());
   target_native_context_ = MakeRef(this, *native_context);
 }
 
@@ -146,14 +122,15 @@ void JSHeapBroker::CollectArrayAndObjectPrototypes() {
   CHECK(array_and_object_prototypes_.empty());
 
   Object maybe_context = isolate()->heap()->native_contexts_list();
-  while (!maybe_context.IsUndefined(isolate())) {
+  while (!IsUndefined(maybe_context, isolate())) {
     Context context = Context::cast(maybe_context);
-    Object array_prot = context.get(Context::INITIAL_ARRAY_PROTOTYPE_INDEX);
-    Object object_prot = context.get(Context::INITIAL_OBJECT_PROTOTYPE_INDEX);
-    array_and_object_prototypes_.emplace(JSObject::cast(array_prot), isolate());
-    array_and_object_prototypes_.emplace(JSObject::cast(object_prot),
-                                         isolate());
-    maybe_context = context.next_context_link();
+    Object array_prot = context->get(Context::INITIAL_ARRAY_PROTOTYPE_INDEX);
+    Object object_prot = context->get(Context::INITIAL_OBJECT_PROTOTYPE_INDEX);
+    array_and_object_prototypes_.emplace(
+        CanonicalPersistentHandle(JSObject::cast(array_prot)));
+    array_and_object_prototypes_.emplace(
+        CanonicalPersistentHandle(JSObject::cast(object_prot)));
+    maybe_context = context->next_context_link();
   }
 
   CHECK(!array_and_object_prototypes_.empty());
@@ -173,7 +150,7 @@ StringRef JSHeapBroker::GetTypedArrayStringTag(ElementsKind kind) {
   }
 }
 
-bool JSHeapBroker::IsArrayOrObjectPrototype(const JSObjectRef& object) const {
+bool JSHeapBroker::IsArrayOrObjectPrototype(JSObjectRef object) const {
   return IsArrayOrObjectPrototype(object.object());
 }
 
@@ -219,7 +196,7 @@ bool JSHeapBroker::ObjectMayBeUninitialized(Handle<Object> object) const {
 }
 
 bool JSHeapBroker::ObjectMayBeUninitialized(Object object) const {
-  if (!object.IsHeapObject()) return false;
+  if (!IsHeapObject(object)) return false;
   return ObjectMayBeUninitialized(HeapObject::cast(object));
 }
 
@@ -442,7 +419,7 @@ MegaDOMPropertyAccessFeedback::MegaDOMPropertyAccessFeedback(
   DCHECK(IsLoadICKind(slot_kind));
 }
 
-NamedAccessFeedback::NamedAccessFeedback(NameRef const& name,
+NamedAccessFeedback::NamedAccessFeedback(NameRef name,
                                          ZoneVector<MapRef> const& maps,
                                          FeedbackSlotKind slot_kind)
     : ProcessedFeedback(kNamedAccess, slot_kind), name_(name), maps_(maps) {
@@ -582,10 +559,10 @@ ProcessedFeedback const& JSHeapBroker::ReadFeedbackForGlobalAccess(
   Handle<Object> feedback_value =
       CanonicalPersistentHandle(nexus.GetFeedback()->GetHeapObjectOrSmi());
 
-  if (feedback_value->IsSmi()) {
+  if (IsSmi(*feedback_value)) {
     // The wanted name belongs to a script-scope variable and the feedback
     // tells us where to find its value.
-    int const number = feedback_value->Number();
+    int const number = Object::Number(*feedback_value);
     int const script_context_index =
         FeedbackNexus::ContextIndexBits::decode(number);
     int const context_slot_index = FeedbackNexus::SlotIndexBits::decode(number);
@@ -596,14 +573,14 @@ ProcessedFeedback const& JSHeapBroker::ReadFeedbackForGlobalAccess(
                   ->get_context(script_context_index, kAcquireLoad));
 
     OptionalObjectRef contents = context.get(broker, context_slot_index);
-    if (contents.has_value()) CHECK(!contents->IsTheHole(broker));
+    if (contents.has_value()) CHECK(!contents->IsTheHole());
 
     return *zone()->New<GlobalAccessFeedback>(
         context, context_slot_index,
         FeedbackNexus::ImmutabilityBit::decode(number), nexus.kind());
   }
 
-  CHECK(feedback_value->IsPropertyCell());
+  CHECK(IsPropertyCell(*feedback_value));
   // The wanted name belongs (or did belong) to a property on the global
   // object and the feedback is the cell holding its value.
   return *zone()->New<GlobalAccessFeedback>(
@@ -844,7 +821,7 @@ ElementAccessFeedback const& JSHeapBroker::ProcessFeedbackMapsForElementAccess(
   ZoneRefMap<MapRef, TransitionGroup> transition_groups(zone());
 
   // Separate the actual receiver maps and the possible transition sources.
-  for (const MapRef& map : maps) {
+  for (MapRef map : maps) {
     Map transition_target;
 
     // Don't generate elements kind transitions from stable maps.

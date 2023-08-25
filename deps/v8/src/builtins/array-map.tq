@@ -14,7 +14,7 @@ ArrayMapPreLoopLazyDeoptContinuation(
   const numberLength = Cast<Number>(length) otherwise unreachable;
 
   const callbackfn = Cast<Callable>(callback)
-      otherwise ThrowTypeError(MessageTemplate::kCalledNonCallable, callback);
+      otherwise ThrowCalledNonCallable(callback);
   return ArrayMapLoopContinuation(
       jsreceiver, callbackfn, thisArg, outputArray, jsreceiver, kZero,
       numberLength);
@@ -129,8 +129,8 @@ struct Vector {
       // We need to allocate and copy.
       // First, initialize the elements field before allocation to prevent
       // heap corruption.
-      const elements: FixedDoubleArray = AllocateFixedDoubleArrayWithHoles(
-          SmiUntag(length), AllocationFlag::kAllowLargeObjectAllocation);
+      const elements: FixedDoubleArray =
+          AllocateFixedDoubleArrayWithHoles(SmiUntag(length));
       a = NewJSArray(map, this.fixedArray);
       for (let i: Smi = 0; i < validLength; i++) {
         typeswitch (
@@ -179,8 +179,7 @@ struct Vector {
 
 macro NewVector(implicit context: Context)(length: Smi): Vector {
   const fixedArray = length > 0 ?
-      AllocateFixedArrayWithHoles(
-          SmiUntag(length), AllocationFlag::kAllowLargeObjectAllocation) :
+      AllocateFixedArrayWithHoles(SmiUntag(length)) :
       kEmptyFixedArray;
   return Vector{
     fixedArray,
@@ -269,7 +268,7 @@ ArrayMap(
 
     return ArrayMapLoopContinuation(o, callbackfn, thisArg, array, o, k, len);
   } label TypeError deferred {
-    ThrowTypeError(MessageTemplate::kCalledNonCallable, arguments[0]);
+    ThrowCalledNonCallable(arguments[0]);
   }
 }
 }

@@ -13,6 +13,7 @@
 #include "src/heap/spaces-inl.h"
 #include "src/objects/objects-inl.h"
 #include "src/objects/tagged-impl.h"
+#include "src/objects/tagged.h"
 
 namespace v8 {
 namespace internal {
@@ -28,7 +29,13 @@ bool SemiSpace::Contains(HeapObject o) const {
 }
 
 bool SemiSpace::Contains(Object o) const {
-  return o.IsHeapObject() && Contains(HeapObject::cast(o));
+  return IsHeapObject(o) && Contains(HeapObject::cast(o));
+}
+
+template <typename T>
+inline bool SemiSpace::Contains(Tagged<T> o) const {
+  static_assert(kTaggedCanConvertToRawObjects);
+  return Contains(*o);
 }
 
 bool SemiSpace::ContainsSlow(Address a) const {
@@ -42,11 +49,17 @@ bool SemiSpace::ContainsSlow(Address a) const {
 // NewSpace
 
 bool NewSpace::Contains(Object o) const {
-  return o.IsHeapObject() && Contains(HeapObject::cast(o));
+  return IsHeapObject(o) && Contains(HeapObject::cast(o));
 }
 
 bool NewSpace::Contains(HeapObject o) const {
   return BasicMemoryChunk::FromHeapObject(o)->InNewSpace();
+}
+
+template <typename T>
+inline bool NewSpace::Contains(Tagged<T> o) const {
+  static_assert(kTaggedCanConvertToRawObjects);
+  return Contains(*o);
 }
 
 V8_WARN_UNUSED_RESULT inline AllocationResult NewSpace::AllocateRawSynchronized(
@@ -106,14 +119,26 @@ V8_INLINE bool SemiSpaceNewSpace::EnsureAllocation(
 V8_INLINE bool PagedSpaceForNewSpace::EnsureAllocation(
     int size_in_bytes, AllocationAlignment alignment, AllocationOrigin origin,
     int* out_max_aligned_size) {
+  if (last_lab_page_) {
+    last_lab_page_->DecreaseAllocatedLabSize(limit() - top());
+    SetLimit(top());
+    // No need to write a filler to the remaining lab because it will either be
+    // reallocated if the lab can be extended or freed otherwise.
+  }
+
   if (!PagedSpaceBase::EnsureAllocation(size_in_bytes, alignment, origin,
                                         out_max_aligned_size)) {
     if (!AddPageBeyondCapacity(size_in_bytes, origin)) {
-      return false;
+      if (!WaitForSweepingForAllocation(size_in_bytes, origin)) {
+        return false;
+      }
     }
   }
 
-  allocated_linear_areas_ += limit() - top();
+  last_lab_page_ = Page::FromAllocationAreaAddress(top());
+  DCHECK_NOT_NULL(last_lab_page_);
+  last_lab_page_->IncreaseAllocatedLabSize(limit() - top());
+
   return true;
 }
 
@@ -123,17 +148,17 @@ V8_INLINE bool PagedSpaceForNewSpace::EnsureAllocation(
 SemiSpaceObjectIterator::SemiSpaceObjectIterator(const SemiSpaceNewSpace* space)
     : current_(space->first_allocatable_address()) {}
 
-HeapObject SemiSpaceObjectIterator::Next() {
+Tagged<HeapObject> SemiSpaceObjectIterator::Next() {
   while (true) {
     if (Page::IsAlignedToPageSize(current_)) {
       Page* page = Page::FromAllocationAreaAddress(current_);
       page = page->next_page();
-      if (page == nullptr) return HeapObject();
+      if (page == nullptr) return Tagged<HeapObject>();
       current_ = page->area_start();
     }
-    HeapObject object = HeapObject::FromAddress(current_);
-    current_ += ALIGN_TO_ALLOCATION_ALIGNMENT(object.Size());
-    if (!object.IsFreeSpaceOrFiller()) return object;
+    Tagged<HeapObject> object = HeapObject::FromAddress(current_);
+    current_ += ALIGN_TO_ALLOCATION_ALIGNMENT(object->Size());
+    if (!IsFreeSpaceOrFiller(object)) return object;
   }
 }
 

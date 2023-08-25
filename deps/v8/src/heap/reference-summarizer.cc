@@ -20,10 +20,6 @@ namespace {
 // marking visitor.
 class ReferenceSummarizerMarkingState final {
  public:
-  // Declares that this marking state is collecting retainers, so the marking
-  // visitor must fully visit each object and can't update on-heap state.
-  static constexpr bool kCollectRetainers = true;
-
   explicit ReferenceSummarizerMarkingState(HeapObject object)
       : primary_object_(object),
         local_marking_worklists_(&marking_worklists_),
@@ -47,12 +43,9 @@ class ReferenceSummarizerMarkingState final {
   }
 
   // Standard marking visitor functions:
-
-  bool GreyToBlack(HeapObject obj) { return true; }
-  bool IsBlackOrGrey(HeapObject obj) const { return false; }
-
   bool TryMark(HeapObject obj) { return true; }
   bool IsUnmarked(HeapObject obj) const { return true; }
+  bool IsMarked(HeapObject obj) const { return false; }
 
   // Adds a retaining relationship found by the marking visitor.
   void AddStrongReferenceForReferenceSummarizer(HeapObject host,
@@ -93,18 +86,56 @@ class ReferenceSummarizerMarkingState final {
   WeakObjects::Local local_weak_objects_;
 };
 
+class ReferenceSummarizerMarkingVisitor
+    : public MarkingVisitorBase<ReferenceSummarizerMarkingVisitor> {
+ public:
+  ReferenceSummarizerMarkingVisitor(
+      Heap* heap, ReferenceSummarizerMarkingState* marking_state)
+      : MarkingVisitorBase(
+            marking_state->local_marking_worklists(),
+            marking_state->local_weak_objects(), heap, 0 /*mark_compact_epoch*/,
+            {} /*code_flush_mode*/, false /*embedder_tracing_enabled*/,
+            true /*should_keep_ages_unchanged*/, 0 /*code_flushing_increase*/),
+        marking_state_(marking_state) {}
+
+  template <typename TSlot>
+  void RecordSlot(HeapObject object, TSlot slot, HeapObject target) {}
+
+  void RecordRelocSlot(InstructionStream host, RelocInfo* rinfo,
+                       HeapObject target) {}
+
+  V8_INLINE void AddStrongReferenceForReferenceSummarizer(HeapObject host,
+                                                          HeapObject obj) {
+    marking_state_->AddStrongReferenceForReferenceSummarizer(host, obj);
+  }
+
+  V8_INLINE void AddWeakReferenceForReferenceSummarizer(HeapObject host,
+                                                        HeapObject obj) {
+    marking_state_->AddWeakReferenceForReferenceSummarizer(host, obj);
+  }
+
+  TraceRetainingPathMode retaining_path_mode() {
+    return TraceRetainingPathMode::kDisabled;
+  }
+
+  constexpr bool CanUpdateValuesInHeap() { return false; }
+
+  // Standard marking visitor functions:
+  bool TryMark(HeapObject obj) { return true; }
+  bool IsMarked(HeapObject obj) const { return false; }
+
+ private:
+  ReferenceSummarizerMarkingState* marking_state_;
+};
+
 }  // namespace
 
 ReferenceSummary ReferenceSummary::SummarizeReferencesFrom(Heap* heap,
                                                            HeapObject obj) {
   ReferenceSummarizerMarkingState marking_state(obj);
 
-  MainMarkingVisitor<ReferenceSummarizerMarkingState> visitor(
-      &marking_state, marking_state.local_marking_worklists(),
-      marking_state.local_weak_objects(), heap, 0 /*mark_compact_epoch*/,
-      {} /*code_flush_mode*/, false /*embedder_tracing_enabled*/,
-      true /*should_keep_ages_unchanged*/);
-  visitor.Visit(obj.map(heap->isolate()), obj);
+  ReferenceSummarizerMarkingVisitor visitor(heap, &marking_state);
+  visitor.Visit(obj->map(heap->isolate()), obj);
 
   return marking_state.DestructivelyRetrieveReferences();
 }

@@ -14,7 +14,9 @@
 #include "src/objects/maybe-object.h"
 #include "src/objects/objects.h"
 #include "src/objects/slots.h"
+#include "src/objects/tagged.h"
 #include "src/sandbox/external-pointer-inl.h"
+#include "src/sandbox/indirect-pointer-inl.h"
 #include "src/utils/memcopy.h"
 
 namespace v8 {
@@ -27,12 +29,15 @@ namespace internal {
 FullObjectSlot::FullObjectSlot(Object* object)
     : SlotBase(reinterpret_cast<Address>(&object->ptr_)) {}
 
-bool FullObjectSlot::contains_value(Address raw_value) const {
-  return base::AsAtomicPointer::Relaxed_Load(location()) == raw_value;
-}
+FullObjectSlot::FullObjectSlot(TaggedBase* object)
+    : SlotBase(reinterpret_cast<Address>(&object->ptr_)) {}
 
 bool FullObjectSlot::contains_map_value(Address raw_value) const {
   return load_map().ptr() == raw_value;
+}
+
+bool FullObjectSlot::Relaxed_ContainsMapValue(Address raw_value) const {
+  return base::AsAtomicPointer::Relaxed_Load(location()) == raw_value;
 }
 
 Object FullObjectSlot::operator*() const { return Object(*location()); }
@@ -159,8 +164,8 @@ void ExternalPointerSlot::init(Isolate* isolate, Address value,
 #ifdef V8_ENABLE_SANDBOX
   DCHECK_NE(tag, kExternalPointerNullTag);
   ExternalPointerTable& table = GetExternalPointerTableForTag(isolate, tag);
-  ExternalPointerHandle handle =
-      table.AllocateAndInitializeEntry(isolate, value, tag);
+  ExternalPointerHandle handle = table.AllocateAndInitializeEntry(
+      GetDefaultExternalPointerSpace(isolate, tag), value, tag);
   // Use a Release_Store to ensure that the store of the pointer into the
   // table is not reordered after the store of the handle. Otherwise, other
   // threads may access an uninitialized table entry and crash.
@@ -234,6 +239,26 @@ void ExternalPointerSlot::RestoreContentAfterSerialization(
 #endif
 }
 
+void ExternalPointerSlot::ReplaceContentWithIndexForSerialization(
+    const DisallowGarbageCollection& no_gc, uint32_t index) {
+#ifdef V8_ENABLE_SANDBOX
+  static_assert(sizeof(ExternalPointerHandle) == sizeof(uint32_t));
+  Relaxed_StoreHandle(index);
+#else
+  WriteMaybeUnalignedValue<Address>(address(), static_cast<Address>(index));
+#endif
+}
+
+uint32_t ExternalPointerSlot::GetContentAsIndexAfterDeserialization(
+    const DisallowGarbageCollection& no_gc) {
+#ifdef V8_ENABLE_SANDBOX
+  static_assert(sizeof(ExternalPointerHandle) == sizeof(uint32_t));
+  return Relaxed_LoadHandle();
+#else
+  return static_cast<uint32_t>(ReadMaybeUnalignedValue<Address>(address()));
+#endif
+}
+
 #ifdef V8_ENABLE_SANDBOX
 const ExternalPointerTable& ExternalPointerSlot::GetExternalPointerTableForTag(
     const Isolate* isolate, ExternalPointerTag tag) {
@@ -248,7 +273,105 @@ ExternalPointerTable& ExternalPointerSlot::GetExternalPointerTableForTag(
              ? isolate->shared_external_pointer_table()
              : isolate->external_pointer_table();
 }
+
+namespace {
+constexpr bool IsMaybeReadOnlyExternalPointerType(ExternalPointerTag tag) {
+  switch (tag) {
+    case kCallHandlerInfoCallbackTag:
+    case kAccessorInfoGetterTag:
+    case kAccessorInfoSetterTag:
+      return true;
+    default:
+      return false;
+  }
+  UNREACHABLE();
+}
+}  // namespace
+
+ExternalPointerTable::Space*
+ExternalPointerSlot::GetDefaultExternalPointerSpace(Isolate* isolate,
+                                                    ExternalPointerTag tag) {
+  if (V8_UNLIKELY(IsSharedExternalPointerType(tag))) {
+    DCHECK(!ReadOnlyHeap::Contains(address()));
+    return isolate->shared_external_pointer_space();
+  }
+  if (V8_UNLIKELY(ReadOnlyHeap::Contains(address()))) {
+    DCHECK(IsMaybeReadOnlyExternalPointerType(tag));
+    return isolate->heap()->read_only_external_pointer_space();
+  }
+  return isolate->heap()->external_pointer_space();
+}
 #endif  // V8_ENABLE_SANDBOX
+
+Object IndirectPointerSlot::load() const { return Relaxed_Load(); }
+
+void IndirectPointerSlot::store(Code code) const { return Relaxed_Store(code); }
+
+Object IndirectPointerSlot::Relaxed_Load() const {
+#ifdef V8_CODE_POINTER_SANDBOXING
+  IndirectPointerHandle handle = Relaxed_LoadHandle();
+  // TODO(saelo) Maybe come up with a different CPT encoding scheme that returns
+  // Smi::zero for kNullCodePointerHandle?
+  if (!handle) return Smi::zero();
+  Address addr = GetProcessWideCodePointerTable()->GetCodeObject(handle);
+  return Object(addr);
+#else
+  UNREACHABLE();
+#endif  // V8_CODE_POINTER_SANDBOXING
+}
+
+Object IndirectPointerSlot::Acquire_Load() const {
+#ifdef V8_CODE_POINTER_SANDBOXING
+  IndirectPointerHandle handle = Acquire_LoadHandle();
+  // TODO(saelo) Maybe come up with a different CPT encoding scheme that returns
+  // Smi::zero for kNullCodePointerHandle?
+  if (!handle) return Smi::zero();
+  Address addr = GetProcessWideCodePointerTable()->GetCodeObject(handle);
+  return Object(addr);
+#else
+  UNREACHABLE();
+#endif  // V8_CODE_POINTER_SANDBOXING
+}
+
+void IndirectPointerSlot::Relaxed_Store(Code value) const {
+#ifdef V8_CODE_POINTER_SANDBOXING
+  // The Code objects owns its entry in the CodePointerTable, so here we only
+  // need to copy the handle.
+  IndirectPointerHandle handle =
+      value.ReadField<IndirectPointerHandle>(Code::kInstructionStartOffset);
+  Relaxed_StoreHandle(handle);
+#else
+  UNREACHABLE();
+#endif  // V8_CODE_POINTER_SANDBOXING
+}
+
+void IndirectPointerSlot::Release_Store(Code value) const {
+#ifdef V8_CODE_POINTER_SANDBOXING
+  IndirectPointerHandle handle =
+      value.ReadField<IndirectPointerHandle>(Code::kInstructionStartOffset);
+  Release_StoreHandle(handle);
+#else
+  UNREACHABLE();
+#endif  // V8_CODE_POINTER_SANDBOXING
+}
+
+IndirectPointerHandle IndirectPointerSlot::Relaxed_LoadHandle() const {
+  return base::AsAtomic32::Relaxed_Load(location());
+}
+
+IndirectPointerHandle IndirectPointerSlot::Acquire_LoadHandle() const {
+  return base::AsAtomic32::Acquire_Load(location());
+}
+
+void IndirectPointerSlot::Relaxed_StoreHandle(
+    IndirectPointerHandle handle) const {
+  return base::AsAtomic32::Relaxed_Store(location(), handle);
+}
+
+void IndirectPointerSlot::Release_StoreHandle(
+    IndirectPointerHandle handle) const {
+  return base::AsAtomic32::Release_Store(location(), handle);
+}
 
 //
 // Utils.

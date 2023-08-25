@@ -47,6 +47,13 @@ struct ScriptStreamingData;
 
 namespace maglev {
 class MaglevCompilationJob;
+
+static inline bool IsMaglevEnabled() { return v8_flags.maglev; }
+
+static inline bool IsMaglevOsrEnabled() {
+  return IsMaglevEnabled() && v8_flags.maglev_osr;
+}
+
 }  // namespace maglev
 
 // The V8 compiler API.
@@ -97,7 +104,7 @@ class V8_EXPORT_PRIVATE Compiler : public AllStatic {
   // a future OSR request will pick up the resulting code object).
   V8_WARN_UNUSED_RESULT static MaybeHandle<Code> CompileOptimizedOSR(
       Isolate* isolate, Handle<JSFunction> function, BytecodeOffset osr_offset,
-      ConcurrencyMode mode);
+      ConcurrencyMode mode, CodeKind code_kind);
 
   V8_WARN_UNUSED_RESULT static MaybeHandle<SharedFunctionInfo>
   CompileForLiveEdit(ParseInfo* parse_info, Handle<Script> script,
@@ -130,7 +137,8 @@ class V8_EXPORT_PRIVATE Compiler : public AllStatic {
   // Give the compiler a chance to perform low-latency initialization tasks of
   // the given {function} on its instantiation. Note that only the runtime will
   // offer this chance, optimized closure instantiation will not call this.
-  static void PostInstantiation(Handle<JSFunction> function);
+  static void PostInstantiation(Handle<JSFunction> function,
+                                IsCompiledScope* is_compiled_scope);
 
   // ===========================================================================
   // The following family of methods instantiates new functions for scripts or
@@ -161,17 +169,18 @@ class V8_EXPORT_PRIVATE Compiler : public AllStatic {
 
   // Create a (bound) function for a String source within a context for eval.
   V8_WARN_UNUSED_RESULT static MaybeHandle<JSFunction> GetFunctionFromString(
-      Handle<Context> context, Handle<i::Object> source,
+      Handle<NativeContext> context, Handle<i::Object> source,
       ParseRestriction restriction, int parameters_end_pos, bool is_code_like);
 
   // Decompose GetFunctionFromString into two functions, to allow callers to
   // deal seperately with a case of object not handled by the embedder.
   V8_WARN_UNUSED_RESULT static std::pair<MaybeHandle<String>, bool>
-  ValidateDynamicCompilationSource(Isolate* isolate, Handle<Context> context,
+  ValidateDynamicCompilationSource(Isolate* isolate,
+                                   Handle<NativeContext> context,
                                    Handle<i::Object> source_object,
                                    bool is_code_like = false);
   V8_WARN_UNUSED_RESULT static MaybeHandle<JSFunction>
-  GetFunctionFromValidatedString(Handle<Context> context,
+  GetFunctionFromValidatedString(Handle<NativeContext> context,
                                  MaybeHandle<String> source,
                                  ParseRestriction restriction,
                                  int parameters_end_pos);
@@ -249,6 +258,10 @@ class V8_EXPORT_PRIVATE Compiler : public AllStatic {
                                      Handle<FeedbackVector> vector,
                                      Handle<AbstractCode> abstract_code,
                                      CodeKind kind, double time_taken_ms);
+
+  static void InstallInterpreterTrampolineCopy(
+      Isolate* isolate, Handle<SharedFunctionInfo> shared_info,
+      LogEventListener::CodeTag log_tag);
 };
 
 // A base class for compilation jobs intended to run concurrent to the main
@@ -441,6 +454,9 @@ class TurbofanCompilationJob : public OptimizedCompilationJob {
   void RecordFunctionCompilation(LogEventListener::CodeTag code_type,
                                  Isolate* isolate) const;
 
+  // Intended for use as a globally unique id in trace events.
+  uint64_t trace_id() const;
+
  private:
   OptimizedCompilationInfo* const compilation_info_;
 };
@@ -533,7 +549,9 @@ class V8_EXPORT_PRIVATE BackgroundCompileTask {
   // Note: does not take ownership of |data|.
   BackgroundCompileTask(ScriptStreamingData* data, Isolate* isolate,
                         v8::ScriptType type,
-                        ScriptCompiler::CompileOptions options);
+                        ScriptCompiler::CompileOptions options,
+                        CompileHintCallback compile_hint_callback = nullptr,
+                        void* compile_hint_callback_data = nullptr);
   BackgroundCompileTask(const BackgroundCompileTask&) = delete;
   BackgroundCompileTask& operator=(const BackgroundCompileTask&) = delete;
   ~BackgroundCompileTask();
@@ -595,6 +613,9 @@ class V8_EXPORT_PRIVATE BackgroundCompileTask {
   int start_position_;
   int end_position_;
   int function_literal_id_;
+
+  CompileHintCallback compile_hint_callback_ = nullptr;
+  void* compile_hint_callback_data_ = nullptr;
 };
 
 // Contains all data which needs to be transmitted between threads for

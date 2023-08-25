@@ -20,6 +20,7 @@ struct WasmInliningPosition;
 namespace wasm {
 struct CompilationEnv;
 struct DanglingExceptions;
+class WasmFeatures;
 struct WasmModule;
 }  // namespace wasm
 
@@ -34,7 +35,8 @@ class WasmInliner final : public AdvancedReducer {
   WasmInliner(Editor* editor, wasm::CompilationEnv* env,
               WasmCompilationData& data, MachineGraph* mcgraph,
               const char* debug_name,
-              ZoneVector<WasmInliningPosition>* inlining_positions)
+              ZoneVector<WasmInliningPosition>* inlining_positions,
+              wasm::WasmFeatures* detected)
       : AdvancedReducer(editor),
         env_(env),
         data_(data),
@@ -43,7 +45,8 @@ class WasmInliner final : public AdvancedReducer {
         initial_graph_size_(mcgraph->graph()->NodeCount()),
         current_graph_size_(initial_graph_size_),
         inlining_candidates_(),
-        inlining_positions_(inlining_positions) {}
+        inlining_positions_(inlining_positions),
+        detected_(detected) {}
 
   const char* reducer_name() const override { return "WasmInliner"; }
 
@@ -55,8 +58,13 @@ class WasmInliner final : public AdvancedReducer {
   // Inlines calls registered by {Reduce}, until an inlining budget is exceeded.
   void Finalize() final;
 
-  static bool graph_size_allows_inlining(size_t graph_size) {
-    return graph_size < v8_flags.wasm_inlining_budget;
+  static bool graph_size_allows_inlining(size_t graph_size,
+                                         size_t initial_graph_size) {
+    size_t budget =
+        std::max<size_t>(v8_flags.wasm_inlining_min_budget,
+                         v8_flags.wasm_inlining_factor * initial_graph_size);
+    budget = std::min<size_t>(v8_flags.wasm_inlining_budget, budget);
+    return graph_size < budget;
   }
 
  private:
@@ -106,6 +114,7 @@ class WasmInliner final : public AdvancedReducer {
   std::unordered_set<Node*> seen_;
   std::unordered_map<uint32_t, int> function_inlining_count_;
   ZoneVector<WasmInliningPosition>* inlining_positions_;
+  wasm::WasmFeatures* detected_;
 };
 
 }  // namespace compiler

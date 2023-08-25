@@ -331,7 +331,6 @@ TEST(PagedNewSpace) {
       CcTest::heap()->InitialSemiSpaceSize(), allocation_info);
   CHECK(new_space->MaximumCapacity());
   CHECK(new_space->EnsureCurrentCapacity());
-  CHECK_LT(0, new_space->Capacity());
   CHECK_LT(0, new_space->TotalCapacity());
 
   AllocationResult allocation_result;
@@ -379,7 +378,7 @@ TEST(OldLargeObjectSpace) {
   int lo_size = Page::kPageSize;
 
   Object obj = lo->AllocateRaw(lo_size).ToObjectChecked();
-  CHECK(obj.IsHeapObject());
+  CHECK(IsHeapObject(obj));
 
   HeapObject ho = HeapObject::cast(obj);
 
@@ -613,7 +612,7 @@ UNINITIALIZED_TEST(InlineAllocationObserverCadence) {
 
     // Clear out any pre-existing garbage to make the test consistent
     // across snapshot/no-snapshot builds.
-    CcTest::CollectAllGarbage(i_isolate);
+    heap::InvokeMajorGC(i_isolate->heap());
 
     NewSpace* new_space = i_isolate->heap()->new_space();
 
@@ -740,7 +739,7 @@ TEST(ShrinkPageToHighWaterMarkFreeSpaceEnd) {
   old_space->ResetFreeList();
 
   HeapObject filler = HeapObject::FromAddress(array->address() + array->Size());
-  CHECK(filler.IsFreeSpace());
+  CHECK(IsFreeSpace(filler));
   size_t shrunk = old_space->ShrinkPageToHighWaterMark(page);
   size_t should_have_shrunk = RoundDown(
       static_cast<size_t>(MemoryChunkLayout::AllocatableMemoryInDataPage() -
@@ -793,7 +792,7 @@ TEST(ShrinkPageToHighWaterMarkOneWordFiller) {
   old_space->ResetFreeList();
 
   HeapObject filler = HeapObject::FromAddress(array->address() + array->Size());
-  CHECK_EQ(filler.map(),
+  CHECK_EQ(filler->map(),
            ReadOnlyRoots(CcTest::heap()).one_pointer_filler_map());
 
   size_t shrunk = old_space->ShrinkPageToHighWaterMark(page);
@@ -821,7 +820,7 @@ TEST(ShrinkPageToHighWaterMarkTwoWordFiller) {
   old_space->ResetFreeList();
 
   HeapObject filler = HeapObject::FromAddress(array->address() + array->Size());
-  CHECK_EQ(filler.map(),
+  CHECK_EQ(filler->map(),
            ReadOnlyRoots(CcTest::heap()).two_pointer_filler_map());
 
   size_t shrunk = old_space->ShrinkPageToHighWaterMark(page);

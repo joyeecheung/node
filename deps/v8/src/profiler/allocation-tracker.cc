@@ -76,9 +76,9 @@ AllocationTraceTree::AllocationTraceTree()
 }
 
 AllocationTraceNode* AllocationTraceTree::AddPathFromEnd(
-    const base::Vector<unsigned>& path) {
+    base::Vector<const unsigned> path) {
   AllocationTraceNode* node = root();
-  for (unsigned* entry = path.begin() + path.length() - 1;
+  for (const unsigned* entry = path.begin() + path.length() - 1;
        entry != path.begin() - 1; --entry) {
     node = node->FindOrAddChild(*entry);
   }
@@ -211,9 +211,10 @@ void AllocationTracker::AllocationEvent(Address addr, int size) {
   JavaScriptStackFrameIterator it(isolate);
   while (!it.done() && length < kMaxAllocationTraceLength) {
     JavaScriptFrame* frame = it.frame();
-    SharedFunctionInfo shared = frame->function().shared();
+    SharedFunctionInfo shared = frame->function()->shared();
     SnapshotObjectId id =
-        ids_->FindOrAddEntry(shared.address(), shared.Size(), false);
+        ids_->FindOrAddEntry(shared.address(), shared->Size(),
+                             HeapObjectsMap::MarkEntryAccessed::kNo);
     allocation_trace_buffer_[length++] = AddFunctionInfo(shared, id);
     it.Advance();
   }
@@ -241,19 +242,19 @@ unsigned AllocationTracker::AddFunctionInfo(SharedFunctionInfo shared,
       reinterpret_cast<void*>(id), SnapshotObjectIdHash(id));
   if (entry->value == nullptr) {
     FunctionInfo* info = new FunctionInfo();
-    info->name = names_->GetCopy(shared.DebugNameCStr().get());
+    info->name = names_->GetCopy(shared->DebugNameCStr().get());
     info->function_id = id;
-    if (shared.script().IsScript()) {
-      Script script = Script::cast(shared.script());
-      if (script.name().IsName()) {
-        Name name = Name::cast(script.name());
+    if (IsScript(shared->script())) {
+      Script script = Script::cast(shared->script());
+      if (IsName(script->name())) {
+        Name name = Name::cast(script->name());
         info->script_name = names_->GetName(name);
       }
-      info->script_id = script.id();
+      info->script_id = script->id();
       // Converting start offset into line and column may cause heap
       // allocations so we postpone them until snapshot serialization.
       unresolved_locations_.push_back(
-          new UnresolvedLocation(script, shared.StartPosition(), info));
+          new UnresolvedLocation(script, shared->StartPosition(), info));
     }
     entry->value = reinterpret_cast<void*>(function_info_list_.size());
     function_info_list_.push_back(info);
@@ -277,7 +278,7 @@ AllocationTracker::UnresolvedLocation::UnresolvedLocation(Script script,
                                                           int start,
                                                           FunctionInfo* info)
     : start_position_(start), info_(info) {
-  script_ = script.GetIsolate()->global_handles()->Create(script);
+  script_ = script->GetIsolate()->global_handles()->Create(script);
   GlobalHandles::MakeWeak(script_.location(), this, &HandleWeakScript,
                           v8::WeakCallbackType::kParameter);
 }
@@ -292,8 +293,10 @@ AllocationTracker::UnresolvedLocation::~UnresolvedLocation() {
 void AllocationTracker::UnresolvedLocation::Resolve() {
   if (script_.is_null()) return;
   HandleScope scope(script_->GetIsolate());
-  info_->line = Script::GetLineNumber(script_, start_position_);
-  info_->column = Script::GetColumnNumber(script_, start_position_);
+  Script::PositionInfo pos_info;
+  Script::GetPositionInfo(script_, start_position_, &pos_info);
+  info_->line = pos_info.line;
+  info_->column = pos_info.column;
 }
 
 void AllocationTracker::UnresolvedLocation::HandleWeakScript(

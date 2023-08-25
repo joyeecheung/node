@@ -6,6 +6,7 @@
 #define V8_DEBUG_DEBUG_H_
 
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 #include "src/base/enum-set.h"
@@ -168,44 +169,74 @@ class V8_EXPORT_PRIVATE BreakIterator {
   DISALLOW_GARBAGE_COLLECTION(no_gc_)
 };
 
-// Linked list holding debug info objects. The debug info objects are kept as
-// weak handles to avoid a debug info object to keep a function alive.
-class DebugInfoListNode {
+// Holds all active DebugInfo objects. This is a composite data structure
+// consisting of
+//
+// - an unsorted list-like structure for fast iteration and
+//   deletion-during-iteration, and
+// - a map-like structure for fast SharedFunctionInfo-DebugInfo lookups.
+//
+// DebugInfos are held strongly through global handles.
+//
+// TODO(jgruber): Now that we use an unordered_map as the map-like structure,
+// which supports deletion-during-iteration, the list-like part of this data
+// structure could be removed.
+class DebugInfoCollection final {
+  using HandleLocation = Address*;
+  using SFIUniqueId = uint32_t;  // The type of SFI::unique_id.
+
  public:
-  DebugInfoListNode(Isolate* isolate, DebugInfo debug_info);
-  ~DebugInfoListNode();
+  explicit DebugInfoCollection(Isolate* isolate) : isolate_(isolate) {}
 
-  DebugInfoListNode* next() { return next_; }
-  void set_next(DebugInfoListNode* next) { next_ = next; }
-  Handle<DebugInfo> debug_info() { return Handle<DebugInfo>(debug_info_); }
+  void Insert(SharedFunctionInfo sfi, DebugInfo debug_info);
 
- private:
-  // Global (weak) handle to the debug info object.
-  Address* debug_info_;
+  bool Contains(SharedFunctionInfo sfi) const;
+  base::Optional<DebugInfo> Find(SharedFunctionInfo sfi) const;
 
-  // Next pointer for linked list.
-  DebugInfoListNode* next_;
-};
+  void DeleteSlow(SharedFunctionInfo sfi);
 
-class DebugFeatureTracker {
- public:
-  enum Feature {
-    kActive = 1,
-    kBreakPoint = 2,
-    kStepping = 3,
-    kHeapSnapshot = 4,
-    kAllocationTracking = 5,
-    kProfiler = 6,
-    kLiveEdit = 7,
+  size_t Size() const { return list_.size(); }
+
+  class Iterator final {
+   public:
+    explicit Iterator(DebugInfoCollection* collection)
+        : collection_(collection) {}
+
+    bool HasNext() const {
+      return index_ < static_cast<int>(collection_->list_.size());
+    }
+
+    DebugInfo Next() const {
+      DCHECK_GE(index_, 0);
+      if (!HasNext()) return {};
+      return collection_->EntryAsDebugInfo(index_);
+    }
+
+    void Advance() {
+      DCHECK(HasNext());
+      index_++;
+    }
+
+    void DeleteNext() {
+      DCHECK_GE(index_, 0);
+      DCHECK(HasNext());
+      collection_->DeleteIndex(index_);
+      index_--;  // `Advance` must be called next.
+    }
+
+   private:
+    using HandleLocation = DebugInfoCollection::HandleLocation;
+    DebugInfoCollection* const collection_;
+    int index_ = 0;  // `int` because deletion may rewind to -1.
   };
 
-  explicit DebugFeatureTracker(Isolate* isolate)
-      : isolate_(isolate), bitfield_(0) {}
-  void Track(Feature feature);
-
  private:
-  Isolate* isolate_;
-  uint32_t bitfield_;
+  V8_EXPORT_PRIVATE DebugInfo EntryAsDebugInfo(size_t index) const;
+  void DeleteIndex(size_t index);
+
+  Isolate* const isolate_;
+  std::vector<HandleLocation> list_;
+  std::unordered_map<SFIUniqueId, HandleLocation> map_;
 };
 
 // This class contains the debugger support. The main purpose is to handle
@@ -240,6 +271,13 @@ class V8_EXPORT_PRIVATE Debug {
 
   // Scripts handling.
   Handle<FixedArray> GetLoadedScripts();
+
+  // DebugInfo accessors.
+  base::Optional<DebugInfo> TryGetDebugInfo(SharedFunctionInfo sfi);
+  bool HasDebugInfo(SharedFunctionInfo sfi);
+  bool HasCoverageInfo(SharedFunctionInfo sfi);
+  bool HasBreakInfo(SharedFunctionInfo sfi);
+  bool BreakAtEntry(SharedFunctionInfo sfi);
 
   // Break point handling.
   enum BreakPointKind { kRegular, kInstrumentation };
@@ -356,13 +394,21 @@ class V8_EXPORT_PRIVATE Debug {
   void ApplySideEffectChecks(Handle<DebugInfo> debug_info);
   void ClearSideEffectChecks(Handle<DebugInfo> debug_info);
 
+  // Make a one-time exception for a next call to given side-effectful API
+  // function.
+  void IgnoreSideEffectsOnNextCallTo(Handle<CallHandlerInfo> call_handler_info);
+
   bool PerformSideEffectCheck(Handle<JSFunction> function,
                               Handle<Object> receiver);
 
-  enum AccessorKind { kNotAccessor, kGetter, kSetter };
-  bool PerformSideEffectCheckForCallback(Handle<Object> callback_info,
+  bool PerformSideEffectCheckForAccessor(Handle<AccessorInfo> accessor_info,
                                          Handle<Object> receiver,
-                                         AccessorKind accessor_kind);
+                                         AccessorComponent component);
+  bool PerformSideEffectCheckForCallback(
+      Handle<CallHandlerInfo> call_handler_info);
+  bool PerformSideEffectCheckForInterceptor(
+      Handle<InterceptorInfo> interceptor_info);
+
   bool PerformSideEffectCheckAtBytecode(InterpretedFrame* frame);
   bool PerformSideEffectCheckForObject(Handle<Object> object);
 
@@ -419,8 +465,6 @@ class V8_EXPORT_PRIVATE Debug {
   }
 
   inline bool break_disabled() const { return break_disabled_; }
-
-  DebugFeatureTracker* feature_tracker() { return &feature_tracker_; }
 
   // For functions in which we cannot set a break point, use a canonical
   // source position for break points.
@@ -514,10 +558,6 @@ class V8_EXPORT_PRIVATE Debug {
   using DebugInfoClearFunction = std::function<void(Handle<DebugInfo>)>;
   void ClearAllDebugInfos(const DebugInfoClearFunction& clear_function);
 
-  void FindDebugInfo(Handle<DebugInfo> debug_info, DebugInfoListNode** prev,
-                     DebugInfoListNode** curr);
-  void FreeDebugInfoListNode(DebugInfoListNode* prev, DebugInfoListNode* node);
-
   void SetTemporaryObjectTrackingDisabled(bool disabled);
   bool GetTemporaryObjectTrackingDisabled() const;
 
@@ -544,16 +584,13 @@ class V8_EXPORT_PRIVATE Debug {
   bool side_effect_check_failed_;
 
   // List of active debug info objects.
-  DebugInfoListNode* debug_info_list_;
+  DebugInfoCollection debug_infos_;
 
   // Used for side effect check to mark temporary objects.
   class TemporaryObjectsTracker;
   std::unique_ptr<TemporaryObjectsTracker> temporary_objects_;
 
   Handle<RegExpMatchInfo> regexp_match_info_;
-
-  // Used to collect histogram data on debugger feature usage.
-  DebugFeatureTracker feature_tracker_;
 
   // Per-thread data.
   class ThreadLocal {
@@ -629,6 +666,12 @@ class V8_EXPORT_PRIVATE Debug {
   // This is a global handle, lazily initialized.
   Handle<WeakArrayList> wasm_scripts_with_break_points_;
 #endif  // V8_ENABLE_WEBASSEMBLY
+
+  // This is a part of machinery for allowing to ignore side effects for one
+  // call to this API function. See Function::NewInstanceWithSideEffectType().
+  // Since the call_handler_info is allowlisted right before the call to
+  // constructor there must be never more than one such object at a time.
+  Handle<CallHandlerInfo> ignore_side_effects_for_call_handler_info_;
 
   Isolate* isolate_;
 

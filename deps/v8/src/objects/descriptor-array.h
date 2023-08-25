@@ -20,10 +20,6 @@
 namespace v8 {
 namespace internal {
 
-template <typename T>
-class Handle;
-
-class Isolate;
 class StructBodyDescriptor;
 
 #include "torque-generated/src/objects/descriptor-array-tq.inc"
@@ -111,10 +107,6 @@ class DescriptorArray
   static Handle<DescriptorArray> CopyUpToAddAttributes(
       Isolate* isolate, Handle<DescriptorArray> desc, int enumeration_index,
       PropertyAttributes attributes, int slack = 0);
-
-  static Handle<DescriptorArray> CopyForFastObjectClone(
-      Isolate* isolate, Handle<DescriptorArray> desc, int enumeration_index,
-      int slack = 0);
 
   // Sort the instance descriptors by the hash codes of their keys.
   V8_EXPORT_PRIVATE void Sort();
