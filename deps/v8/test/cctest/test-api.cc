@@ -2894,18 +2894,18 @@ THREADED_TEST(InternalDataFields) {
                               ->NewInstance(env.local())
                               .ToLocalChecked();
   CHECK_EQ(1, obj->InternalFieldCount());
-  Local<v8::Data> data = obj->GetInternalField(0);
+  Local<v8::Data> data = obj->GetInternalDataField(0);
   CHECK(data->IsValue() && data.As<v8::Value>()->IsUndefined());
   Local<v8::Private> sym = v8::Private::New(isolate, v8_str("Foo"));
-  obj->SetInternalField(0, sym);
-  Local<v8::Data> field = obj->GetInternalField(0);
+  obj->SetInternalDataField(0, sym);
+  Local<v8::Data> field = obj->GetInternalDataField(0);
   CHECK(!field->IsValue());
   CHECK(field->IsPrivate());
   CHECK_EQ(sym, field);
 
 #ifdef V8_ENABLE_CHECKS
   isolate->SetFatalErrorHandler(OnInternalFieldCheck);
-  USE(obj->GetInternalField(0).As<v8::Value>());
+  USE(obj->GetInternalDataField(0).As<v8::Value>());
   // If it's never called this would fail.
   CHECK(internal_field_check_called);
 #endif

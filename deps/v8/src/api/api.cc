@@ -6338,7 +6338,11 @@ Local<Data> v8::Object::SlowGetInternalField(int index) {
   return ToApiHandle<Data>(value);
 }
 
-void v8::Object::SetInternalField(int index, v8::Local<Data> value) {
+void v8::Object::SetInternalField(int index, v8::Local<Value> value) {
+  SetInternalDataField(index, value);
+}
+
+void v8::Object::SetInternalDataField(int index, v8::Local<Data> value) {
   i::Handle<i::JSReceiver> obj = Utils::OpenHandle(this);
   const char* location = "v8::Object::SetInternalField()";
   if (!InternalFieldOK(obj, index, location)) return;

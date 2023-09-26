@@ -476,18 +476,27 @@ class V8_EXPORT Object : public Value {
 
   /**
    * Gets the data from an internal field.
-   * To cast the return value into v8::Value subtypes, it needs to be
-   * casted to a v8::Value first. For example, to cast it into v8::External:
-   *
-   * object->GetInternalField(index).As<v8::Value>().As<v8::External>();
-   *
-   * The embedder should make sure that the internal field being retrieved
-   * using this method has already been set with SetInternalField() before.
    **/
-  V8_INLINE Local<Data> GetInternalField(int index);
+  V8_INLINE Local<Value> GetInternalField(int index);
+
+  /**
+   * Warning: This is a Node.js-specific extention used to avoid breaking
+   * changes in Node.js v20.x. This does not exist in V8 upstream and will
+   * not exist in Node.js v21.x. Node.js embedders or addon authors should
+   * not use this method from v20.x.
+   */
+  V8_INLINE Local<Data> GetInternalDataField(int index);
 
   /** Sets the data in an internal field. */
-  void SetInternalField(int index, Local<Data> data);
+  void SetInternalField(int index, Local<Value> data);
+
+  /**
+   * Warning: This is a Node.js-specific extention used to avoid breaking
+   * changes in Node.js v20.x. This does not exist in V8 upstream and will
+   * not exist in Node.js v21.x. Node.js embedders or addon authors should
+   * not use this method from v20.x.
+   */
+  void SetInternalDataField(int index, Local<Data> data);
 
   /**
    * Gets a 2-byte-aligned native pointer from an internal field. This field
@@ -725,7 +734,11 @@ class V8_EXPORT Object : public Value {
 
 // --- Implementation ---
 
-Local<Data> Object::GetInternalField(int index) {
+Local<Value> Object::GetInternalField(int index) {
+  return GetInternalDataField(index).As<Value>();
+}
+
+Local<Data> Object::GetInternalDataField(int index) {
 #ifndef V8_ENABLE_CHECKS
   using A = internal::Address;
   using I = internal::Internals;
