@@ -1192,6 +1192,10 @@ void ContextifyContext::CompileFunction(
     params_buf = args[8].As<Array>();
   }
 
+  // Argument 9: host-defined option symbol
+  CHECK(args[9]->IsSymbol());
+  Local<Symbol> id_symbol = args[9].As<Symbol>();
+
   // Read cache from cached data buffer
   ScriptCompiler::CachedData* cached_data = nullptr;
   if (!cached_data_buf.IsEmpty()) {
@@ -1203,7 +1207,6 @@ void ContextifyContext::CompileFunction(
   // Set host_defined_options
   Local<PrimitiveArray> host_defined_options =
       PrimitiveArray::New(isolate, loader::HostDefinedOptions::kLength);
-  Local<Symbol> id_symbol = Symbol::New(isolate, filename);
   host_defined_options->Set(
       isolate, loader::HostDefinedOptions::kID, id_symbol);
 
