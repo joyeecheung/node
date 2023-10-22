@@ -19,6 +19,27 @@ class MessagePort;
 
 typedef MaybeStackBuffer<v8::Local<v8::Value>, 8> TransferList;
 
+
+class BindingData : public SnapshotableObject {
+ public:
+  using InternalFieldInfo = InternalFieldInfoBase;
+  BindingData(Realm* realm, v8::Local<v8::Object> obj);
+  SERIALIZABLE_OBJECT_METHODS()
+  SET_BINDING_ID(messaging_binding_data)
+
+  void MemoryInfo(MemoryTracker* tracker) const override;
+  SET_SELF_SIZE(BindingData)
+  SET_MEMORY_INFO_NAME(BindingData)
+
+  std::pair<MessagePort*, MessagePort*> GetOrCreatePortsForStructuredClone(
+      v8::Local<v8::Context> context);
+
+ private:
+  // Cached for structuredClone implementation.
+  MessagePort* port1_ = nullptr;
+  MessagePort* port2_ = nullptr;
+};
+
 // Used to represent the in-flight structure of an object that is being
 // transferred or cloned using postMessage().
 class TransferData : public MemoryRetainer {
@@ -297,19 +318,16 @@ class MessagePort : public HandleWrap {
   SET_MEMORY_INFO_NAME(MessagePort)
   SET_SELF_SIZE(MessagePort)
 
- private:
-  enum class MessageProcessingMode {
-    kNormalOperation,
-    kForceReadMessages
-  };
-
-  void OnClose() override;
-  void OnMessage(MessageProcessingMode mode);
-  void TriggerAsync();
+  enum class MessageProcessingMode { kNormalOperation, kForceReadMessages };
   v8::MaybeLocal<v8::Value> ReceiveMessage(
       v8::Local<v8::Context> context,
       MessageProcessingMode mode,
       v8::Local<v8::Value>* port_list = nullptr);
+
+ private:
+  void OnClose() override;
+  void OnMessage(MessageProcessingMode mode);
+  void TriggerAsync();
 
   std::unique_ptr<MessagePortData> data_ = nullptr;
   bool receiving_messages_ = false;

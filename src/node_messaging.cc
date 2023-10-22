@@ -1003,6 +1003,47 @@ static Maybe<bool> ReadIterable(Environment* env,
   return Just(true);
 }
 
+bool GetTransferList(Environment* env,
+                     Local<Context> context,
+                     Local<Value> transfer_list_v,
+                     TransferList* transfer_list_out) {
+  if (transfer_list_v->IsNullOrUndefined()) {
+    // Browsers ignore null or undefined, and otherwise accept an array or an
+    // options object.
+    return true;
+  }
+
+  if (!transfer_list_v->IsObject()) {
+    THROW_ERR_INVALID_ARG_TYPE(
+        env, "Optional transferList argument must be an iterable");
+    return false;
+  }
+
+  bool was_iterable;
+  if (!ReadIterable(env, context, *transfer_list_out, transfer_list_v)
+           .To(&was_iterable))
+    return false;
+  if (!was_iterable) {
+    Local<Value> transfer_option;
+    if (!transfer_list_v.As<Object>()
+             ->Get(context, env->transfer_string())
+             .ToLocal(&transfer_option))
+      return false;
+    if (!transfer_option->IsUndefined()) {
+      if (!ReadIterable(env, context, *transfer_list_out, transfer_option)
+               .To(&was_iterable))
+        return false;
+      if (!was_iterable) {
+        THROW_ERR_INVALID_ARG_TYPE(
+            env, "Optional options.transfer argument must be an iterable");
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
 void MessagePort::PostMessage(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
   Local<Object> obj = args.This();
@@ -1013,33 +1054,10 @@ void MessagePort::PostMessage(const FunctionCallbackInfo<Value>& args) {
                                        "MessagePort.postMessage");
   }
 
-  if (!args[1]->IsNullOrUndefined() && !args[1]->IsObject()) {
-    // Browsers ignore null or undefined, and otherwise accept an array or an
-    // options object.
-    return THROW_ERR_INVALID_ARG_TYPE(env,
-        "Optional transferList argument must be an iterable");
-  }
-
   TransferList transfer_list;
-  if (args[1]->IsObject()) {
-    bool was_iterable;
-    if (!ReadIterable(env, context, transfer_list, args[1]).To(&was_iterable))
-      return;
-    if (!was_iterable) {
-      Local<Value> transfer_option;
-      if (!args[1].As<Object>()->Get(context, env->transfer_string())
-          .ToLocal(&transfer_option)) return;
-      if (!transfer_option->IsUndefined()) {
-        if (!ReadIterable(env, context, transfer_list, transfer_option)
-            .To(&was_iterable)) return;
-        if (!was_iterable) {
-          return THROW_ERR_INVALID_ARG_TYPE(env,
-              "Optional options.transfer argument must be an iterable");
-        }
-      }
-    }
+  if (!GetTransferList(env, context, args[1], &transfer_list)) {
+    return;
   }
-
   MessagePort* port = Unwrap<MessagePort>(args.This());
   // Even if the backing MessagePort object has already been deleted, we still
   // want to serialize the message to ensure spec-compliant behavior w.r.t.
@@ -1531,6 +1549,56 @@ static void SetDeserializerCreateObjectFunction(
   env->set_messaging_deserialize_create_object(args[0].As<Function>());
 }
 
+static void StructuredClone(const FunctionCallbackInfo<Value>& args) {
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext();
+  Realm* realm = Realm::GetCurrent(context);
+  Environment* env = realm->env();
+
+  if (args.Length() == 0) {
+    return THROW_ERR_MISSING_ARGS(env, "The value argument must be specified");
+  }
+
+  Local<Value> value = args[0];
+
+  TransferList transfer_list;
+  if (!args[1]->IsNullOrUndefined()) {
+    if (!args[1]->IsObject()) {
+      return THROW_ERR_INVALID_ARG_TYPE(
+          env, "The options argument must be either an object or undefined");
+    }
+    Local<Object> options = args[1].As<Object>();
+    Local<Value> transfer_list_v;
+    if (!options->Get(context, FIXED_ONE_BYTE_STRING(isolate, "transfer"))
+             .ToLocal(&transfer_list_v)) {
+      return;
+    }
+
+    if (!GetTransferList(env, context, transfer_list_v, &transfer_list)) {
+      return;
+    }
+  }
+
+  // TODO(joyeecheung): refactor and use V8 serialization/deserialization
+  // directly instead of going through message ports.
+  BindingData* binding_data = realm->GetBindingData<BindingData>(context);
+  MessagePort* port1;
+  MessagePort* port2;
+  std::tie(port1, port2) =
+      binding_data->GetOrCreatePortsForStructuredClone(context);
+  if (port1 == nullptr || port2 == nullptr) {
+    return;
+  }
+
+  Maybe<bool> res = port1->PostMessage(env, context, value, transfer_list);
+  if (res.IsNothing()) {
+    return;
+  }
+  MaybeLocal<Value> payload = port2->ReceiveMessage(
+      context, MessagePort::MessageProcessingMode::kForceReadMessages);
+  if (!payload.IsEmpty()) args.GetReturnValue().Set(payload.ToLocalChecked());
+}
+
 static void MessageChannel(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
   if (!args.IsConstructCall()) {
@@ -1567,6 +1635,83 @@ static void BroadcastChannel(const FunctionCallbackInfo<Value>& args) {
   if (port != nullptr) {
     args.GetReturnValue().Set(port->object());
   }
+}
+
+void BindingData::MemoryInfo(MemoryTracker* tracker) const {
+  tracker->TrackField("port1", port1_);
+  tracker->TrackField("port2", port2_);
+}
+
+BindingData::BindingData(Realm* realm, v8::Local<v8::Object> object)
+    : SnapshotableObject(realm, object, type_int) {}
+
+std::pair<MessagePort*, MessagePort*>
+BindingData::GetOrCreatePortsForStructuredClone(Local<Context> context) {
+  if (port1_ != nullptr) {
+    DCHECK_NOT_NULL(port2_);
+    return std::make_pair(port1_, port2_);
+  }
+
+  port1_ = MessagePort::New(env(), context);
+
+  if (port1_ != nullptr) {
+    port2_ = MessagePort::New(env(), context);
+  }
+
+  if (port1_ == nullptr || port2_ == nullptr) {
+    ThrowDataCloneException(context,
+                            FIXED_ONE_BYTE_STRING(context->GetIsolate(),
+                                                  "Cannot create MessagePort"));
+    if (port1_ != nullptr) {
+      port1_->Close();
+      port1_ = nullptr;
+    }
+  }
+
+  uv_unref(port1_->GetHandle());
+  uv_unref(port2_->GetHandle());
+  MessagePort::Entangle(port1_, port2_);
+
+  return std::make_pair(port1_, port2_);
+}
+
+bool BindingData::PrepareForSerialization(v8::Local<v8::Context> context,
+                                          v8::SnapshotCreator* creator) {
+  // We'll just re-initialize them when structuredClone is called again.
+  // TODO(joyeecheung): currently this is not enough to clean up the ports
+  // because their shutdown is async. Either add a special path to shut
+  // them down synchronously, or make it possible for the the snapshot
+  // process to deal with async shutdown, or just don't use ports and
+  // serialize/deserialize the data directly. Until then, structuredClone
+  // is not supported in custom snapshots.
+  if (port1_ != nullptr) {
+    DCHECK_NOT_NULL(port2_);
+    port1_->Close();
+    port1_ = nullptr;
+    port2_->Close();
+    port2_ = nullptr;
+  }
+  // Return true because we need to maintain the reference to the binding from
+  // JS land.
+  return true;
+}
+
+InternalFieldInfoBase* BindingData::Serialize(int index) {
+  DCHECK_IS_SNAPSHOT_SLOT(index);
+  InternalFieldInfo* info =
+      InternalFieldInfoBase::New<InternalFieldInfo>(type());
+  return info;
+}
+
+void BindingData::Deserialize(v8::Local<v8::Context> context,
+                              v8::Local<v8::Object> holder,
+                              int index,
+                              InternalFieldInfoBase* info) {
+  DCHECK_IS_SNAPSHOT_SLOT(index);
+  v8::HandleScope scope(context->GetIsolate());
+  Realm* realm = Realm::GetCurrent(context);
+  BindingData* binding = realm->AddBindingData<BindingData>(holder);
+  CHECK_NOT_NULL(binding);
 }
 
 static void CreatePerIsolateProperties(IsolateData* isolate_data,
@@ -1608,18 +1753,21 @@ static void CreatePerIsolateProperties(IsolateData* isolate_data,
             "setDeserializerCreateObjectFunction",
             SetDeserializerCreateObjectFunction);
   SetMethod(isolate, target, "broadcastChannel", BroadcastChannel);
+  SetMethod(isolate, target, "structuredClone", StructuredClone);
 }
 
 static void CreatePerContextProperties(Local<Object> target,
                                        Local<Value> unused,
                                        Local<Context> context,
                                        void* priv) {
+  Realm* realm = Realm::GetCurrent(context);
   Isolate* isolate = context->GetIsolate();
   Local<Function> domexception = GetDOMException(context).ToLocalChecked();
   target
       ->Set(
           context, FIXED_ONE_BYTE_STRING(isolate, "DOMException"), domexception)
       .Check();
+  realm->AddBindingData<BindingData>(target);
 }
 
 static void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
@@ -1634,6 +1782,7 @@ static void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
   registry->Register(MessagePort::ReceiveMessage);
   registry->Register(MessagePort::MoveToContext);
   registry->Register(SetDeserializerCreateObjectFunction);
+  registry->Register(StructuredClone);
 }
 
 }  // namespace messaging
