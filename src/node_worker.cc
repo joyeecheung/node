@@ -19,6 +19,8 @@
 
 using node::kAllowedInEnvvar;
 using node::kDisallowedInEnvvar;
+using node::messaging::MessagePort;
+using node::messaging::MessagePortData;
 using v8::Array;
 using v8::ArrayBuffer;
 using v8::Boolean;

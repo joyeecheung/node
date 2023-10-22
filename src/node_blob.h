@@ -56,7 +56,7 @@ class Blob : public BaseObject {
 
   inline size_t length() const { return this->data_queue_->size().value(); }
 
-  class BlobTransferData : public worker::TransferData {
+  class BlobTransferData : public messaging::TransferData {
    public:
     explicit BlobTransferData(std::shared_ptr<DataQueue> data_queue)
         : data_queue(data_queue) {}
@@ -64,7 +64,7 @@ class Blob : public BaseObject {
     BaseObjectPtr<BaseObject> Deserialize(
         Environment* env,
         v8::Local<v8::Context> context,
-        std::unique_ptr<worker::TransferData> self) override;
+        std::unique_ptr<messaging::TransferData> self) override;
 
     SET_MEMORY_INFO_NAME(BlobTransferData)
     SET_SELF_SIZE(BlobTransferData)
@@ -98,7 +98,7 @@ class Blob : public BaseObject {
   };
 
   BaseObject::TransferMode GetTransferMode() const override;
-  std::unique_ptr<worker::TransferData> CloneForMessaging() const override;
+  std::unique_ptr<messaging::TransferData> CloneForMessaging() const override;
 
   Blob(Environment* env,
        v8::Local<v8::Object> obj,

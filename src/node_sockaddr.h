@@ -179,9 +179,9 @@ class SocketAddressBase : public BaseObject {
   BaseObject::TransferMode GetTransferMode() const override {
     return TransferMode::kCloneable;
   }
-  std::unique_ptr<worker::TransferData> CloneForMessaging() const override;
+  std::unique_ptr<messaging::TransferData> CloneForMessaging() const override;
 
-  class TransferData : public worker::TransferData {
+  class TransferData : public messaging::TransferData {
    public:
     inline explicit TransferData(const SocketAddressBase* wrap)
         : address_(wrap->address_) {}
@@ -192,7 +192,7 @@ class SocketAddressBase : public BaseObject {
     BaseObjectPtr<BaseObject> Deserialize(
         Environment* env,
         v8::Local<v8::Context> context,
-        std::unique_ptr<worker::TransferData> self) override;
+        std::unique_ptr<messaging::TransferData> self) override;
 
     void MemoryInfo(MemoryTracker* tracker) const override;
     SET_MEMORY_INFO_NAME(SocketAddressBase::TransferData)
@@ -370,9 +370,9 @@ class SocketAddressBlockListWrap : public BaseObject {
   BaseObject::TransferMode GetTransferMode() const override {
     return TransferMode::kCloneable;
   }
-  std::unique_ptr<worker::TransferData> CloneForMessaging() const override;
+  std::unique_ptr<messaging::TransferData> CloneForMessaging() const override;
 
-  class TransferData : public worker::TransferData {
+  class TransferData : public messaging::TransferData {
    public:
     inline explicit TransferData(const SocketAddressBlockListWrap* wrap)
         : blocklist_(wrap->blocklist_) {}
@@ -384,7 +384,7 @@ class SocketAddressBlockListWrap : public BaseObject {
     BaseObjectPtr<BaseObject> Deserialize(
         Environment* env,
         v8::Local<v8::Context> context,
-        std::unique_ptr<worker::TransferData> self) override;
+        std::unique_ptr<messaging::TransferData> self) override;
 
     void MemoryInfo(MemoryTracker* tracker) const override;
     SET_MEMORY_INFO_NAME(SocketAddressBlockListWrap::TransferData)

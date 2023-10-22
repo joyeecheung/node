@@ -374,10 +374,10 @@ class FileHandle final : public AsyncWrap, public StreamBase {
   FileHandle& operator=(const FileHandle&&) = delete;
 
   BaseObject::TransferMode GetTransferMode() const override;
-  std::unique_ptr<worker::TransferData> TransferForMessaging() override;
+  std::unique_ptr<messaging::TransferData> TransferForMessaging() override;
 
  private:
-  class TransferData : public worker::TransferData {
+  class TransferData : public messaging::TransferData {
    public:
     explicit TransferData(int fd);
     ~TransferData();
@@ -385,7 +385,7 @@ class FileHandle final : public AsyncWrap, public StreamBase {
     BaseObjectPtr<BaseObject> Deserialize(
         Environment* env,
         v8::Local<v8::Context> context,
-        std::unique_ptr<worker::TransferData> self) override;
+        std::unique_ptr<messaging::TransferData> self) override;
 
     SET_NO_MEMORY_INFO()
     SET_MEMORY_INFO_NAME(FileHandleTransferData)

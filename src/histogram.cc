@@ -352,11 +352,12 @@ void HistogramBase::Initialize(IsolateData* isolate_data,
 BaseObjectPtr<BaseObject> HistogramBase::HistogramTransferData::Deserialize(
     Environment* env,
     v8::Local<v8::Context> context,
-    std::unique_ptr<worker::TransferData> self) {
+    std::unique_ptr<messaging::TransferData> self) {
   return Create(env, std::move(histogram_));
 }
 
-std::unique_ptr<worker::TransferData> HistogramBase::CloneForMessaging() const {
+std::unique_ptr<messaging::TransferData> HistogramBase::CloneForMessaging()
+    const {
   return std::make_unique<HistogramTransferData>(this);
 }
 
@@ -629,8 +630,8 @@ void IntervalHistogram::DoReset(const FunctionCallbackInfo<Value>& args) {
   (*histogram)->Reset();
 }
 
-std::unique_ptr<worker::TransferData>
-IntervalHistogram::CloneForMessaging() const {
+std::unique_ptr<messaging::TransferData> IntervalHistogram::CloneForMessaging()
+    const {
   return std::make_unique<HistogramBase::HistogramTransferData>(histogram());
 }
 

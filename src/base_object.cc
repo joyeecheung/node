@@ -97,11 +97,11 @@ BaseObject::TransferMode BaseObject::GetTransferMode() const {
   return TransferMode::kDisallowCloneAndTransfer;
 }
 
-std::unique_ptr<worker::TransferData> BaseObject::TransferForMessaging() {
+std::unique_ptr<messaging::TransferData> BaseObject::TransferForMessaging() {
   return {};
 }
 
-std::unique_ptr<worker::TransferData> BaseObject::CloneForMessaging() const {
+std::unique_ptr<messaging::TransferData> BaseObject::CloneForMessaging() const {
   return {};
 }
 

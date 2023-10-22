@@ -140,9 +140,9 @@ class HistogramBase : public BaseObject, public HistogramImpl {
   BaseObject::TransferMode GetTransferMode() const override {
     return TransferMode::kCloneable;
   }
-  std::unique_ptr<worker::TransferData> CloneForMessaging() const override;
+  std::unique_ptr<messaging::TransferData> CloneForMessaging() const override;
 
-  class HistogramTransferData : public worker::TransferData {
+  class HistogramTransferData : public messaging::TransferData {
    public:
     explicit HistogramTransferData(const HistogramBase* histogram)
         : histogram_(histogram->histogram()) {}
@@ -153,7 +153,7 @@ class HistogramBase : public BaseObject, public HistogramImpl {
     BaseObjectPtr<BaseObject> Deserialize(
         Environment* env,
         v8::Local<v8::Context> context,
-        std::unique_ptr<worker::TransferData> self) override;
+        std::unique_ptr<messaging::TransferData> self) override;
 
     void MemoryInfo(MemoryTracker* tracker) const override;
     SET_MEMORY_INFO_NAME(HistogramTransferData)
@@ -216,7 +216,7 @@ class IntervalHistogram : public HandleWrap, public HistogramImpl {
   BaseObject::TransferMode GetTransferMode() const override {
     return TransferMode::kCloneable;
   }
-  std::unique_ptr<worker::TransferData> CloneForMessaging() const override;
+  std::unique_ptr<messaging::TransferData> CloneForMessaging() const override;
 
   void MemoryInfo(MemoryTracker* tracker) const override;
   SET_MEMORY_INFO_NAME(IntervalHistogram)

@@ -479,7 +479,7 @@ BaseObjectPtr<BaseObject>
 X509Certificate::X509CertificateTransferData::Deserialize(
     Environment* env,
     Local<Context> context,
-    std::unique_ptr<worker::TransferData> self) {
+    std::unique_ptr<messaging::TransferData> self) {
   if (context != env->context()) {
     THROW_ERR_MESSAGE_TARGET_CONTEXT_UNAVAILABLE(env);
     return {};
@@ -497,11 +497,10 @@ BaseObject::TransferMode X509Certificate::GetTransferMode() const {
   return BaseObject::TransferMode::kCloneable;
 }
 
-std::unique_ptr<worker::TransferData> X509Certificate::CloneForMessaging()
+std::unique_ptr<messaging::TransferData> X509Certificate::CloneForMessaging()
     const {
   return std::make_unique<X509CertificateTransferData>(cert_);
 }
-
 
 void X509Certificate::Initialize(Environment* env, Local<Object> target) {
   SetMethod(env->context(), target, "parseX509", X509Certificate::Parse);

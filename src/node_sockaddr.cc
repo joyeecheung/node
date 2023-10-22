@@ -683,7 +683,7 @@ void SocketAddressBlockListWrap::MemoryInfo(MemoryTracker* tracker) const {
   blocklist_->MemoryInfo(tracker);
 }
 
-std::unique_ptr<worker::TransferData>
+std::unique_ptr<messaging::TransferData>
 SocketAddressBlockListWrap::CloneForMessaging() const {
   return std::make_unique<TransferData>(this);
 }
@@ -734,7 +734,7 @@ void SocketAddressBlockListWrap::Initialize(
 BaseObjectPtr<BaseObject> SocketAddressBlockListWrap::TransferData::Deserialize(
     Environment* env,
     Local<Context> context,
-    std::unique_ptr<worker::TransferData> self) {
+    std::unique_ptr<messaging::TransferData> self) {
   return New(env, std::move(blocklist_));
 }
 
@@ -866,8 +866,8 @@ void SocketAddressBase::MemoryInfo(MemoryTracker* tracker) const {
   tracker->TrackField("address", address_);
 }
 
-std::unique_ptr<worker::TransferData>
-SocketAddressBase::CloneForMessaging() const {
+std::unique_ptr<messaging::TransferData> SocketAddressBase::CloneForMessaging()
+    const {
   return std::make_unique<TransferData>(this);
 }
 
@@ -878,7 +878,7 @@ void SocketAddressBase::TransferData::MemoryInfo(MemoryTracker* tracker) const {
 BaseObjectPtr<BaseObject> SocketAddressBase::TransferData::Deserialize(
     Environment* env,
     v8::Local<v8::Context> context,
-    std::unique_ptr<worker::TransferData> self) {
+    std::unique_ptr<messaging::TransferData> self) {
   return SocketAddressBase::Create(env, std::move(address_));
 }
 

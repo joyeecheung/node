@@ -306,7 +306,7 @@ BaseObject::TransferMode FileHandle::GetTransferMode() const {
              : TransferMode::kTransferable;
 }
 
-std::unique_ptr<worker::TransferData> FileHandle::TransferForMessaging() {
+std::unique_ptr<messaging::TransferData> FileHandle::TransferForMessaging() {
   CHECK_NE(GetTransferMode(), TransferMode::kDisallowCloneAndTransfer);
   auto ret = std::make_unique<TransferData>(fd_);
   closed_ = true;
@@ -329,7 +329,7 @@ FileHandle::TransferData::~TransferData() {
 BaseObjectPtr<BaseObject> FileHandle::TransferData::Deserialize(
     Environment* env,
     v8::Local<v8::Context> context,
-    std::unique_ptr<worker::TransferData> self) {
+    std::unique_ptr<messaging::TransferData> self) {
   BindingData* bd = Realm::GetBindingData<BindingData>(context);
   if (bd == nullptr) return {};
 

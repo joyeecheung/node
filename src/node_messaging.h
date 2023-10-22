@@ -12,7 +12,7 @@
 #include <set>
 
 namespace node {
-namespace worker {
+namespace messaging {
 
 class MessagePortData;
 class MessagePort;
@@ -379,9 +379,9 @@ class JSTransferable : public BaseObject {
 };
 
 v8::Local<v8::FunctionTemplate> GetMessagePortConstructorTemplate(
-    Environment* env);
+    IsolateData* isolate_data);
 
-}  // namespace worker
+}  // namespace messaging
 }  // namespace node
 
 #endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS

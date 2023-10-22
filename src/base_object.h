@@ -37,7 +37,7 @@ class Realm;
 template <typename T, bool kIsWeak>
 class BaseObjectPtrImpl;
 
-namespace worker {
+namespace messaging {
 class TransferData;
 }
 
@@ -172,8 +172,8 @@ class BaseObject : public MemoryRetainer {
     kTransferableAndCloneable = kTransferable | kCloneable,
   };
   virtual TransferMode GetTransferMode() const;
-  virtual std::unique_ptr<worker::TransferData> TransferForMessaging();
-  virtual std::unique_ptr<worker::TransferData> CloneForMessaging() const;
+  virtual std::unique_ptr<messaging::TransferData> TransferForMessaging();
+  virtual std::unique_ptr<messaging::TransferData> CloneForMessaging() const;
   virtual v8::Maybe<std::vector<BaseObjectPtrImpl<BaseObject, false>>>
       NestedTransferables() const;
   virtual v8::Maybe<bool> FinalizeTransferRead(

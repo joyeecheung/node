@@ -112,7 +112,7 @@ class Worker : public AsyncWrap {
   // Stack buffer size that is not available to the JS engine.
   static constexpr size_t kStackBufferSize = 192 * 1024;
 
-  std::unique_ptr<MessagePortData> child_port_data_;
+  std::unique_ptr<messaging::MessagePortData> child_port_data_;
   std::shared_ptr<KVStore> env_vars_;
 
   // A raw flag that is used by creator and worker threads to

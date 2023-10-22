@@ -227,7 +227,7 @@ class NativeKeyObject : public BaseObject {
   SET_MEMORY_INFO_NAME(NativeKeyObject)
   SET_SELF_SIZE(NativeKeyObject)
 
-  class KeyObjectTransferData : public worker::TransferData {
+  class KeyObjectTransferData : public messaging::TransferData {
    public:
     explicit KeyObjectTransferData(const std::shared_ptr<KeyObjectData>& data)
         : data_(data) {}
@@ -235,7 +235,7 @@ class NativeKeyObject : public BaseObject {
     BaseObjectPtr<BaseObject> Deserialize(
         Environment* env,
         v8::Local<v8::Context> context,
-        std::unique_ptr<worker::TransferData> self) override;
+        std::unique_ptr<messaging::TransferData> self) override;
 
     SET_MEMORY_INFO_NAME(KeyObjectTransferData)
     SET_SELF_SIZE(KeyObjectTransferData)
@@ -246,7 +246,7 @@ class NativeKeyObject : public BaseObject {
   };
 
   BaseObject::TransferMode GetTransferMode() const override;
-  std::unique_ptr<worker::TransferData> CloneForMessaging() const override;
+  std::unique_ptr<messaging::TransferData> CloneForMessaging() const override;
 
  private:
   NativeKeyObject(Environment* env,

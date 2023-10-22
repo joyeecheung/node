@@ -379,11 +379,10 @@ void Blob::Reader::Pull(const FunctionCallbackInfo<Value>& args) {
       std::move(next), node::bob::OPTIONS_END, nullptr, 0));
 }
 
-BaseObjectPtr<BaseObject>
-Blob::BlobTransferData::Deserialize(
+BaseObjectPtr<BaseObject> Blob::BlobTransferData::Deserialize(
     Environment* env,
     Local<Context> context,
-    std::unique_ptr<worker::TransferData> self) {
+    std::unique_ptr<messaging::TransferData> self) {
   if (context != env->context()) {
     THROW_ERR_MESSAGE_TARGET_CONTEXT_UNAVAILABLE(env);
     return {};
@@ -395,7 +394,7 @@ BaseObject::TransferMode Blob::GetTransferMode() const {
   return TransferMode::kCloneable;
 }
 
-std::unique_ptr<worker::TransferData> Blob::CloneForMessaging() const {
+std::unique_ptr<messaging::TransferData> Blob::CloneForMessaging() const {
   return std::make_unique<BlobTransferData>(data_queue_);
 }
 

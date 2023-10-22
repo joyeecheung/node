@@ -100,7 +100,7 @@ class X509Certificate : public BaseObject {
   SET_MEMORY_INFO_NAME(X509Certificate)
   SET_SELF_SIZE(X509Certificate)
 
-  class X509CertificateTransferData : public worker::TransferData {
+  class X509CertificateTransferData : public messaging::TransferData {
    public:
     explicit X509CertificateTransferData(
         const std::shared_ptr<ManagedX509>& data)
@@ -109,7 +109,7 @@ class X509Certificate : public BaseObject {
     BaseObjectPtr<BaseObject> Deserialize(
         Environment* env,
         v8::Local<v8::Context> context,
-        std::unique_ptr<worker::TransferData> self) override;
+        std::unique_ptr<messaging::TransferData> self) override;
 
     SET_MEMORY_INFO_NAME(X509CertificateTransferData)
     SET_SELF_SIZE(X509CertificateTransferData)
@@ -120,7 +120,7 @@ class X509Certificate : public BaseObject {
   };
 
   BaseObject::TransferMode GetTransferMode() const override;
-  std::unique_ptr<worker::TransferData> CloneForMessaging() const override;
+  std::unique_ptr<messaging::TransferData> CloneForMessaging() const override;
 
  private:
   X509Certificate(

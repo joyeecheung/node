@@ -1394,9 +1394,9 @@ void NativeKeyObject::CreateNativeKeyObjectClass(
 }
 
 BaseObjectPtr<BaseObject> NativeKeyObject::KeyObjectTransferData::Deserialize(
-        Environment* env,
-        Local<Context> context,
-        std::unique_ptr<worker::TransferData> self) {
+    Environment* env,
+    Local<Context> context,
+    std::unique_ptr<messaging::TransferData> self) {
   if (context != env->context()) {
     THROW_ERR_MESSAGE_TARGET_CONTEXT_UNAVAILABLE(env);
     return {};
@@ -1439,7 +1439,7 @@ BaseObject::TransferMode NativeKeyObject::GetTransferMode() const {
   return BaseObject::TransferMode::kCloneable;
 }
 
-std::unique_ptr<worker::TransferData> NativeKeyObject::CloneForMessaging()
+std::unique_ptr<messaging::TransferData> NativeKeyObject::CloneForMessaging()
     const {
   return std::make_unique<KeyObjectTransferData>(handle_data_);
 }
