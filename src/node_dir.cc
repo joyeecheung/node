@@ -11,11 +11,12 @@
 #include "string_bytes.h"
 
 #include <fcntl.h>
-#include <sys/types.h>
 #include <sys/stat.h>
-#include <cstring>
+#include <sys/types.h>
 #include <cerrno>
 #include <climits>
+#include <cstring>
+#include "cppgc/allocation.h"
 
 #include <memory>
 
@@ -96,27 +97,25 @@ static const char* get_dir_func_name_by_type(uv_fs_type req_type) {
                                   value);
 
 DirHandle::DirHandle(Environment* env, Local<Object> obj, uv_dir_t* dir)
-    : BaseObject(env, obj),
-      dir_(dir) {
-  MakeWeak();
-
+    : dir_(dir) {
+  INITIALIZE_CPPGC_OBJECT(env, obj, this)
   dir_->nentries = 0;
   dir_->dirents = nullptr;
 }
 
 DirHandle* DirHandle::New(Environment* env, uv_dir_t* dir) {
   Local<Object> obj;
+
   if (!env->dir_instance_template()
           ->NewInstance(env->context())
           .ToLocal(&obj)) {
     return nullptr;
   }
 
-  return new DirHandle(env, obj, dir);
-}
-
-void DirHandle::New(const FunctionCallbackInfo<Value>& args) {
-  CHECK(args.IsConstructCall());
+  Isolate* isolate = env->isolate();
+  DirHandle* handle = cppgc::MakeGarbageCollected<DirHandle>(
+      isolate->GetCppHeap()->GetAllocationHandle(), env, obj, dir);
+  return handle;
 }
 
 DirHandle::~DirHandle() {
@@ -127,6 +126,7 @@ DirHandle::~DirHandle() {
 
 void DirHandle::MemoryInfo(MemoryTracker* tracker) const {
   tracker->TrackFieldWithSize("dir", sizeof(*dir_));
+  tracker->TrackField("native_to_javascript", object());
 }
 
 // Close the directory handle if it hasn't already been closed. A process
@@ -180,6 +180,14 @@ void AfterClose(uv_fs_t* req) {
     req_wrap->Resolve(Undefined(req_wrap->env()->isolate()));
 }
 
+#define ASSIGN_OR_RETURN_UNWRAP_CPPGC(ptr, obj, ...)                           \
+  do {                                                                         \
+    DCHECK_GE(obj->InternalFieldCount(), kInternalFieldCount);                 \
+    *ptr = static_cast<typename std::remove_reference<decltype(*ptr)>::type>(  \
+        obj->GetAlignedPointerFromInternalField(kSlot));                       \
+    if (*ptr == nullptr) return __VA_ARGS__;                                   \
+  } while (0)
+
 void DirHandle::Close(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
 
@@ -187,7 +195,7 @@ void DirHandle::Close(const FunctionCallbackInfo<Value>& args) {
   CHECK_GE(argc, 1);
 
   DirHandle* dir;
-  ASSIGN_OR_RETURN_UNWRAP(&dir, args.Holder());
+  ASSIGN_OR_RETURN_UNWRAP_CPPGC(&dir, args.Holder());
 
   dir->closing_ = false;
   dir->closed_ = true;
@@ -288,7 +296,7 @@ void DirHandle::Read(const FunctionCallbackInfo<Value>& args) {
   const enum encoding encoding = ParseEncoding(isolate, args[0], UTF8);
 
   DirHandle* dir;
-  ASSIGN_OR_RETURN_UNWRAP(&dir, args.Holder());
+  ASSIGN_OR_RETURN_UNWRAP_CPPGC(&dir, args.Holder());
 
   CHECK(args[1]->IsNumber());
   uint64_t buffer_size = static_cast<uint64_t>(args[1].As<Number>()->Value());
@@ -431,7 +439,7 @@ void CreatePerIsolateProperties(IsolateData* isolate_data,
   SetMethod(isolate, target, "opendirSync", OpenDirSync);
 
   // Create FunctionTemplate for DirHandle
-  Local<FunctionTemplate> dir = NewFunctionTemplate(isolate, DirHandle::New);
+  Local<FunctionTemplate> dir = FunctionTemplate::New(isolate);
   SetProtoMethod(isolate, dir, "read", DirHandle::Read);
   SetProtoMethod(isolate, dir, "close", DirHandle::Close);
   Local<ObjectTemplate> dirt = dir->InstanceTemplate();
@@ -448,7 +456,6 @@ void CreatePerContextProperties(Local<Object> target,
 void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
   registry->Register(OpenDir);
   registry->Register(OpenDirSync);
-  registry->Register(DirHandle::New);
   registry->Register(DirHandle::Read);
   registry->Register(DirHandle::Close);
 }
