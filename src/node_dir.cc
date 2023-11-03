@@ -96,7 +96,7 @@ static const char* get_dir_func_name_by_type(uv_fs_type req_type) {
                                   value);
 
 DirHandle::DirHandle(Environment* env, Local<Object> obj, uv_dir_t* dir)
-    : AsyncWrap(env, obj, AsyncWrap::PROVIDER_DIRHANDLE),
+    : BaseObject(env, obj),
       dir_(dir) {
   MakeWeak();
 
@@ -432,7 +432,6 @@ void CreatePerIsolateProperties(IsolateData* isolate_data,
 
   // Create FunctionTemplate for DirHandle
   Local<FunctionTemplate> dir = NewFunctionTemplate(isolate, DirHandle::New);
-  dir->Inherit(AsyncWrap::GetConstructorTemplate(isolate_data));
   SetProtoMethod(isolate, dir, "read", DirHandle::Read);
   SetProtoMethod(isolate, dir, "close", DirHandle::Close);
   Local<ObjectTemplate> dirt = dir->InstanceTemplate();

@@ -10,7 +10,7 @@ namespace node {
 namespace fs_dir {
 
 // Needed to propagate `uv_dir_t`.
-class DirHandle : public AsyncWrap {
+class DirHandle : public BaseObject {
  public:
   static DirHandle* New(Environment* env, uv_dir_t* dir);
   ~DirHandle() override;
