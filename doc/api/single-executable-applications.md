@@ -178,13 +178,21 @@ The configuration currently reads the following top-level fields:
   "output": "/path/to/write/the/generated/blob.blob",
   "disableExperimentalSEAWarning": true, // Default: false
   "useSnapshot": false,  // Default: false
-  "useCodeCache": true // Default: false
+  "useCodeCache": true, // Default: false
+  "assets": {  // Optional
+    "a.dat": "/path/to/a.dat",
+    "b.txt": "/path/to/b.txt"
+  }
 }
 ```
 
 If the paths are not absolute, Node.js will use the path relative to the
 current working directory. The version of the Node.js binary used to produce
 the blob must be the same as the one to which the blob will be injected.
+
+### Assets
+
+
 
 ### Startup snapshot support
 
