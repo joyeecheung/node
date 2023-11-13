@@ -313,7 +313,7 @@ bool SafeGetenv(const char* key,
                 v8::Isolate* isolate = nullptr);
 }  // namespace credentials
 
-void DefineZlibConstants(v8::Local<v8::Object> target);
+void DefineZlibConstants(v8::Isolate* isolate, v8::Local<v8::ObjectTemplate> target);
 v8::Isolate* NewIsolate(v8::Isolate::CreateParams* params,
                         uv_loop_t* event_loop,
                         MultiIsolatePlatform* platform,

@@ -42,6 +42,12 @@
 #include <cstring>
 #include <atomic>
 
+// Disable clang-format because this needs to be included last to
+// override helpers.
+// clang-format off
+#include "constant_template.h"
+// clang-format on
+
 namespace node {
 
 using v8::ArrayBuffer;
@@ -57,6 +63,7 @@ using v8::Local;
 using v8::Object;
 using v8::Uint32Array;
 using v8::Value;
+using v8::ObjectTemplate;
 
 namespace {
 
@@ -1309,7 +1316,7 @@ void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
 
 }  // anonymous namespace
 
-void DefineZlibConstants(Local<Object> target) {
+void DefineZlibConstants(Isolate* isolate, Local<ObjectTemplate> target) {
   NODE_DEFINE_CONSTANT(target, Z_NO_FLUSH);
   NODE_DEFINE_CONSTANT(target, Z_PARTIAL_FLUSH);
   NODE_DEFINE_CONSTANT(target, Z_SYNC_FLUSH);

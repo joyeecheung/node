@@ -61,6 +61,12 @@
 #include <csignal>
 #include <limits>
 
+// Disable clang-format because this needs to be included last to
+// override helpers.
+// clang-format off
+#include "constant_template.h"
+// clang-format on
+
 namespace node {
 
 using v8::Context;
@@ -68,11 +74,14 @@ using v8::Isolate;
 using v8::Local;
 using v8::Null;
 using v8::Object;
+using v8::Number;
 using v8::Value;
+using v8::Integer;
+using v8::ObjectTemplate;
 
 namespace constants {
 
-void DefineErrnoConstants(Local<Object> target) {
+void DefineErrnoConstants(Isolate* isolate, Local<ObjectTemplate> target) {
 #ifdef E2BIG
   NODE_DEFINE_CONSTANT(target, E2BIG);
 #endif
@@ -390,7 +399,7 @@ void DefineErrnoConstants(Local<Object> target) {
 #endif
 }
 
-void DefineWindowsErrorConstants(Local<Object> target) {
+void DefineWindowsErrorConstants(Isolate* isolate, Local<ObjectTemplate> target) {
 #ifdef WSAEINTR
   NODE_DEFINE_CONSTANT(target, WSAEINTR);
 #endif
@@ -624,7 +633,7 @@ void DefineWindowsErrorConstants(Local<Object> target) {
 #endif
 }
 
-void DefineSignalConstants(Local<Object> target) {
+void DefineSignalConstants(Isolate* isolate, Local<ObjectTemplate> target) {
 #ifdef SIGHUP
   NODE_DEFINE_CONSTANT(target, SIGHUP);
 #endif
@@ -773,7 +782,7 @@ void DefineSignalConstants(Local<Object> target) {
 #endif
 }
 
-void DefinePriorityConstants(Local<Object> target) {
+void DefinePriorityConstants(Isolate* isolate, Local<ObjectTemplate> target) {
 #ifdef UV_PRIORITY_LOW
 # define PRIORITY_LOW UV_PRIORITY_LOW
   NODE_DEFINE_CONSTANT(target, PRIORITY_LOW);
@@ -811,7 +820,7 @@ void DefinePriorityConstants(Local<Object> target) {
 #endif
 }
 
-void DefineCryptoConstants(Local<Object> target) {
+void DefineCryptoConstants(Isolate* isolate, Local<ObjectTemplate> target) {
 #ifdef OPENSSL_VERSION_NUMBER
     NODE_DEFINE_CONSTANT(target, OPENSSL_VERSION_NUMBER);
 #endif
@@ -1040,7 +1049,7 @@ void DefineCryptoConstants(Local<Object> target) {
 #endif
 }
 
-void DefineSystemConstants(Local<Object> target) {
+void DefineSystemConstants(Isolate* isolate, Local<ObjectTemplate> target) {
   NODE_DEFINE_CONSTANT(target, UV_FS_SYMLINK_DIR);
   NODE_DEFINE_CONSTANT(target, UV_FS_SYMLINK_JUNCTION);
   // file access modes
@@ -1227,7 +1236,7 @@ NODE_DEFINE_CONSTANT(target, UV_FS_O_FILEMAP);
 #endif
 }
 
-void DefineDLOpenConstants(Local<Object> target) {
+void DefineDLOpenConstants(Isolate* isolate, Local<ObjectTemplate> target) {
 #ifdef RTLD_LAZY
   NODE_DEFINE_CONSTANT(target, RTLD_LAZY);
 #endif
@@ -1249,7 +1258,7 @@ void DefineDLOpenConstants(Local<Object> target) {
 #endif
 }
 
-void DefineTraceConstants(Local<Object> target) {
+void DefineTraceConstants(Isolate* isolate, Local<ObjectTemplate> target) {
   NODE_DEFINE_CONSTANT(target, TRACE_EVENT_PHASE_BEGIN);
   NODE_DEFINE_CONSTANT(target, TRACE_EVENT_PHASE_END);
   NODE_DEFINE_CONSTANT(target, TRACE_EVENT_PHASE_COMPLETE);
@@ -1278,14 +1287,55 @@ void DefineTraceConstants(Local<Object> target) {
   NODE_DEFINE_CONSTANT(target, TRACE_EVENT_PHASE_LINK_IDS);
 }
 
+void DefineOsConstants(Isolate* isolate, Local<ObjectTemplate> target) {
+  // Define libuv constants.
+  NODE_DEFINE_CONSTANT(target, UV_UDP_REUSEADDR);
+}
+
+void CreatePerIsolateProperties(IsolateData* isolate_data,
+                                Local<ObjectTemplate> target) {
+  Isolate* isolate = isolate_data->isolate();
+
+  Local<ObjectTemplate> os_constants = ObjectTemplate::New(isolate);
+  Local<ObjectTemplate> err_constants = ObjectTemplate::New(isolate);
+  Local<ObjectTemplate> sig_constants = ObjectTemplate::New(isolate);
+  Local<ObjectTemplate> priority_constants = ObjectTemplate::New(isolate);
+  Local<ObjectTemplate> fs_constants = ObjectTemplate::New(isolate);
+  Local<ObjectTemplate> crypto_constants = ObjectTemplate::New(isolate);
+  Local<ObjectTemplate> zlib_constants = ObjectTemplate::New(isolate);
+  Local<ObjectTemplate> dlopen_constants = ObjectTemplate::New(isolate);
+  Local<ObjectTemplate> trace_constants = ObjectTemplate::New(isolate);
+
+  DefineOsConstants(isolate, os_constants);
+  DefineErrnoConstants(isolate, err_constants);
+  DefineWindowsErrorConstants(isolate, err_constants);
+  DefineSignalConstants(isolate, sig_constants);
+  DefinePriorityConstants(isolate, priority_constants);
+  DefineSystemConstants(isolate, fs_constants);
+  DefineCryptoConstants(isolate, crypto_constants);
+  DefineZlibConstants(isolate, zlib_constants);
+  DefineDLOpenConstants(isolate, dlopen_constants);
+  DefineTraceConstants(isolate, trace_constants);
+
+  target->Set(isolate, "dlopen", dlopen_constants);
+  target->Set(isolate, "errno", err_constants);
+  target->Set(isolate, "signals", sig_constants);
+  target->Set(isolate, "priority", priority_constants);
+  target->Set(isolate, "os", os_constants);
+  target->Set(isolate, "fs", fs_constants);
+  target->Set(isolate, "crypto", crypto_constants);
+  target->Set(isolate, "zlib", zlib_constants);
+  target->Set(isolate, "trace", trace_constants);
+}
+
 void CreatePerContextProperties(Local<Object> target,
                                 Local<Value> unused,
                                 Local<Context> context,
                                 void* priv) {
   Isolate* isolate = context->GetIsolate();
   Environment* env = Environment::GetCurrent(context);
-
   CHECK(target->SetPrototype(env->context(), Null(env->isolate())).FromJust());
+  target->Get(context, FIXED_ONE_BYTE_STRING(isolate, "dlopen")).ToLocalChecked()->SetPrototype(context, Null(isolate)).FromJust();
 
   Local<Object> os_constants = Object::New(isolate);
   CHECK(os_constants->SetPrototype(env->context(),
@@ -1322,47 +1372,6 @@ void CreatePerContextProperties(Local<Object> target,
   Local<Object> trace_constants = Object::New(isolate);
   CHECK(trace_constants->SetPrototype(env->context(),
                                       Null(env->isolate())).FromJust());
-
-  DefineErrnoConstants(err_constants);
-  DefineWindowsErrorConstants(err_constants);
-  DefineSignalConstants(sig_constants);
-  DefinePriorityConstants(priority_constants);
-  DefineSystemConstants(fs_constants);
-  DefineCryptoConstants(crypto_constants);
-  DefineZlibConstants(zlib_constants);
-  DefineDLOpenConstants(dlopen_constants);
-  DefineTraceConstants(trace_constants);
-
-  // Define libuv constants.
-  NODE_DEFINE_CONSTANT(os_constants, UV_UDP_REUSEADDR);
-
-  os_constants->Set(env->context(),
-                    OneByteString(isolate, "dlopen"),
-                    dlopen_constants).Check();
-  os_constants->Set(env->context(),
-                    OneByteString(isolate, "errno"),
-                    err_constants).Check();
-  os_constants->Set(env->context(),
-                    OneByteString(isolate, "signals"),
-                    sig_constants).Check();
-  os_constants->Set(env->context(),
-                    OneByteString(isolate, "priority"),
-                    priority_constants).Check();
-  target->Set(env->context(),
-              OneByteString(isolate, "os"),
-              os_constants).Check();
-  target->Set(env->context(),
-              OneByteString(isolate, "fs"),
-              fs_constants).Check();
-  target->Set(env->context(),
-              OneByteString(isolate, "crypto"),
-              crypto_constants).Check();
-  target->Set(env->context(),
-              OneByteString(isolate, "zlib"),
-              zlib_constants).Check();
-  target->Set(env->context(),
-              OneByteString(isolate, "trace"),
-              trace_constants).Check();
 }
 
 }  // namespace constants
@@ -1370,3 +1379,5 @@ void CreatePerContextProperties(Local<Object> target,
 
 NODE_BINDING_CONTEXT_AWARE_INTERNAL(constants,
                                     node::constants::CreatePerContextProperties)
+NODE_BINDING_PER_ISOLATE_INIT(constants,
+                              node::constants::CreatePerIsolateProperties)

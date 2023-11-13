@@ -34,6 +34,7 @@ static_assert(static_cast<int>(NM_F_LINKED) ==
   V(async_wrap)                                                                \
   V(blob)                                                                      \
   V(builtins)                                                                  \
+  V(constants)                                                                 \
   V(contextify)                                                                \
   V(encoding_binding)                                                          \
   V(fs)                                                                        \
