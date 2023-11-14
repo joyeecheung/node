@@ -4,6 +4,7 @@
 #include "util-inl.h"
 
 namespace node {
+using v8::Array;
 using v8::Context;
 using v8::Isolate;
 using v8::Local;
@@ -99,6 +100,52 @@ std::optional<bool> JSONParser::GetTopLevelBoolField(std::string_view field) {
     return {};
   }
   return value->BooleanValue(isolate);
+}
+
+std::optional<std::map<std::string, std::string>>
+JSONParser::GetTopLevelDictOfStrings(std::string_view field) {
+  Isolate* isolate = isolate_.get();
+  v8::HandleScope handle_scope(isolate);
+  Local<Context> context = context_.Get(isolate);
+  Local<Object> content_object = content_.Get(isolate);
+  Local<Value> value;
+  bool has_field;
+  // It's not a real script, so don't print the source line.
+  errors::PrinterTryCatch bootstrapCatch(
+      isolate, errors::PrinterTryCatch::kDontPrintSourceLine);
+  Local<Value> field_local;
+  if (!ToV8Value(context, field, isolate).ToLocal(&field_local)) {
+    return std::nullopt;
+  }
+  if (!content_object->Has(context, field_local).To(&has_field)) {
+    return std::nullopt;
+  }
+  if (!has_field) {
+    return std::map<std::string, std::string>{};
+  }
+  if (!content_object->Get(context, field_local).ToLocal(&value) ||
+      !value->IsObject()) {
+    return std::nullopt;
+  }
+  Local<Object> dict = value.As<Object>();
+  Local<Array> keys;
+  if (!dict->GetOwnPropertyNames(context).ToLocal(&keys)) {
+    return std::nullopt;
+  }
+  std::map<std::string, std::string> result;
+  uint32_t length = keys->Length();
+  for (uint32_t i = 0; i < length; ++i) {
+    Local<Value> key;
+    Local<Value> value;
+    if (!keys->Get(context, i).ToLocal(&key) || !key->IsString()) return {};
+    if (!dict->Get(context, key).ToLocal(&value) || !value->IsString())
+      return {};
+
+    Utf8Value key_utf8(isolate, key);
+    Utf8Value value_utf8(isolate, value);
+    result.emplace(*key_utf8, *value_utf8);
+  }
+  return result;
 }
 
 }  // namespace node

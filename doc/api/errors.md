@@ -2360,6 +2360,13 @@ error indicates that the idle loop has failed to stop.
 An attempt was made to use operations that can only be used when building
 V8 startup snapshot even though Node.js isn't building one.
 
+<a id="ERR_NOT_IN_SEA"></a>
+
+### `ERR_NOT_IN_SEA`
+
+The operation cannot be performed when it's not in a single-executable
+application.
+
 <a id="ERR_NOT_SUPPORTED_IN_SNAPSHOT"></a>
 
 ### `ERR_NOT_SUPPORTED_IN_SNAPSHOT`
@@ -2489,6 +2496,13 @@ example, <kbd>Ctrl</kbd>+<kbd>C</kbd> was pressed.)
 ### `ERR_SCRIPT_EXECUTION_TIMEOUT`
 
 Script execution timed out, possibly due to bugs in the script being executed.
+
+<a id="ERR_SEA_ASSET_NOT_FOUND"></a>
+
+### `ERR_SEA_ASSET_NOT_FOUND`
+
+The key passed to [`sea.getAsset()`][] cannot be found in the single exectuable
+application.
 
 <a id="ERR_SERVER_ALREADY_LISTEN"></a>
 
@@ -3681,6 +3695,7 @@ The native call from `process.cpuUsage` could not be processed.
 [`readable._read()`]: stream.md#readable_readsize
 [`require('node:crypto').setEngine()`]: crypto.md#cryptosetengineengine-flags
 [`require()`]: modules.md#requireid
+[`sea.getAsset()`]: single-executable-applications.md#seagetassetkey-encoding
 [`server.close()`]: net.md#serverclosecallback
 [`server.listen()`]: net.md#serverlisten
 [`sign.sign()`]: crypto.md#signsignprivatekey-outputencoding

@@ -6,6 +6,7 @@
 #if !defined(DISABLE_SINGLE_EXECUTABLE_APPLICATION)
 
 #include <cinttypes>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -27,6 +28,7 @@ enum class SeaFlags : uint32_t {
   kDisableExperimentalSeaWarning = 1 << 0,
   kUseSnapshot = 1 << 1,
   kUseCodeCache = 1 << 2,
+  kIncludeAssets = 1 << 3,
 };
 
 struct SeaResource {
@@ -34,6 +36,7 @@ struct SeaResource {
   std::string_view code_path;
   std::string_view main_code_or_snapshot;
   std::optional<std::string_view> code_cache;
+  std::map<std::string_view, std::string_view> assets;
 
   bool use_snapshot() const;
   static constexpr size_t kHeaderSize = sizeof(kMagic) + sizeof(SeaFlags);
