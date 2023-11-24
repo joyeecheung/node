@@ -31,12 +31,19 @@ enum HostDefinedOptions : int {
   kLength = 9,
 };
 
+enum class ModuleType : uint8_t {
+  kSourceText,
+  kSynthetic,
+  kBuiltInFacade,
+};
+
 class ModuleWrap : public BaseObject {
  public:
   enum InternalFields {
     kModuleSlot = BaseObject::kInternalFieldCount,
     kURLSlot,
-    kSyntheticEvaluationStepsSlot,
+    kExportKeysSlot,
+    kSyntheticEvaluationDataSlot,
     kContextObjectSlot,  // Object whose creation context is the target Context
     kInternalFieldCount
   };
@@ -72,11 +79,14 @@ class ModuleWrap : public BaseObject {
   ModuleWrap(Realm* realm,
              v8::Local<v8::Object> object,
              v8::Local<v8::Module> module,
+             ModuleType type,
              v8::Local<v8::String> url,
              v8::Local<v8::Object> context_object,
-             v8::Local<v8::Value> synthetic_evaluation_step);
+             v8::Local<v8::Value> export_keys,
+             v8::Local<v8::Value> synthetic_evaluation_steps);
   ~ModuleWrap() override;
 
+  static void NewBuiltin(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void New(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Link(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Instantiate(const v8::FunctionCallbackInfo<v8::Value>& args);
@@ -93,8 +103,15 @@ class ModuleWrap : public BaseObject {
       const v8::FunctionCallbackInfo<v8::Value>& args);
   static v8::MaybeLocal<v8::Value> SyntheticModuleEvaluationStepsCallback(
       v8::Local<v8::Context> context, v8::Local<v8::Module> module);
+  static v8::MaybeLocal<v8::Value> BuiltinFacadeEvaluationStepsCallback(
+      v8::Local<v8::Context> context, v8::Local<v8::Module> module);
   static void SetSyntheticExport(
       const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void SyncBuiltinFacade(
+      const v8::FunctionCallbackInfo<v8::Value>& args);
+  v8::Maybe<bool> SyncBuiltinFacade(v8::Local<v8::Context> context,
+                                    v8::Local<v8::Array> export_values);
+  v8::Maybe<bool> BuildBuiltinFacade();
   static void CreateCachedData(const v8::FunctionCallbackInfo<v8::Value>& args);
 
   static v8::MaybeLocal<v8::Module> ResolveModuleCallback(
@@ -107,7 +124,8 @@ class ModuleWrap : public BaseObject {
   v8::Global<v8::Module> module_;
   std::unordered_map<std::string, v8::Global<v8::Promise>> resolve_cache_;
   contextify::ContextifyContext* contextify_context_ = nullptr;
-  bool synthetic_ = false;
+
+  ModuleType type_;
   bool linked_ = false;
   int module_hash_;
 };

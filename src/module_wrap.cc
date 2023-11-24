@@ -53,23 +53,24 @@ using v8::Value;
 ModuleWrap::ModuleWrap(Realm* realm,
                        Local<Object> object,
                        Local<Module> module,
+                       ModuleType type,
                        Local<String> url,
                        Local<Object> context_object,
+                       Local<Value> export_keys,
                        Local<Value> synthetic_evaluation_step)
     : BaseObject(realm, object),
       module_(realm->isolate(), module),
+      type_(type),
       module_hash_(module->GetIdentityHash()) {
   realm->env()->hash_to_module_map.emplace(module_hash_, this);
 
   object->SetInternalField(kModuleSlot, module);
   object->SetInternalField(kURLSlot, url);
-  object->SetInternalField(kSyntheticEvaluationStepsSlot,
+  object->SetInternalField(kExportKeysSlot, export_keys);
+  object->SetInternalField(kSyntheticEvaluationDataSlot,
                            synthetic_evaluation_step);
   object->SetInternalField(kContextObjectSlot, context_object);
 
-  if (!synthetic_evaluation_step->IsUndefined()) {
-    synthetic_ = true;
-  }
   MakeWeak();
   module_.SetWeak();
 }
@@ -103,8 +104,27 @@ ModuleWrap* ModuleWrap::GetFromModule(Environment* env,
   return nullptr;
 }
 
+template <typename V8T>
+std::vector<Local<V8T>> ToArray(Local<Context> context, Local<Array> arr) {
+  uint32_t len = arr->Length();
+  std::vector<Local<V8T>> result;
+  result.reserve(len);
+  for (uint32_t i = 0; i < len; i++) {
+    Local<Value> val = arr->Get(context, i).ToLocalChecked();
+    if constexpr (std::is_same_v<V8T, String>) {
+      CHECK(val->IsString());
+      result.push_back(val.As<String>());
+    } else {
+      static_assert(std::is_same_v<V8T, Value>);
+      result.push_back(val);
+    }
+  }
+  return result;
+}
+
 // new ModuleWrap(url, context, source, lineOffset, columnOffset)
 // new ModuleWrap(url, context, exportNames, syntheticExecutionFunction)
+// new ModuleWrap(url, is_builtin_facade, exportNames, exportValues)
 void ModuleWrap::New(const FunctionCallbackInfo<Value>& args) {
   CHECK(args.IsConstructCall());
   CHECK_GE(args.Length(), 3);
@@ -119,7 +139,34 @@ void ModuleWrap::New(const FunctionCallbackInfo<Value>& args) {
 
   Local<Context> context;
   ContextifyContext* contextify_context = nullptr;
-  if (args[1]->IsUndefined()) {
+
+  ModuleType type;
+  Local<Value> export_keys;
+  Local<Value> synthetic_evaluation_data;
+  if (args[2]->IsArray()) {
+    if (args[1]->IsPrivate()) {
+      // new ModuleWrap(url, is_builtin_facade, exportNames)
+      CHECK_EQ(args[1], realm->isolate_data()->is_builtin_facade());
+      CHECK(args[3]->IsArray());
+      type = ModuleType::kBuiltInFacade;
+      export_keys = args[2];
+      synthetic_evaluation_data = args[3];
+    } else {
+      // new ModuleWrap(url, context, exportNames, syntheticExecutionFunction)
+      CHECK(args[3]->IsFunction());
+      type = ModuleType::kSynthetic;
+      export_keys = Undefined(isolate);
+      synthetic_evaluation_data = args[3];
+    }
+  } else {
+    type = ModuleType::kSourceText;
+    export_keys = Undefined(isolate);
+    synthetic_evaluation_data = Undefined(isolate);
+  }
+
+  if (type == ModuleType::kSynthetic) {
+    context = realm->context();
+  } else if (args[1]->IsUndefined()) {
     context = that->GetCreationContext().ToLocalChecked();
   } else {
     CHECK(args[1]->IsObject());
@@ -132,11 +179,7 @@ void ModuleWrap::New(const FunctionCallbackInfo<Value>& args) {
   int line_offset = 0;
   int column_offset = 0;
 
-  bool synthetic = args[2]->IsArray();
-  if (synthetic) {
-    // new ModuleWrap(url, context, exportNames, syntheticExecutionFunction)
-    CHECK(args[3]->IsFunction());
-  } else {
+  if (type == ModuleType::kSourceText) {
     // new ModuleWrap(url, context, source, lineOffset, columOffset, cachedData)
     CHECK(args[2]->IsString());
     CHECK(args[3]->IsNumber());
@@ -145,11 +188,6 @@ void ModuleWrap::New(const FunctionCallbackInfo<Value>& args) {
     column_offset = args[4].As<Int32>()->Value();
   }
 
-  Local<PrimitiveArray> host_defined_options =
-      PrimitiveArray::New(isolate, HostDefinedOptions::kLength);
-  Local<Symbol> id_symbol = Symbol::New(isolate, url);
-  host_defined_options->Set(isolate, HostDefinedOptions::kID, id_symbol);
-
   ShouldNotAbortOnUncaughtScope no_abort_scope(realm->env());
   TryCatchScope try_catch(realm->env());
 
@@ -157,21 +195,17 @@ void ModuleWrap::New(const FunctionCallbackInfo<Value>& args) {
 
   {
     Context::Scope context_scope(context);
-    if (synthetic) {
-      CHECK(args[2]->IsArray());
+    if (type != ModuleType::kSourceText) {
       Local<Array> export_names_arr = args[2].As<Array>();
-
-      uint32_t len = export_names_arr->Length();
-      std::vector<Local<String>> export_names(len);
-      for (uint32_t i = 0; i < len; i++) {
-        Local<Value> export_name_val =
-            export_names_arr->Get(context, i).ToLocalChecked();
-        CHECK(export_name_val->IsString());
-        export_names[i] = export_name_val.As<String>();
-      }
-
-      module = Module::CreateSyntheticModule(isolate, url, export_names,
-        SyntheticModuleEvaluationStepsCallback);
+      std::vector<Local<String>> export_names =
+          ToArray<String>(context, export_names_arr);
+      module = Module::CreateSyntheticModule(
+          isolate,
+          url,
+          export_names,
+          type == ModuleType::kSynthetic
+              ? SyntheticModuleEvaluationStepsCallback
+              : BuiltinFacadeEvaluationStepsCallback);
     } else {
       ScriptCompiler::CachedData* cached_data = nullptr;
       if (!args[5]->IsUndefined()) {
@@ -185,6 +219,18 @@ void ModuleWrap::New(const FunctionCallbackInfo<Value>& args) {
       }
 
       Local<String> source_text = args[2].As<String>();
+
+      Local<PrimitiveArray> host_defined_options =
+          PrimitiveArray::New(isolate, HostDefinedOptions::kLength);
+      Local<Symbol> id_symbol = Symbol::New(isolate, url);
+      host_defined_options->Set(isolate, HostDefinedOptions::kID, id_symbol);
+      if (that->SetPrivate(context,
+                           realm->isolate_data()->host_defined_option_symbol(),
+                           id_symbol)
+              .IsNothing()) {
+        return;
+      }
+
       ScriptOrigin origin(isolate,
                           url,
                           line_offset,
@@ -231,26 +277,29 @@ void ModuleWrap::New(const FunctionCallbackInfo<Value>& args) {
     return;
   }
 
-  if (that->SetPrivate(context,
-                       realm->isolate_data()->host_defined_option_symbol(),
-                       id_symbol)
-          .IsNothing()) {
-    return;
-  }
-
   // Use the extras object as an object whose GetCreationContext() will be the
   // original `context`, since the `Context` itself strictly speaking cannot
   // be stored in an internal field.
   Local<Object> context_object = context->GetExtrasBindingObject();
-  Local<Value> synthetic_evaluation_step =
-      synthetic ? args[3] : Undefined(realm->isolate()).As<v8::Value>();
 
-  ModuleWrap* obj = new ModuleWrap(
-      realm, that, module, url, context_object, synthetic_evaluation_step);
+  ModuleWrap* obj = new ModuleWrap(realm,
+                                   that,
+                                   module,
+                                   type,
+                                   url,
+                                   context_object,
+                                   export_keys,
+                                   synthetic_evaluation_data);
 
   obj->contextify_context_ = contextify_context;
 
   that->SetIntegrityLevel(context, IntegrityLevel::kFrozen);
+
+  if (type == ModuleType::kBuiltInFacade &&
+      obj->BuildBuiltinFacade().IsNothing()) {
+    return;
+  }
+
   args.GetReturnValue().Set(that);
 }
 
@@ -675,6 +724,100 @@ void ModuleWrap::SetInitializeImportMetaObjectCallback(
       HostInitializeImportMetaObjectCallback);
 }
 
+v8::Maybe<bool> ModuleWrap::BuildBuiltinFacade() {
+  Local<Context> context = env()->context();
+  Isolate* isolate = context->GetIsolate();
+
+  if (module_
+          ->InstantiateModule(context,
+                              [](Local<Context> context,
+                                 Local<String> specifier,
+                                 Local<FixedArray> import_attributes,
+                                 Local<Module> referrer) -> MaybeLocal<Module> {
+                                UNREACHABLE("Synthetic builtin facade should "
+                                            "not need module resolution");
+                              })
+          .IsNothing()) {
+    return v8::Nothing<bool>();
+  }
+
+  if (module_->Evaluate(context).IsNothing()) {
+    return v8::Nothing<bool>();
+  }
+
+  return v8::Just(true);
+}
+
+MaybeLocal<Value> ModuleWrap::BuiltinFacadeEvaluationStepsCallback(
+    Local<Context> context, Local<Module> module) {
+  Environment* env = Environment::GetCurrent(context);
+  Isolate* isolate = context->GetIsolate();
+  ModuleWrap* obj = GetFromModule(env, module);
+  DCHECK_EQ(obj->type_, ModuleType::kBuiltInFacade);
+
+  Local<Array> export_values =
+      obj->object()
+          ->GetInternalField(kSyntheticEvaluationDataSlot)
+          .As<Value>()
+          .As<Array>();
+
+  if (SyncBuiltinFacade(context, values).IsNothing()) {
+    return MaybeLocal<Value>();
+  }
+
+  Local<Promise::Resolver> resolver;
+  if (!Promise::Resolver::New(context).ToLocal(&resolver)) {
+    return MaybeLocal<Value>();
+  }
+  resolver->Resolve(context, Undefined(isolate)).ToChecked();
+  return resolver->GetPromise();
+}
+
+void ModuleWrap::SyncBuiltinFacade(const FunctionCallbackInfo<Value>& args) {
+  Isolate* isolate = args.GetIsolate();
+  Local<Object> that = args.This();
+
+  ModuleWrap* obj;
+  ASSIGN_OR_RETURN_UNWRAP(&obj, that);
+  CHECK_NE(obj->type_, ModuleType::kBuiltInFacade);
+  CHECK_EQ(args.Length(), 1);
+  CHECK(args[0]->IsArray());
+  USE(SyncBuiltinFacade(isolate->GetCurrentContext(), args[0].As<Array>()));
+}
+
+v8::Maybe<bool> ModuleWrap::SyncBuiltinFacade(Local<Context> context,
+                                              Local<Array> export_values) {
+  Isolate* isolate = context->GetIsolate();
+  Local<Array> export_keys =
+      object()->GetInternalField(kExportKeysSlot).As<Value>().As<Array>();
+  uint32_t keys_length = export_keys->Length();
+  uint32_t values_length = export_values->Length();
+  DCHECK_GE(values_length, 1);
+  DCHECK_GE(values_length, keys_length);
+  for (uint32_t i = 0; i < keys_length; ++i) {
+    Local<Value> key, value;
+    if (!export_keys->Get(context, i).ToLocal(&key)) {
+      return v8::Nothing<bool>();
+    }
+    if (!export_values->Get(context, i).ToLocal(&value)) {
+      return v8::Nothing<bool>();
+    }
+    DCHECK(key->IsString());
+    if (module->SetSyntheticModuleExport(isolate, key.As<String>(), value)
+            .IsNothing()) {
+      returnv8::Nothing<bool>();
+    }
+  }
+  if (keys_length != values_length) {
+    DCHECK_EQ(keys_length + 1, values_length);
+    Local<String> key = FIXED_ONE_BYTE_STRING(isolate, "default");
+    Local<Value> value = export_values->Get(context, values_length - 1);
+    if (module->SetSyntheticModuleExport(isolate, key, value).IsNothing()) {
+      return v8::Nothing<bool>();
+    }
+  }
+}
+
 MaybeLocal<Value> ModuleWrap::SyntheticModuleEvaluationStepsCallback(
     Local<Context> context, Local<Module> module) {
   Environment* env = Environment::GetCurrent(context);
@@ -682,14 +825,17 @@ MaybeLocal<Value> ModuleWrap::SyntheticModuleEvaluationStepsCallback(
 
   ModuleWrap* obj = GetFromModule(env, module);
 
+  DCHECK_EQ(obj->type_, ModuleType::kSynthetic);
+
   TryCatchScope try_catch(env);
+  Local<Value> synthetic_evaluation_data =
+      obj->object()->GetInternalField(kSyntheticEvaluationDataSlot).As<Value>();
+
+  CHECK(synthetic_evaluation_data->IsFunction());
   Local<Function> synthetic_evaluation_steps =
-      obj->object()
-          ->GetInternalField(kSyntheticEvaluationStepsSlot)
-          .As<Value>()
-          .As<Function>();
-  obj->object()->SetInternalField(
-      kSyntheticEvaluationStepsSlot, Undefined(isolate));
+      synthetic_evaluation_data.As<Function>();
+  obj->object()->SetInternalField(kSyntheticEvaluationDataSlot,
+                                  Undefined(isolate));
   MaybeLocal<Value> ret = synthetic_evaluation_steps->Call(context,
       obj->object(), 0, nullptr);
   if (ret.IsEmpty()) {
@@ -718,7 +864,7 @@ void ModuleWrap::SetSyntheticExport(const FunctionCallbackInfo<Value>& args) {
   ModuleWrap* obj;
   ASSIGN_OR_RETURN_UNWRAP(&obj, that);
 
-  CHECK(obj->synthetic_);
+  CHECK_NE(obj->type_, ModuleType::kSourceText);
 
   CHECK_EQ(args.Length(), 2);
 
@@ -738,7 +884,7 @@ void ModuleWrap::CreateCachedData(const FunctionCallbackInfo<Value>& args) {
   ModuleWrap* obj;
   ASSIGN_OR_RETURN_UNWRAP(&obj, that);
 
-  CHECK(!obj->synthetic_);
+  CHECK_EQ(obj->type_, ModuleType::kSourceText);
 
   Local<Module> module = obj->module_.Get(isolate);
 
@@ -772,6 +918,7 @@ void ModuleWrap::CreatePerIsolateProperties(IsolateData* isolate_data,
   SetProtoMethod(isolate, tpl, "instantiate", Instantiate);
   SetProtoMethod(isolate, tpl, "evaluate", Evaluate);
   SetProtoMethod(isolate, tpl, "setExport", SetSyntheticExport);
+  SetProtoMethod(isolate, tpl, "syncBuiltinFacade", SyncBuiltinFacade);
   SetProtoMethodNoSideEffect(
       isolate, tpl, "createCachedData", CreateCachedData);
   SetProtoMethodNoSideEffect(isolate, tpl, "getNamespace", GetNamespace);
@@ -823,6 +970,7 @@ void ModuleWrap::RegisterExternalReferences(
   registry->Register(Instantiate);
   registry->Register(Evaluate);
   registry->Register(SetSyntheticExport);
+  registry->Register(SyncBuiltinFacade);
   registry->Register(CreateCachedData);
   registry->Register(GetNamespace);
   registry->Register(GetStatus);
