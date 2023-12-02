@@ -3,7 +3,7 @@
 
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
-#include "base_object.h"
+#include "cppgc_helpers.h"
 #include "crypto/crypto_keys.h"
 #include "crypto/crypto_util.h"
 #include "env.h"
@@ -12,8 +12,13 @@
 
 namespace node {
 namespace crypto {
-class Hash final : public BaseObject {
+class Hash final : public cppgc::GarbageCollected<Hash>,
+                   public MemoryRetainer,
+                   public CppgcMixin {
  public:
+  CPPGC_MIXIN_METHODS()
+  DEFAULT_CPPGC_TRACE()
+
   static void Initialize(Environment* env, v8::Local<v8::Object> target);
   static void RegisterExternalReferences(ExternalReferenceRegistry* registry);
 
@@ -26,14 +31,16 @@ class Hash final : public BaseObject {
 
   static void GetHashes(const v8::FunctionCallbackInfo<v8::Value>& args);
 
+  Hash(Environment* env, v8::Local<v8::Object> wrap);
+
  protected:
   static void New(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void HashUpdate(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void HashDigest(const v8::FunctionCallbackInfo<v8::Value>& args);
 
-  Hash(Environment* env, v8::Local<v8::Object> wrap);
-
  private:
+  CPPGC_MIXIN_FIELDS()
+
   EVPMDPointer mdctx_ {};
   unsigned int md_len_ = 0;
   ByteSource digest_;
