@@ -353,6 +353,8 @@
   V(crypto_key_object_handle_constructor, v8::FunctionTemplate)                \
   V(env_proxy_template, v8::ObjectTemplate)                                    \
   V(env_proxy_ctor_template, v8::FunctionTemplate)                             \
+  V(example_cppgc_object_constructor_template, v8::FunctionTemplate)           \
+  V(example_base_object_constructor_template, v8::FunctionTemplate)            \
   V(dir_instance_template, v8::ObjectTemplate)                                 \
   V(fd_constructor_template, v8::ObjectTemplate)                               \
   V(fdclose_constructor_template, v8::ObjectTemplate)                          \
