@@ -75,6 +75,7 @@
       'src/debug_utils.cc',
       'src/encoding_binding.cc',
       'src/env.cc',
+      'src/example_object.cc',
       'src/fs_event_wrap.cc',
       'src/handle_wrap.cc',
       'src/heap_utils.cc',
