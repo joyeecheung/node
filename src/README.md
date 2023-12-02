@@ -888,6 +888,88 @@ it is destroyed. There must be at least one such pointer when `Detach()` is
 called. This can be useful when one `BaseObject` fully owns another
 `BaseObject`.
 
+### `node::CppgcMixin`
+
+An alternative to `BaseObject`-based wrapper management is to use the
+V8 `cppgc` library (Oilpan). This works better when the native object
+should only be kept alive by a JavaScript wrapper and does not otherwise
+keeps itself alive for other reasons.
+
+There are a few advantages of `node::CppgcMixin` compared to `BaseObject`:
+
+1. The allocation and tracing is done by V8. This allows us to use
+  `v8::TracedReference` to let V8 trace C++ -> JS references, and let
+  V8 trace JS -> C++ references using internal pointer fields that point
+  to cppgc-allocated object. So cross-layer references especially cycles are
+  less leak-prone. V8's garbage collection schedule would also work better
+  when it knows more about the native objects.
+2. By avoiding the book-keeping machenisms of `BaseObject`, creation of the
+  `cppgc` managed objects can be a lot more efficient.
+
+There are some convenience helpers in `src/cppgc_helpers.h` to help creating
+cppgc-managed wrappers or migrating them from `BaseObject`. To implement
+a `Foo` class that wraps around a JS object, for example:
+
+```cpp
+namespace node {
+class Foo final : public cppgc::GarbageCollected<Foo>,
+                  public cppgc::NameProvider,
+                  public CppgcMixin<Foo> {
+ public:
+  DEFAULT_CPPGC_TRACE()
+  SET_CPPGC_NAME(Foo)
+
+  Foo::Foo(Environment* env, Local<Object> wrap) {
+    InitializeCppgc(this, env, wrap);
+  }
+
+  static void New(const FunctionCallbackInfo<Value>& args) {
+    Environment* env = Environment::GetCurrent(args);
+    cppgc::MakeGarbageCollected<Foo>(
+        env->isolate()->GetCppHeap()->GetAllocationHandle(),
+        env,
+        args.Holder());
+  }
+
+  static void Method(const FunctionCallbackInfo<Value>& args) {
+    Foo* foo = cppgc::Unwrap<Foo>(args.Holder());
+    if (foo == nullptr) return;
+    // For source-compatibility with BaseObjects:
+    // `foo->object()` is the same as the object `foo` unwraps
+    // from i.e. args.Holder()
+    // `foo->env()` returns the creation environment.
+  }
+
+  static void CreatePerIsolateProperties(IsolateData* isolate_data,
+                                         Local<ObjectTemplate> target) {
+    Isolate* isolate = isolate_data->isolate();
+    Local<FunctionTemplate> t = NewFunctionTemplate(isolate, Foo::New);
+    t->InstanceTemplate()->SetInternalFieldCount(Foo::kInternalFieldCount);
+    SetProtoMethod(isolate, t, "method", Foo::Method);
+    SetConstructorFunction(isolate, target, "Foo", t);
+  }
+}
+} // namespace node
+NODE_BINDING_PER_ISOLATE_INIT(foo, node::Foo::CreatePerIsolateProperties)
+```
+
+There are currently a few limitations of cppgc integration in Node.js:
+
+1. Objects whose lifetime is not strictly delegated to V8 e.g. those that are
+  otherwise kept alive by e.g. libuv handles would benefit less from
+  `cppgc`-based management.
+2. The `cppgc` integration currently is limited to objects with simpler
+  lifetime and do not reference other `BaseObjects`. There are no primitives
+  to make the inter-object references work yet.
+3. If the native class contains externally heap-allocated memory, there are
+  currently no `MemoryRetainer` equivalents for tracking them in the heap
+  snapshot.
+4. `cppgc`-based management cannot be used on native objects that may be
+  transferred to a different thread.
+
+To consult ongoing work of `cppgc` integration, check out the
+[Oilpan in Node.js design doc](https://docs.google.com/document/d/1ny2Qz_EsUnXGKJRGxoA-FXIE2xpLgaMAN6jD7eAkqFQ/edit).
+
 <a id="asyncwrap"></a>
 
 ### `AsyncWrap`
