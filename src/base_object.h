@@ -318,6 +318,33 @@ inline BaseObjectWeakPtr<T> MakeWeakBaseObject(Args&&... args);
 template <typename T, typename... Args>
 inline BaseObjectPtr<T> MakeDetachedBaseObject(Args&&... args);
 
+#define ASSIGN_OR_RETURN_UNWRAP_CPPGC(ptr, obj, ...)                           \
+  do {                                                                         \
+    DCHECK_GE(obj->InternalFieldCount(), kInternalFieldCount);                 \
+    *ptr = static_cast<typename std::remove_reference<decltype(*ptr)>::type>(  \
+        obj->GetAlignedPointerFromInternalField(kSlot));                       \
+    if (*ptr == nullptr) return __VA_ARGS__;                                   \
+  } while (0)
+
+#define CPPGC_MIXIN_FIELDS()                                                   \
+  Environment* env_;                                                           \
+  v8::TracedReference<v8::Object> traced_reference_;
+
+class CppgcMixin {
+ public:
+  enum { kEmbedderType, kSlot, kInternalFieldCount };
+};
+
+#define CPPGC_MIXIN_METHODS()                                                  \
+  v8::Local<v8::Object> object() const {                                       \
+    return traced_reference_.Get(env_->isolate());                             \
+  }                                                                            \
+  Environment* env() const { return env_; }
+
+#define TRACE_CPPGC_OBJECT(visitor) visitor->Trace(traced_reference_);
+
+#define DEFAULT_CPPGC_TRACE()                                                  \
+  void Trace(cppgc::Visitor* visitor) const { TRACE_CPPGC_OBJECT(visitor) }
 }  // namespace node
 
 #endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
