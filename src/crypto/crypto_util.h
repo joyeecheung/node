@@ -4,6 +4,7 @@
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
 #include "async_wrap.h"
+#include "cppgc_helpers.h"
 #include "env.h"
 #include "node_errors.h"
 #include "node_external_reference.h"
@@ -11,6 +12,7 @@
 #include "string_bytes.h"
 #include "util.h"
 #include "v8.h"
+#include "cppgc/external.h"
 
 #include "ncrypto.h"
 
@@ -101,7 +103,12 @@ void Decode(const v8::FunctionCallbackInfo<v8::Value>& args,
             void (*callback)(T*, const v8::FunctionCallbackInfo<v8::Value>&,
                              const char*, size_t)) {
   T* ctx;
-  ASSIGN_OR_RETURN_UNWRAP(&ctx, args.This());
+  if constexpr (std::is_base_of_v<BaseObject, T>) {
+    ASSIGN_OR_RETURN_UNWRAP(&ctx, args.This());
+  } else {
+    ctx = CppgcMixin::Unwrap<T>(args.This());
+    if (ctx == nullptr) return;
+  }
 
   if (args[0]->IsString()) {
     StringBytes::InlineDecoder decoder;
@@ -192,7 +199,7 @@ T* MallocOpenSSL(size_t count) {
 
 // A helper class representing a read-only byte array. When deallocated, its
 // contents are zeroed.
-class ByteSource {
+class ByteSource : public cppgc::External {
  public:
   class Builder {
    public:
@@ -306,6 +313,12 @@ class ByteSource {
 
   static ByteSource FromSecretKeyBytes(
       Environment* env, v8::Local<v8::Value> value);
+
+  virtual size_t GetSize() const {
+    return size_;
+  }
+  virtual const char* GetHumanReadableName() const { return "Node / ByteSource"; }
+  virtual void Trace(cppgc::Visitor* v) const {}
 
  private:
   const void* data_ = nullptr;
