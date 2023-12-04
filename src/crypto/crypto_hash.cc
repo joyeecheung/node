@@ -391,10 +391,8 @@ void Hash::HashDigest(const FunctionCallbackInfo<Value>& args) {
   Hash* hash;
   ASSIGN_OR_RETURN_UNWRAP(&hash, args.Holder());
 
-  enum encoding encoding = BUFFER;
-  if (args.Length() >= 1) {
-    encoding = ParseEncoding(env->isolate(), args[0], BUFFER);
-  }
+  enum encoding encoding =
+      ParseEncoding(env->isolate(), args[0], args[1], BUFFER);
 
   unsigned int len = hash->md_len_;
 

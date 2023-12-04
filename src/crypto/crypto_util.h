@@ -141,9 +141,9 @@ void Decode(const v8::FunctionCallbackInfo<v8::Value>& args,
   if (args[0]->IsString()) {
     StringBytes::InlineDecoder decoder;
     Environment* env = Environment::GetCurrent(args);
-    enum encoding enc = ParseEncoding(env->isolate(), args[1], UTF8);
-    if (decoder.Decode(env, args[0].As<v8::String>(), enc).IsNothing())
-      return;
+    enum encoding enc = ParseEncoding(env->isolate(), args[1], args[2], UTF8);
+    // Input is a string so it must be decodable.
+    decoder.Decode(env, args[0].As<v8::String>(), enc).Check();
     callback(ctx, args, decoder.out(), decoder.size());
   } else {
     ArrayBufferViewContents<char> buf(args[0]);
