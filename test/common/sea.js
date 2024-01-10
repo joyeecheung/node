@@ -78,9 +78,10 @@ function injectAndCodeSign(targetExecutable, resource) {
     }
     if (signtoolFound) {
       let certificatesFound = false;
-      let stderr;
+      let stderr, child;
       try {
-        ({ stderr } = spawnSyncAndExitWithoutError('signtool', [ 'sign', '/fd', 'SHA256', targetExecutable ], {}));
+        ({ child, stderr } = spawnSyncAndExitWithoutError('signtool', [ 'sign', '/fd', 'SHA256', targetExecutable ], { status: undefined }));
+        if (child.status !== 0) throw new Error(`- process terminated with status ${child.status}, expected 0`);
         certificatesFound = true;
       } catch (err) {
         if (!/SignTool Error: No certificates were found that met all the given criteria/.test(stderr)) {
@@ -88,7 +89,7 @@ function injectAndCodeSign(targetExecutable, resource) {
         }
       }
       if (certificatesFound) {
-        spawnSyncAndExitWithoutError('signtool', 'verify', '/pa', 'SHA256', targetExecutable, {});
+        spawnSyncAndExitWithoutError('signtool', [ 'verify', '/pa', 'SHA256', targetExecutable ], {});
       }
     }
   }
