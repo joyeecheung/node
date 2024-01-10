@@ -70,6 +70,20 @@ static bool HasOnly(int capability) {
 }
 #endif
 
+bool CanGetEnvSafely() {
+#if !defined(__CloudABI__) && !defined(_WIN32)
+#if defined(__linux__)
+  if ((!HasOnly(CAP_NET_BIND_SERVICE) && linux_at_secure()) ||
+      getuid() != geteuid() || getgid() != getegid())
+#else
+  if (linux_at_secure() || getuid() != geteuid() || getgid() != getegid())
+#endif
+    return false;
+#endif
+
+  return true;
+}
+
 // Look up the environment variable and allow the lookup if the current
 // process only has the capability CAP_NET_BIND_SERVICE set. If the current
 // process does not have any capabilities set and the process is running as
@@ -78,15 +92,9 @@ bool SafeGetenv(const char* key,
                 std::string* text,
                 std::shared_ptr<KVStore> env_vars,
                 v8::Isolate* isolate) {
-#if !defined(__CloudABI__) && !defined(_WIN32)
-#if defined(__linux__)
-  if ((!HasOnly(CAP_NET_BIND_SERVICE) && linux_at_secure()) ||
-      getuid() != geteuid() || getgid() != getegid())
-#else
-  if (linux_at_secure() || getuid() != geteuid() || getgid() != getegid())
-#endif
-    goto fail;
-#endif
+  if (!CanGetEnvSafely()) {
+    return false;
+  }
 
   if (env_vars != nullptr) {
     DCHECK_NOT_NULL(isolate);
@@ -95,9 +103,9 @@ bool SafeGetenv(const char* key,
     MaybeLocal<String> maybe_value = env_vars->Get(
         isolate, String::NewFromUtf8(isolate, key).ToLocalChecked());
     Local<String> value;
-    if (!maybe_value.ToLocal(&value)) goto fail;
+    if (!maybe_value.ToLocal(&value)) return false;
     String::Utf8Value utf8_value(isolate, value);
-    if (*utf8_value == nullptr) goto fail;
+    if (*utf8_value == nullptr) return false;
     *text = std::string(*utf8_value, utf8_value.length());
     return true;
   }
@@ -122,7 +130,6 @@ bool SafeGetenv(const char* key,
     }
   }
 
-fail:
   return false;
 }
 

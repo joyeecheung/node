@@ -8,36 +8,6 @@ namespace node {
 using v8::NewStringType;
 using v8::String;
 
-std::vector<std::string> Dotenv::GetPathFromArgs(
-    const std::vector<std::string>& args) {
-  const auto find_match = [](const std::string& arg) {
-    const std::string_view flag = "--env-file";
-    return strncmp(arg.c_str(), flag.data(), flag.size()) == 0;
-  };
-  std::vector<std::string> paths;
-  auto path = std::find_if(args.begin(), args.end(), find_match);
-
-  while (path != args.end()) {
-    auto equal_char = path->find('=');
-
-    if (equal_char != std::string::npos) {
-      paths.push_back(path->substr(equal_char + 1));
-    } else {
-      auto next_path = std::next(path);
-
-      if (next_path == args.end()) {
-        return paths;
-      }
-
-      paths.push_back(*next_path);
-    }
-
-    path = std::find_if(++path, args.end(), find_match);
-  }
-
-  return paths;
-}
-
 void Dotenv::SetEnvironment(node::Environment* env) {
   if (store_.empty()) {
     return;

@@ -160,8 +160,7 @@ class EnvironmentOptions : public Options {
 #endif  // HAVE_INSPECTOR
   std::string redirect_warnings;
   std::string diagnostic_dir;
-  std::string env_file;
-  bool has_env_file_string = false;
+  std::vector<std::string> env_file;
   bool test_runner = false;
   uint64_t test_runner_concurrency = 0;
   uint64_t test_runner_timeout = 0;

@@ -39,6 +39,7 @@ class RealEnvStore final : public KVStore {
   MaybeLocal<String> Get(Isolate* isolate, Local<String> key) const override;
   Maybe<std::string> Get(const char* key) const override;
   void Set(Isolate* isolate, Local<String> key, Local<String> value) override;
+  void Set(Isolate* isolate, std::string_view key, std::string_view value);
   int32_t Query(Isolate* isolate, Local<String> key) const override;
   int32_t Query(const char* key) const override;
   void Delete(Isolate* isolate, Local<String> key) override;
@@ -133,6 +134,18 @@ MaybeLocal<String> RealEnvStore::Get(Isolate* isolate,
   }
 
   return MaybeLocal<String>();
+}
+
+void RealEnvStore::Set(Isolate* isolate,
+                       std::string_view key,
+                       std::string_view value) {
+  Mutex::ScopedLock lock(per_process::env_var_mutex);
+
+#ifdef _WIN32
+  if (key.size() > 0 && key[0] == '=') return;
+#endif
+  uv_os_setenv(key.data(), value.data());
+  DateTimeConfigurationChangeNotification(isolate, key, value.data());
 }
 
 void RealEnvStore::Set(Isolate* isolate,

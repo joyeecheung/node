@@ -317,10 +317,6 @@ MaybeLocal<Value> StartExecution(Environment* env, StartExecutionCallback cb) {
   }
 #endif
 
-  if (env->options()->has_env_file_string) {
-    per_process::dotenv_file.SetEnvironment(env);
-  }
-
   // TODO(joyeecheung): move these conditions into JS land and let the
   // deserialize main function take precedence. For workers, we need to
   // move the pre-execution part into a different file that can be
@@ -865,20 +861,28 @@ static ExitCode InitializeNodeWithArgsInternal(
   HandleEnvOptions(per_process::cli_options->per_isolate->per_env);
 
   std::string node_options;
-  auto file_paths = node::Dotenv::GetPathFromArgs(*argv);
+  auto env_files = per_process::cli_options->per_isolate->per_env->env_file;
 
-  if (!file_paths.empty()) {
+  if (!env_files.empty()) {
     CHECK(!per_process::v8_initialized);
+    if (!credentials::CanGetEnvSafely()) {
+      errors->push_back("--env-file is not supported under the current privileges.");
+      return ExitCode::kInvalidCommandLineArgument;
+    }
+
     auto cwd = Environment::GetCwd(Environment::GetExecPath(*argv));
 
-    for (const auto& file_path : file_paths) {
+    for (const auto& file_path : env_files) {
       std::string path = cwd + kPathSeparator + file_path;
       auto path_exists = per_process::dotenv_file.ParsePath(path);
 
-      if (!path_exists) errors->push_back(file_path + ": not found");
-    }
+      if (!path_exists) {
+        errors->push_back(file_path + ": not found");
+        return ExitCode::kInvalidCommandLineArgument;
+      }
 
-    per_process::dotenv_file.AssignNodeOptionsIfAvailable(&node_options);
+      per_process::dotenv_file.AssignNodeOptionsIfAvailable(&node_options);
+    }
   }
 
 #if !defined(NODE_WITHOUT_NODE_OPTIONS)
