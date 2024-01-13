@@ -78,6 +78,90 @@ static void GetParentProcessId(Local<Name> property,
   info.GetReturnValue().Set(uv_os_getppid());
 }
 
+#define PROCESS_FLAG_ALIASES_BOOL(V)                                           \
+  V(_print_eval, print_eval)                                                   \
+  V(_syntax_check_only, syntax_check_only)                                     \
+  V(_forceRepl, force_repl)                                                    \
+  V(traceProcessWarnings, trace_warnings)                                      \
+  V(throwDeprecation, throw_deprecation)                                       \
+  V(profProcess, prof_process)                                                 \
+  V(traceDeprecation, trace_deprecation)
+
+#define PROCESS_FLAG_ALIASES_CONTAINER(V)                                      \
+  V(_eval, eval_string)                                                        \
+  V(_preload_modules, preload_cjs_modules)
+
+#define PROCESS_FLAG_ALIASES_NEGATIVE(V)                                       \
+  V(noDeprecation, deprecation)                                                \
+  V(noProcessWarnings, warnings)
+
+#define PROCESS_FLAG_ALIASES_DEBUG(V)                                          \
+  V(_breakFirstLine, break_first_line)                                         \
+  V(_breakNodeFirstLine, break_node_first_line)
+
+void ProcessFlagAliasGetter(Local<Name> property,
+                            const PropertyCallbackInfo<Value>& info) {
+  CHECK(property->IsString());
+  Isolate* isolate = info.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext();
+  Environment* env = Environment::GetCurrent(info);
+  CHECK(env->has_run_bootstrapping_code());
+
+  Utf8Value name(isolate, property);
+  std::string name_str = name.ToString();
+
+  Local<Value> result;
+
+  if (name_str == "_eval") {
+    if (!env->options()->eval_string.empty()) {
+      if (!ToV8Value(context, env->options()->eval_string).ToLocal(&result)) {
+        return;
+      }
+    }
+  } else if (name_str == "_preload_modules") {
+    if (!ToV8Value(context, env->options()->preload_cjs_modules)
+             .ToLocal(&result)) {
+      return;
+    }
+  }
+
+#define V(property, flag)                                                      \
+  else if (name_str == #property) {                                            \
+    if (env->options()->flag) {                                                \
+      result = v8::True(isolate);                                              \
+    }                                                                          \
+  }
+
+  PROCESS_FLAG_ALIASES_BOOL(V)
+#undef V
+
+#define V(property, flag)                                                      \
+  else if (name_str == #property) {                                            \
+    if (!env->options()->flag) {                                               \
+      result = v8::True(isolate);                                              \
+    }                                                                          \
+  }
+
+  PROCESS_FLAG_ALIASES_NEGATIVE(V)
+#undef V
+
+#define V(property, flag)                                                      \
+  else if (name_str == #property) {                                            \
+    if (env->options()->debug_options().flag) {                                \
+      result = v8::True(isolate);                                              \
+    }                                                                          \
+  }
+
+  PROCESS_FLAG_ALIASES_DEBUG(V)
+#undef V
+
+  else {
+    UNREACHABLE();
+  }
+
+  info.GetReturnValue().Set(result);
+}
+
 MaybeLocal<Object> CreateProcessObject(Realm* realm) {
   Isolate* isolate = realm->isolate();
   EscapableHandleScope scope(isolate);
@@ -85,12 +169,42 @@ MaybeLocal<Object> CreateProcessObject(Realm* realm) {
 
   Local<FunctionTemplate> process_template = FunctionTemplate::New(isolate);
   process_template->SetClassName(realm->env()->process_string());
+
   Local<Function> process_ctor;
   Local<Object> process;
   if (!process_template->GetFunction(context).ToLocal(&process_ctor) ||
       !process_ctor->NewInstance(context).ToLocal(&process)) {
     return MaybeLocal<Object>();
   }
+  // TODO(joyeecheung): most of these should be deprecated and removed,
+  // except some that we need to be able to mutate during run time.
+#define V(property, _)                                                         \
+  if (process                                                                  \
+          ->SetLazyDataProperty(context,                                       \
+                                FIXED_ONE_BYTE_STRING(isolate, #property),     \
+                                ProcessFlagAliasGetter)                        \
+          .IsNothing()) {                                                      \
+    return MaybeLocal<Object>();                                               \
+  }
+  PROCESS_FLAG_ALIASES_BOOL(V)
+  PROCESS_FLAG_ALIASES_CONTAINER(V)
+  PROCESS_FLAG_ALIASES_NEGATIVE(V)
+#undef V
+
+#define V(property, _)                                                         \
+  if (process                                                                  \
+          ->SetLazyDataProperty(                                               \
+              context,                                                         \
+              FIXED_ONE_BYTE_STRING(isolate, #property),                       \
+              ProcessFlagAliasGetter,                                          \
+              {},                                                              \
+              static_cast<v8::PropertyAttribute>(v8::DontEnum),                \
+              v8::SideEffectType::kHasNoSideEffect)                            \
+          .IsNothing()) {                                                      \
+    return MaybeLocal<Object>();                                               \
+  }
+  PROCESS_FLAG_ALIASES_DEBUG(V)
+#undef V
 
   // process[exit_info_private_symbol]
   if (process
@@ -250,6 +364,7 @@ void RegisterProcessExternalReferences(ExternalReferenceRegistry* registry) {
   registry->Register(DebugPortGetter);
   registry->Register(ProcessTitleSetter);
   registry->Register(ProcessTitleGetter);
+  registry->Register(ProcessFlagAliasGetter);
 }
 
 }  // namespace node
