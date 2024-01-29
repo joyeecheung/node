@@ -1225,7 +1225,7 @@
           'dependencies': [ 'deps/uv/uv.gyp:libuv#host' ],
         }],
         [ 'OS in "linux mac"', {
-          'defines': ['NODE_JS2C_USE_STRING_LITERALS'],
+          # 'defines': ['NODE_JS2C_USE_STRING_LITERALS'],
         }],
         [ 'debug_node=="true"', {
           'cflags!': [ '-O3' ],

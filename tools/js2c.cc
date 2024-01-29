@@ -444,7 +444,7 @@ Fragment GetDefinitionImpl(const std::vector<char>& code,
 #else
   const char* literal_def_template = array_literal_def_template;
   constexpr size_t unit =
-      (is_two_byte ? 5 : 3) + 1;  // 0-65536 or 0-127 and a ","
+      (is_two_byte ? 5 : 3) + 1;  // 0-65536 or 0-255 and a ","
   size_t def_size = 512 + count * unit;
 #endif
 
@@ -490,15 +490,27 @@ Fragment GetDefinitionImpl(const std::vector<char>& code,
     Debug("static size %zu\n", utf16_count);
     codepoints = &utf16_codepoints;
   } else {
-    // The code is ASCII, so no need to translate.
+    // The code is Latin-1, so no need to translate.
     codepoints = &code;
   }
 
   for (size_t i = 0; i < codepoints->size(); ++i) {
     // Avoid using snprintf on large chunks of data because it's much slower.
     // It's fine to use it on small amount of data though.
-    const std::string& str = GetCode(static_cast<uint16_t>((*codepoints)[i]));
-
+    uint16_t ch = 0;
+    if constexpr (is_two_byte) {
+      ch = static_cast<uint16_t>((*codepoints)[i]);
+    } else {
+      ch = static_cast<uint16_t>(
+          reinterpret_cast<const uint8_t*>(codepoints->data())[i]);
+      if (ch > 127) {
+        Debug("In %s, found non-ASCII Latin-1 character at %zu: %d\n",
+              var.c_str(),
+              i,
+              ch);
+      }
+    }
+    const std::string& str = GetCode(ch);
     memcpy(result.data() + cur, str.c_str(), str.size());
     cur += str.size();
   }
@@ -520,17 +532,70 @@ Fragment GetDefinitionImpl(const std::vector<char>& code,
   return result;
 }
 
-Fragment GetDefinition(const std::string& var, const std::vector<char>& code) {
-  Debug("GetDefinition %s, code size %zu ", var.c_str(), code.size());
-  bool is_one_byte = simdutf::validate_ascii(code.data(), code.size());
-  Debug("with %s\n", is_one_byte ? "1-byte chars" : "2-byte chars");
-
-  if (is_one_byte) {
-    Debug("static size %zu\n", code.size());
-    return GetDefinitionImpl<char>(code, var);
-  } else {
-    return GetDefinitionImpl<uint16_t>(code, var);
+std::vector<char> Simplify(const std::vector<char>& code) {
+  std::vector<char> result;
+  size_t code_size = code.size();
+  result.reserve(code_size);
+  const uint8_t* ptr = reinterpret_cast<const uint8_t*>(code.data());
+  size_t simplified_count = 0;
+  for (size_t i = 0; i < code_size; ++i) {
+    switch (ptr[i]) {
+      case 226: {  // ’ [ 226, 128, 153 ] -> '
+        if (i + 2 < code_size && ptr[i + 1] == 128 && ptr[i + 2] == 153) {
+          result.push_back('\'');
+          i += 2;
+          simplified_count++;
+          break;
+        }
+      }
+      default: {
+        result.push_back(code[i]);
+        break;
+      }
+    }
   }
+
+  if (simplified_count > 0) {
+    Debug("Simplified %d characters, ", simplified_count);
+    Debug("old size %d, new size %d\n", code_size, result.size());
+  }
+  return result;
+}
+
+Fragment GetDefinition(const std::string& var, const std::vector<char>& code) {
+  Debug("GetDefinition %s, code size %zu\n", var.c_str(), code.size());
+  bool is_ascii = simdutf::validate_ascii(code.data(), code.size());
+
+  if (is_ascii) {
+    Debug("ASCII-only, static size %zu\n", code.size());
+    return GetDefinitionImpl<char>(code, var);
+  }
+
+  std::vector<char> latin1(code.size());
+  auto result = simdutf::convert_utf8_to_latin1_with_errors(
+      code.data(), code.size(), latin1.data());
+  if (!result.error) {
+    latin1.resize(result.count);
+    Debug("Latin-1-only, old size %zu, new size %zu\n",
+          code.size(),
+          latin1.size());
+    return GetDefinitionImpl<char>(latin1, var);
+  }
+
+  // Since V8 only supports Latin-1 and UTF16 as underlying representation
+  // we have to encode all files containing two-byte characters as UTF16.
+  // While some files do need two-byte characters, some just
+  // unintentionally have them. Replace certain characters that are known
+  // to have sane one-byte equivalent to save space.
+  std::vector<char> simplified = Simplify(code);
+  if (simplified.size() != code.size()) {  // Changed.
+    Debug("%s is simplified, re-generate definition\n", var.c_str());
+    return GetDefinition(var, simplified);
+  }
+
+  // Simplification did not turn the code into 1-byte string. Just
+  // use the original.
+  return GetDefinitionImpl<uint16_t>(code, var);
 }
 
 int AddModule(const std::string& filename,
