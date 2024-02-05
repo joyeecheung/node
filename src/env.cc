@@ -827,6 +827,11 @@ Environment::Environment(IsolateData* isolate_data,
     }
   }
 
+  if (isolate_data->is_building_snapshot()) {
+    // Built-ins loaded in the snapshot should be compiled eagerly.
+    builtin_loader_.SetEagerCompile();
+  }
+
   // We'll be creating new objects so make sure we've entered the context.
   HandleScope handle_scope(isolate);
 
