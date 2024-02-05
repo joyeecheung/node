@@ -1209,6 +1209,39 @@
       ]
     }, # overlapped-checker
     {
+      'target_name': 'node_root_certs',
+      'type': 'executable',
+      'toolsets': ['host'],
+      'dependencies': [
+        './deps/openssl/openssl.gyp:openssl',
+      ],
+      'include_dirs': [
+        'tools',
+        'src',
+      ],
+      'sources': [
+        'tools/root_certs/build_der.cc',
+        'tools/executable_wrapper.h',
+        'src/embedded_data.h',
+        'src/embedded_data.cc',
+      ],
+      'conditions': [
+        [ 'node_shared_libuv=="false"', {
+          'dependencies': [ 'deps/uv/uv.gyp:libuv#host' ],
+        }],
+        [ 'debug_node=="true"', {
+          'cflags!': [ '-O3' ],
+          'cflags': [ '-g', '-O0' ],
+          'defines': [ 'DEBUG' ],
+          'xcode_settings': {
+            'OTHER_CFLAGS': [
+              '-g', '-O0'
+            ],
+          },
+        }],
+      ]
+    },
+    {
       'target_name': 'node_js2c',
       'type': 'executable',
       'toolsets': ['host'],
