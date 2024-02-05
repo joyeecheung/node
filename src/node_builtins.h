@@ -188,6 +188,8 @@ class NODE_EXTERN_PRIVATE BuiltinLoader {
 
   friend class ::PerProcessTest;
 };
+
+extern thread_local bool is_building_for_snapshot;
 }  // namespace builtins
 
 }  // namespace node

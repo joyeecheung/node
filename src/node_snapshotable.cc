@@ -1091,6 +1091,7 @@ ExitCode SnapshotBuilder::Generate(
     const std::vector<std::string>& exec_args,
     std::optional<std::string_view> builder_script_content,
     const SnapshotConfig& snapshot_config) {
+  builtins::is_building_for_snapshot = true;
   ExitCode code = BuildSnapshotWithoutCodeCache(
       out, args, exec_args, builder_script_content, snapshot_config);
   if (code != ExitCode::kNoFailure) {

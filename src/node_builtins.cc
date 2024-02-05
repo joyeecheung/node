@@ -250,6 +250,9 @@ void BuiltinLoader::AddExternalizedBuiltin(const char* id,
   Add(id, UnionBytes(resource));
 }
 
+// In the snapshot builder this would be set to true.
+thread_local bool is_building_for_snapshot = false;
+
 MaybeLocal<Function> BuiltinLoader::LookupAndCompileInternal(
     Local<Context> context,
     const char* id,
@@ -284,8 +287,9 @@ MaybeLocal<Function> BuiltinLoader::LookupAndCompileInternal(
 
   const bool has_cache = cached_data.data != nullptr;
   ScriptCompiler::CompileOptions options =
-      has_cache ? ScriptCompiler::kConsumeCodeCache
-                : ScriptCompiler::kNoCompileOptions;
+      has_cache                  ? ScriptCompiler::kConsumeCodeCache
+      : is_building_for_snapshot ? ScriptCompiler::kEagerCompile
+                                 : ScriptCompiler::kNoCompileOptions;
   ScriptCompiler::Source script_source(
       source,
       origin,
