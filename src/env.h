@@ -27,7 +27,6 @@
 #include "aliased_buffer.h"
 #if HAVE_INSPECTOR
 #include "inspector_agent.h"
-#include "inspector_profiler.h"
 #endif
 #include "callback_queue.h"
 #include "cleanup_queue-inl.h"

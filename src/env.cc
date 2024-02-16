@@ -23,6 +23,10 @@
 #include "v8-cppgc.h"
 #include "v8-profiler.h"
 
+#if HAVE_INSPECTOR
+#include "inspector_profiler.h"
+#endif
+
 #include <algorithm>
 #include <atomic>
 #include <cinttypes>
