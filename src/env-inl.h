@@ -627,7 +627,8 @@ inline void Environment::set_can_call_into_js(bool can_call_into_js) {
 }
 
 inline bool Environment::has_run_bootstrapping_code() const {
-  return principal_realm_->has_run_bootstrapping_code();
+  return principal_realm_ != nullptr &&
+         principal_realm_->has_run_bootstrapping_code();
 }
 
 inline bool Environment::has_serialized_options() const {

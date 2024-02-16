@@ -455,6 +455,17 @@ Environment* CreateEnvironment(
                                      thread_id);
   CHECK_NOT_NULL(env);
 
+#if HAVE_INSPECTOR
+  if (env->should_create_inspector()) {
+    if (inspector_parent_handle) {
+      env->InitializeInspector(std::move(
+          static_cast<InspectorParentHandleImpl*>(inspector_parent_handle.get())
+              ->impl));
+    } else {
+      env->InitializeInspector({});
+    }
+  }
+#endif
   if (use_snapshot) {
     context = Context::FromSnapshot(isolate,
                                     SnapshotData::kNodeMainContextIndex,
@@ -474,23 +485,12 @@ Environment* CreateEnvironment(
   Context::Scope context_scope(context);
   env->InitializeMainContext(context, env_snapshot_info);
 
-#if HAVE_INSPECTOR
-  if (env->should_create_inspector()) {
-    if (inspector_parent_handle) {
-      env->InitializeInspector(std::move(
-          static_cast<InspectorParentHandleImpl*>(inspector_parent_handle.get())
-              ->impl));
-    } else {
-      env->InitializeInspector({});
-    }
-  }
-#endif
-
   if (!use_snapshot && env->principal_realm()->RunBootstrapping().IsEmpty()) {
     FreeEnvironment(env);
     return nullptr;
   }
 
+  env->RunBootstrapCompleteCallbacks();
   return env;
 }
 

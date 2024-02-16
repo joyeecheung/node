@@ -200,12 +200,6 @@ static int StartDebugSignalHandler() {
 
 const int CONTEXT_GROUP_ID = 1;
 
-std::string GetWorkerLabel(node::Environment* env) {
-  std::ostringstream result;
-  result << "Worker[" << env->thread_id() << "]";
-  return result.str();
-}
-
 class ChannelImpl final : public v8_inspector::V8Inspector::Channel,
                           public protocol::FrontendChannel {
  public:
@@ -352,6 +346,12 @@ class SameThreadInspectorSession : public InspectorSession {
 };
 
 void NotifyClusterWorkersDebugEnabled(Environment* env) {
+  // If the environment is not yet fully bootstrapped, this is hit from
+  // Agent::Start() and no user code is run yet, so there cannot be any
+  // cluster listening to the internalMessage event anyway, we can just
+  // return.
+  if (!env->has_run_bootstrapping_code()) return;
+
   Isolate* isolate = env->isolate();
   HandleScope handle_scope(isolate);
   Local<Context> context = env->context();
@@ -398,12 +398,6 @@ class NodeInspectorClient : public V8InspectorClient {
   explicit NodeInspectorClient(node::Environment* env, bool is_main)
       : env_(env), is_main_(is_main) {
     client_ = V8Inspector::create(env->isolate(), this);
-    // TODO(bnoordhuis) Make name configurable from src/node.cc.
-    std::string name =
-        is_main_ ? GetHumanReadableProcessName() : GetWorkerLabel(env);
-    ContextInfo info(name);
-    info.is_default = true;
-    contextCreated(env->context(), info);
   }
 
   void runMessageLoopOnPause(int context_group_id) override {
@@ -429,9 +423,17 @@ class NodeInspectorClient : public V8InspectorClient {
     }
     if (auto agent = env_->inspector_agent()) {
       if (depth == 0) {
-        agent->DisableAsyncHook();
+        env_->RunAfterBootstrapComplete(
+            [](Environment* env, void*) {
+              env->inspector_agent()->DisableAsyncHook();
+            },
+            nullptr);
       } else {
-        agent->EnableAsyncHook();
+        env_->RunAfterBootstrapComplete(
+            [](Environment* env, void*) {
+              env->inspector_agent()->EnableAsyncHook();
+            },
+            nullptr);
       }
     }
   }
@@ -861,6 +863,7 @@ void Agent::PauseOnNextJavascriptStatement(const std::string& reason) {
 void Agent::RegisterAsyncHook(Isolate* isolate,
                               Local<Function> enable_function,
                               Local<Function> disable_function) {
+  CHECK(parent_env_->has_run_bootstrapping_code());
   parent_env_->set_inspector_enable_async_hooks(enable_function);
   parent_env_->set_inspector_disable_async_hooks(disable_function);
   if (pending_enable_async_hook_) {
@@ -875,6 +878,7 @@ void Agent::RegisterAsyncHook(Isolate* isolate,
 }
 
 void Agent::EnableAsyncHook() {
+  CHECK(parent_env_->has_run_bootstrapping_code());
   HandleScope scope(parent_env_->isolate());
   Local<Function> enable = parent_env_->inspector_enable_async_hooks();
   if (!enable.IsEmpty()) {
@@ -888,6 +892,7 @@ void Agent::EnableAsyncHook() {
 }
 
 void Agent::DisableAsyncHook() {
+  CHECK(parent_env_->has_run_bootstrapping_code());
   HandleScope scope(parent_env_->isolate());
   Local<Function> disable = parent_env_->inspector_enable_async_hooks();
   if (!disable.IsEmpty()) {

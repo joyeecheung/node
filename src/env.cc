@@ -1815,6 +1815,24 @@ void Environment::RunDeserializeRequests() {
   }
 }
 
+void Environment::RunAfterBootstrapComplete(BootstrapCompleteCallback cb,
+                                            void* data) {
+  if (has_run_bootstrapping_code()) {
+    cb(this, data);
+    return;
+  }
+  bootstrap_complete_callbacks_.push_back({cb, data});
+}
+
+void Environment::RunBootstrapCompleteCallbacks() {
+  CHECK(has_run_bootstrapping_code());
+  while (!bootstrap_complete_callbacks_.empty()) {
+    BootstrapComplete request(std::move(bootstrap_complete_callbacks_.front()));
+    bootstrap_complete_callbacks_.pop_front();
+    request.cb(this, request.data);
+  }
+}
+
 void Environment::DeserializeProperties(const EnvSerializeInfo* info) {
   Local<Context> ctx = context();
 

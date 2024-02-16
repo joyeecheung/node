@@ -513,6 +513,12 @@ struct DeserializeRequest {
   InternalFieldInfoBase* info = nullptr;  // Owned by the request
 };
 
+typedef void (*BootstrapCompleteCallback)(Environment* env, void* data);
+struct BootstrapComplete {
+  BootstrapCompleteCallback cb;
+  void* data;
+};
+
 struct EnvSerializeInfo {
   AsyncHooks::SerializeInfo async_hooks;
   TickInfo::SerializeInfo tick_info;
@@ -612,6 +618,9 @@ class Environment : public MemoryRetainer {
   void DeserializeProperties(const EnvSerializeInfo* info);
 
   void PrintInfoForSnapshotIfDebug();
+  void RunAfterBootstrapComplete(BootstrapCompleteCallback cb, void* data);
+  void RunBootstrapCompleteCallbacks();
+
   void EnqueueDeserializeRequest(DeserializeRequestCallback cb,
                                  v8::Local<v8::Object> holder,
                                  int index,
@@ -1150,6 +1159,7 @@ class Environment : public MemoryRetainer {
   bool is_in_inspector_console_call_ = false;
 #endif
 
+  std::list<BootstrapComplete> bootstrap_complete_callbacks_;
   std::list<DeserializeRequest> deserialize_requests_;
 
   // handle_wrap_queue_ and req_wrap_queue_ needs to be at a fixed offset from

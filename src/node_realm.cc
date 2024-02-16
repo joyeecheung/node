@@ -21,7 +21,17 @@ using v8::Value;
 Realm::Realm(Environment* env, v8::Local<v8::Context> context, Kind kind)
     : env_(env), isolate_(context->GetIsolate()), kind_(kind) {
   context_.Reset(isolate_, context);
-  env->AssignToContext(context, this, ContextInfo(""));
+  // TODO(bnoordhuis) Make name configurable from src/node.cc.
+  std::string name =
+      env->is_main_thread()
+          ? GetHumanReadableProcessName()
+          : std::string("Worker[") + std::to_string(env->thread_id()) + "]";
+  if (kind == Realm::Kind::kShadowRealm) {
+    name += " (ShadowRealm)";
+  }
+  ContextInfo info(name);
+  info.is_default = kind == Realm::Kind::kPrincipal;
+  env->AssignToContext(context, this, info);
 }
 
 Realm::~Realm() {

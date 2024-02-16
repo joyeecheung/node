@@ -106,10 +106,6 @@ bool StringViewToUTF8(const v8_inspector::StringView& source,
 void V8ProfilerConnection::V8ProfilerSessionDelegate::SendMessageToFrontend(
     const v8_inspector::StringView& message) {
   Environment* env = connection_->env();
-  Isolate* isolate = env->isolate();
-  HandleScope handle_scope(isolate);
-  Local<Context> context = env->context();
-  Context::Scope context_scope(context);
   const char* type = connection_->type();
 
   Debug(env,
@@ -464,12 +460,11 @@ void StartProfilers(Environment* env) {
     EndStartedProfilers(static_cast<Environment*>(env));
   }, env);
 
-  Isolate* isolate = env->isolate();
-  Local<String> coverage_str = env->env_vars()->Get(
-      isolate, FIXED_ONE_BYTE_STRING(isolate, "NODE_V8_COVERAGE"))
-      .FromMaybe(Local<String>());
-  if ((!coverage_str.IsEmpty() && coverage_str->Length() > 0) ||
-      env->options()->test_runner_coverage) {
+  std::string coverage_str =
+      env->env_vars()->Get("NODE_V8_COVERAGE").FromMaybe(std::string());
+  if (!env->isolate_data()->is_building_snapshot() &&
+      ((!coverage_str.empty() && coverage_str.length() > 0) ||
+       env->options()->test_runner_coverage)) {
     CHECK_NULL(env->coverage_connection());
     env->set_coverage_connection(std::make_unique<V8CoverageConnection>(env));
     env->coverage_connection()->Start();
