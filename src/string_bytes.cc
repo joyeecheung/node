@@ -461,6 +461,9 @@ Maybe<size_t> StringBytes::Size(Isolate* isolate,
 
     case HEX:
       return Just<size_t>(str->Length() / 2);
+
+    case INVALID_ENCODING:
+      UNREACHABLE();
   }
 
   UNREACHABLE();

@@ -622,7 +622,7 @@ void Fill(const FunctionCallbackInfo<Value>& args) {
   size_t fill_length = end - start;
   Local<String> str_obj;
   size_t str_length;
-  enum encoding enc;
+  enum encoding enc = UTF8;
 
   // OOB Check. Throw the error in JS.
   if (start > end || fill_length + start > ts_obj_length)
@@ -647,7 +647,11 @@ void Fill(const FunctionCallbackInfo<Value>& args) {
   }
 
   str_obj = args[1]->ToString(env->context()).ToLocalChecked();
-  enc = ParseEncoding(env->isolate(), args[4], UTF8);
+
+  if (args[4]->IsInt32()) {
+    enc = static_cast<encoding>(args[4].As<Int32>()->Value());
+    CHECK_LT(static_cast<int32_t>(enc), static_cast<int32_t>(INVALID_ENCODING));
+  }
 
   // Can't use StringBytes::Write() in all cases. For example if attempting
   // to write a two byte character into a one byte Buffer.

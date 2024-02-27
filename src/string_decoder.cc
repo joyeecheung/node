@@ -306,24 +306,29 @@ void InitializeStringDecoder(Local<Object> target,
   SET_DECODER_CONSTANT(kEncodingField);
   SET_DECODER_CONSTANT(kNumFields);
 
-  Local<Array> encodings = Array::New(isolate);
-#define ADD_TO_ENCODINGS_ARRAY(cname, jsname)                                 \
-  encodings->Set(context,                                                     \
-                 static_cast<int32_t>(cname),                                 \
-                 FIXED_ONE_BYTE_STRING(isolate, jsname)).FromJust()
-  ADD_TO_ENCODINGS_ARRAY(ASCII, "ascii");
-  ADD_TO_ENCODINGS_ARRAY(UTF8, "utf8");
-  ADD_TO_ENCODINGS_ARRAY(BASE64, "base64");
-  ADD_TO_ENCODINGS_ARRAY(BASE64URL, "base64url");
-  ADD_TO_ENCODINGS_ARRAY(UCS2, "utf16le");
-  ADD_TO_ENCODINGS_ARRAY(HEX, "hex");
-  ADD_TO_ENCODINGS_ARRAY(BUFFER, "buffer");
-  ADD_TO_ENCODINGS_ARRAY(LATIN1, "latin1");
+  std::vector<Local<v8::Name>> names;
+  std::vector<Local<v8::Value>> values;
+  std::vector<Local<v8::Value>> names_v;
+#define ADD_TO_ENCODINGS_ARRAY(name)                                           \
+  names_v.push_back(FIXED_ONE_BYTE_STRING(isolate, #name));                    \
+  names.push_back(FIXED_ONE_BYTE_STRING(isolate, #name));                      \
+  values.push_back(v8::Integer::New(isolate, static_cast<int32_t>(name)));
+
+  ADD_TO_ENCODINGS_ARRAY(ASCII);
+  ADD_TO_ENCODINGS_ARRAY(UTF8);
+  ADD_TO_ENCODINGS_ARRAY(BASE64);
+  ADD_TO_ENCODINGS_ARRAY(BASE64URL);
+  ADD_TO_ENCODINGS_ARRAY(UCS2);
+  ADD_TO_ENCODINGS_ARRAY(HEX);
+  ADD_TO_ENCODINGS_ARRAY(BUFFER);
+  ADD_TO_ENCODINGS_ARRAY(LATIN1);
+  ADD_TO_ENCODINGS_ARRAY(INVALID_ENCODING);  // This must be the last.
+  Local<Object> encodings = Object::New(
+      isolate, v8::Null(isolate), names.data(), values.data(), names.size());
 
   target->Set(context,
               FIXED_ONE_BYTE_STRING(isolate, "encodings"),
               encodings).Check();
-
   target->Set(context,
               FIXED_ONE_BYTE_STRING(isolate, "kSize"),
               Integer::New(isolate, sizeof(StringDecoder))).Check();

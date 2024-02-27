@@ -207,13 +207,12 @@ const EVP_MD* GetDigestImplementation(Environment* env,
 void Hash::OneShotDigest(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
   Isolate* isolate = env->isolate();
-  CHECK_EQ(args.Length(), 6);
+  CHECK_EQ(args.Length(), 5);
   CHECK(args[0]->IsString());                                  // algorithm
   CHECK(args[1]->IsInt32());                                   // algorithmId
   CHECK(args[2]->IsObject());                                  // algorithmCache
   CHECK(args[3]->IsString() || args[3]->IsArrayBufferView());  // input
-  CHECK(args[4]->IsString());                                  // outputEncoding
-  CHECK(args[5]->IsUint32() || args[5]->IsUndefined());  // outputEncodingId
+  CHECK(args[4]->IsInt32());                                   // outputEncoding
 
   const EVP_MD* md = GetDigestImplementation(env, args[0], args[1], args[2]);
   if (md == nullptr) {
@@ -223,8 +222,10 @@ void Hash::OneShotDigest(const FunctionCallbackInfo<Value>& args) {
     return ThrowCryptoError(env, ERR_get_error(), message.c_str());
   }
 
-  enum encoding output_enc = ParseEncoding(isolate, args[4], args[5], HEX);
-
+  enum encoding output_enc =
+      static_cast<encoding>(args[4].As<Int32>()->Value());
+  CHECK_LT(static_cast<int32_t>(output_enc),
+           static_cast<int32_t>(INVALID_ENCODING));
   int md_len = EVP_MD_size(md);
   unsigned int result_size;
   ByteSource::Builder output(md_len);
@@ -380,10 +381,9 @@ void Hash::HashDigest(const FunctionCallbackInfo<Value>& args) {
   Hash* hash;
   ASSIGN_OR_RETURN_UNWRAP(&hash, args.Holder());
 
-  enum encoding encoding = BUFFER;
-  if (args.Length() >= 1) {
-    encoding = ParseEncoding(env->isolate(), args[0], BUFFER);
-  }
+  CHECK(args[0]->IsInt32());
+  enum encoding enc = static_cast<encoding>(args[0].As<Int32>()->Value());
+  CHECK_LT(static_cast<int32_t>(enc), static_cast<int32_t>(INVALID_ENCODING));
 
   unsigned int len = hash->md_len_;
 
@@ -421,7 +421,7 @@ void Hash::HashDigest(const FunctionCallbackInfo<Value>& args) {
 
   Local<Value> error;
   MaybeLocal<Value> rc = StringBytes::Encode(
-      env->isolate(), hash->digest_.data<char>(), len, encoding, &error);
+      env->isolate(), hash->digest_.data<char>(), len, enc, &error);
   if (rc.IsEmpty()) {
     CHECK(!error.IsEmpty());
     env->isolate()->ThrowException(error);

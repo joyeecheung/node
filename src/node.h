@@ -1091,7 +1091,8 @@ enum encoding {
   HEX,
   BUFFER,
   BASE64URL,
-  LATIN1 = BINARY
+  INVALID_ENCODING,  // This must be the last new value.
+  LATIN1 = BINARY,
 };
 
 NODE_EXTERN enum encoding ParseEncoding(

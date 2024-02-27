@@ -51,5 +51,5 @@ const tests = [
 
 tests.forEach((e, i) => {
   const res = util.normalizeEncoding(e[0]);
-  assert.strictEqual(res, e[1], `#${i} failed: expected ${e[1]}, got ${res}`);
+  assert.strictEqual(res, e[1], `#${i} failed: ${e[0]} expected ${e[1]}, got ${res}`);
 });
