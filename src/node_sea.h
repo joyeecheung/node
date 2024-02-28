@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "node_exit_code.h"
+#include "v8-script.h"
 
 namespace node {
 namespace sea {
@@ -39,9 +40,12 @@ struct SeaResource {
   std::unordered_map<std::string_view, std::string_view> assets;
 
   bool use_snapshot() const;
+  bool use_code_cache() const;
+
   static constexpr size_t kHeaderSize = sizeof(kMagic) + sizeof(SeaFlags);
 };
 
+std::unique_ptr<v8::ScriptCompiler::CachedData> GetCodeCache();
 bool IsSingleExecutable();
 SeaResource FindSingleExecutableResource();
 std::tuple<int, char**> FixupArgsForSEA(int argc, char** argv);
