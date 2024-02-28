@@ -28,6 +28,7 @@
 #include "node_errors.h"
 #include "node_external_reference.h"
 #include "node_internals.h"
+#include "node_sea.h"
 #include "node_snapshot_builder.h"
 #include "node_watchdog.h"
 #include "util-inl.h"
@@ -956,6 +957,111 @@ Maybe<bool> StoreCodeCacheResult(
   return Just(true);
 }
 
+static Local<PrimitiveArray> GetHostDefinedOptions(Isolate* isolate,
+                                                   Local<Symbol> id_symbol) {
+  Local<PrimitiveArray> host_defined_options =
+      PrimitiveArray::New(isolate, loader::HostDefinedOptions::kLength);
+  host_defined_options->Set(
+      isolate, loader::HostDefinedOptions::kID, id_symbol);
+  return host_defined_options;
+}
+
+static void CompileFunctionForCJSLoader(
+    const FunctionCallbackInfo<Value>& args) {
+  CHECK(args[0]->IsString());
+  CHECK(args[1]->IsString());
+  Local<String> code = args[0].As<String>();
+  Local<String> filename = args[1].As<String>();
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext();
+  Environment* env = Environment::GetCurrent(context);
+
+  Local<Symbol> symbol = env->vm_dynamic_import_default_internal();
+  Local<PrimitiveArray> hdo = GetHostDefinedOptions(isolate, symbol);
+  ScriptOrigin origin(isolate,
+                      filename,
+                      0,               // line offset
+                      0,               // column offset
+                      true,            // is cross origin
+                      -1,              // script id
+                      Local<Value>(),  // source map URL
+                      false,           // is opaque
+                      false,           // is WASM
+                      false,           // is ES Module
+                      hdo);
+  ScriptCompiler::CachedData* cached_data = nullptr;
+
+#ifndef DISABLE_SINGLE_EXECUTABLE_APPLICATION
+  bool used_cache_from_sea = false;
+  if (sea::IsSingleExecutable()) {
+    sea::SeaResource sea = sea::FindSingleExecutableResource();
+    if (sea.use_code_cache()) {
+      std::string_view data = sea.code_cache.value();
+      cached_data = new ScriptCompiler::CachedData(
+          reinterpret_cast<const uint8_t*>(data.data()),
+          static_cast<int>(data.size()),
+          v8::ScriptCompiler::CachedData::BufferNotOwned);
+      used_cache_from_sea = true;
+    }
+  }
+#endif
+  ScriptCompiler::Source source(code, origin, cached_data);
+
+  TryCatchScope try_catch(env);
+
+  // TODO(joyeecheung): make it a per-realm persistent.
+  std::vector<Local<String>> params = {
+      FIXED_ONE_BYTE_STRING(isolate, "exports"),
+      FIXED_ONE_BYTE_STRING(isolate, "require"),
+      FIXED_ONE_BYTE_STRING(isolate, "module"),
+      FIXED_ONE_BYTE_STRING(isolate, "__filename"),
+      FIXED_ONE_BYTE_STRING(isolate, "__dirname"),
+  };
+  MaybeLocal<Function> maybe_fn = ScriptCompiler::CompileFunction(
+      context,
+      &source,
+      params.size(),
+      params.data(),
+      0,       /* context extensions size */
+      nullptr, /* context extensions data */
+      // TODO(joyeecheung): allow optional eager compilation.
+      cached_data == nullptr ? ScriptCompiler::kNoCompileOptions
+                             : ScriptCompiler::kConsumeCodeCache,
+      v8::ScriptCompiler::NoCacheReason::kNoCacheNoReason);
+
+  Local<Function> fn;
+  if (!maybe_fn.ToLocal(&fn)) {
+    if (try_catch.HasCaught() && !try_catch.HasTerminated()) {
+      errors::DecorateErrorStack(env, try_catch);
+      if (!try_catch.HasTerminated()) {
+        try_catch.ReThrow();
+      }
+      return;
+    }
+  }
+
+  bool cache_rejected = false;
+#ifndef DISABLE_SINGLE_EXECUTABLE_APPLICATION
+  if (used_cache_from_sea) {
+    cache_rejected = source.GetCachedData()->rejected;
+  }
+#endif
+
+  std::vector<Local<Name>> names = {
+      env->cached_data_rejected_string(),
+      env->source_map_url_string(),
+      env->function_string(),
+  };
+  std::vector<Local<Value>> values = {
+      Boolean::New(isolate, cache_rejected),
+      fn->GetScriptOrigin().SourceMapUrl(),
+      fn,
+  };
+  Local<Object> result = Object::New(
+      isolate, v8::Null(isolate), names.data(), values.data(), names.size());
+  args.GetReturnValue().Set(result);
+}
+
 // TODO(RaisinTen): Reuse in ContextifyContext::CompileFunction().
 MaybeLocal<Function> CompileFunction(Local<Context> context,
                                      Local<String> filename,
@@ -1280,15 +1386,6 @@ void ContextifyContext::CompileFunction(
   args.GetReturnValue().Set(result);
 }
 
-Local<PrimitiveArray> ContextifyContext::GetHostDefinedOptions(
-    Isolate* isolate, Local<Symbol> id_symbol) {
-  Local<PrimitiveArray> host_defined_options =
-      PrimitiveArray::New(isolate, loader::HostDefinedOptions::kLength);
-  host_defined_options->Set(
-      isolate, loader::HostDefinedOptions::kID, id_symbol);
-  return host_defined_options;
-}
-
 ScriptCompiler::Source ContextifyContext::GetCommonJSSourceInstance(
     Isolate* isolate,
     Local<String> code,
@@ -1537,6 +1634,10 @@ void CreatePerIsolateProperties(IsolateData* isolate_data,
       isolate, target, "watchdogHasPendingSigint", WatchdogHasPendingSigint);
 
   SetMethod(isolate, target, "measureMemory", MeasureMemory);
+  SetMethod(isolate,
+            target,
+            "compileFunctionForCJSLoader",
+            CompileFunctionForCJSLoader);
 }
 
 static void CreatePerContextProperties(Local<Object> target,
@@ -1576,6 +1677,7 @@ void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
   ContextifyContext::RegisterExternalReferences(registry);
   ContextifyScript::RegisterExternalReferences(registry);
 
+  registry->Register(CompileFunctionForCJSLoader);
   registry->Register(StartSigintWatchdog);
   registry->Register(StopSigintWatchdog);
   registry->Register(WatchdogHasPendingSigint);
