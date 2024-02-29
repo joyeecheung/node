@@ -480,6 +480,10 @@ inline const std::string& Environment::exec_path() const {
   return exec_path_;
 }
 
+inline bool Environment::use_compiler_cache() const {
+  return !compiler_cache_dir_.empty();
+}
+
 #if HAVE_INSPECTOR
 inline void Environment::set_coverage_directory(const char* dir) {
   coverage_directory_ = std::string(dir);

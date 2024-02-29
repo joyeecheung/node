@@ -1010,6 +1010,25 @@ class Environment : public MemoryRetainer {
   inline void set_process_exit_handler(
       std::function<void(Environment*, ExitCode)>&& handler);
 
+  // TODO(joyeecheung): move it into a CacheHandler class.
+  enum class CachedCodeType : uint8_t {
+    kCommonJS = 0,
+  };
+  inline bool use_compiler_cache() const;
+  void InitializeCompileCache();
+  void PersistCompileCache();
+  struct CompileCacheEntry {
+    std::unique_ptr<v8::ScriptCompiler::CachedData> cache;
+    uint32_t cache_hash;
+    std::string cache_filename;
+    std::string source_filename;
+  };
+  std::unique_ptr<CompileCacheEntry> GetCompileCache(
+      v8::Local<v8::String> code,
+      v8::Local<v8::String> filename,
+      CachedCodeType type);
+  void SaveCompileCache(std::unique_ptr<CompileCacheEntry> entry);
+
   void RunAndClearNativeImmediates(bool only_refed = false);
   void RunAndClearInterrupts();
 
@@ -1099,6 +1118,14 @@ class Environment : public MemoryRetainer {
   std::string heap_prof_name_;
   uint64_t heap_prof_interval_;
 #endif  // HAVE_INSPECTOR
+
+  uint32_t HashFileForCompileCache(std::string_view code,
+                                    std::string_view filename,
+                                    Environment::CachedCodeType type);
+  std::string compiler_cache_dir_;
+  uint32_t compiler_cache_hash_ = 0;
+  std::unordered_map<uint32_t, std::unique_ptr<CompileCacheEntry>>
+      compiler_cache_store_;
 
   std::shared_ptr<EnvironmentOptions> options_;
   // options_ contains debug options parsed from CLI arguments,
