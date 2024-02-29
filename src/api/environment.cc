@@ -543,6 +543,7 @@ MaybeLocal<Value> LoadEnvironment(
     StartExecutionCallback cb) {
   env->InitializeLibuv();
   env->InitializeDiagnostics();
+  env->InitializeCompilerCache();
 
   return StartExecution(env, cb);
 }

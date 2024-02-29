@@ -8,6 +8,7 @@
 #include "node_context_data.h"
 #include "node_contextify.h"
 #include "node_errors.h"
+#include "node_file.h"
 #include "node_internals.h"
 #include "node_options-inl.h"
 #include "node_process-inl.h"
@@ -22,6 +23,7 @@
 #include "util-inl.h"
 #include "v8-cppgc.h"
 #include "v8-profiler.h"
+#include "zlib.h"
 
 #include <algorithm>
 #include <atomic>
@@ -1085,6 +1087,163 @@ void Environment::InitializeLibuv() {
   RegisterHandleCleanups();
 
   StartProfilerIdleNotifier();
+}
+
+std::string Uint32ToHex(uint32_t crc) {
+  std::string str;
+  str.reserve(8);
+
+  for (int i = 28; i >= 0; i -= 4) {
+    char digit = (crc >> i) & 0xF;
+    digit += digit < 10 ? '0' : 'a' - 10;
+    str.push_back(digit);
+  }
+
+  return str;
+}
+
+std::string CRC32Hex(const char* data, size_t size) {
+  uLong crc = crc32(0L, Z_NULL, 0);
+  crc = crc32(crc, reinterpret_cast<const Bytef*>(data), size);
+  return Uint32ToHex(static_cast<uint32_t>(crc));
+}
+
+uint32_t GetCacheVersionTag() {
+  std::string node_version(NODE_VERSION);
+  uint32_t v8_tag = v8::ScriptCompiler::CachedDataVersionTag();
+  uLong crc = crc32(0L, Z_NULL, 0);
+  crc = crc32(crc, reinterpret_cast<const Bytef*>(&v8_tag), sizeof(uint32_t));
+  crc = crc32(crc,
+              reinterpret_cast<const Bytef*>(node_version.data()),
+              node_version.size());
+  return crc;
+}
+
+uint32_t Environment::HashFileForCompilerCache(std::string_view code,
+                                               std::string_view filename,
+                                               CachedCodeType type) {
+  uLong crc = crc32(compiler_cache_hash_,
+                    reinterpret_cast<const Bytef*>(&type),
+                    sizeof(CachedCodeType));
+  crc = crc32(crc, reinterpret_cast<const Bytef*>(code.data()), code.length());
+  crc = crc32(
+      crc, reinterpret_cast<const Bytef*>(filename.data()), filename.length());
+
+  return crc;
+}
+
+std::unique_ptr<Environment::CompilerCacheEntry> Environment::GetCompilerCache(
+    v8::Local<v8::String> code,
+    v8::Local<v8::String> filename,
+    CachedCodeType type) {
+  CHECK(use_compiler_cache());
+  auto result = std::make_unique<Environment::CompilerCacheEntry>();
+
+  Utf8Value filename_utf8(isolate_, filename);
+  Utf8Value code_utf8(isolate_, code);
+  result->cache_hash = HashFileForCompilerCache(
+      code_utf8.ToStringView(), filename_utf8.ToStringView(), type);
+  result->cache_filename =
+      compiler_cache_dir_ + kPathSeparator + Uint32ToHex(result->cache_hash);
+  result->source_filename = filename_utf8.ToString();
+
+  Debug(this,
+        DebugCategory::COMPILER_CACHE,
+        "[compiler cache] Reading cache from %s for %s...",
+        result->cache_filename,
+        result->source_filename);
+  // TODO(joyeecheung): if we fail enough times, stop trying for any future
+  // files.
+  std::string code_cache_store;
+  int err = ReadFileSync(&code_cache_store, result->cache_filename.c_str());
+  if (err < 0) {
+    Debug(this, DebugCategory::COMPILER_CACHE, " failed: %d\n", err);
+    return result;
+  }
+  size_t cache_size = code_cache_store.size();
+  // TODO(joyeecheung): add a helper that just read into new uint8_t[]
+  // to avoid the copy.
+  uint8_t* data = new uint8_t[cache_size];
+  memcpy(data, code_cache_store.data(), cache_size);
+  result->cache.reset(new v8::ScriptCompiler::CachedData(
+      data, cache_size, v8::ScriptCompiler::CachedData::BufferOwned));
+  Debug(this, DebugCategory::COMPILER_CACHE, " success, size=%d\n", cache_size);
+  return result;
+}
+
+void Environment::SaveCompilerCache(std::unique_ptr<CompilerCacheEntry> entry) {
+  Debug(this,
+        DebugCategory::COMPILER_CACHE,
+        "[compiler cache] saving cache for %s\n",
+        entry->source_filename);
+  CHECK_EQ(entry->cache->buffer_policy,
+           v8::ScriptCompiler::CachedData::BufferOwned);
+  auto result = compiler_cache_store_.emplace(entry->cache_hash, std::move(entry));
+  CHECK(result.second);
+}
+
+void Environment::PersistCompilerCache() {
+  CHECK(use_compiler_cache());
+  for (auto& pair : compiler_cache_store_) {
+    auto* entry = pair.second.get();
+    Debug(this,
+          DebugCategory::COMPILER_CACHE,
+          "[compiler cache] writing cache for %s in %s...",
+          entry->source_filename,
+          entry->cache_filename);
+    CHECK_EQ(entry->cache->buffer_policy,
+             v8::ScriptCompiler::CachedData::BufferOwned);
+    uv_buf_t buf = uv_buf_init(
+        reinterpret_cast<char*>(const_cast<uint8_t*>(entry->cache->data)),
+        entry->cache->length);
+    int err = WriteFileSync(entry->cache_filename.c_str(), buf);
+    Debug(this, DebugCategory::COMPILER_CACHE, "%d\n", err);
+  }
+}
+
+void Environment::InitializeCompilerCache() {
+  std::string dir_from_env;
+  if (!credentials::SafeGetenv(
+          "NODE_COMPILER_CACHE", &dir_from_env, env_vars()) ||
+      dir_from_env.empty()) {
+    return;
+  }
+
+  compiler_cache_hash_ = GetCacheVersionTag();
+  dir_from_env =
+      dir_from_env + kPathSeparator + Uint32ToHex(compiler_cache_hash_);
+
+  fs::FSReqWrapSync req_wrap;
+  int err =
+      fs::MKDirpSync(nullptr, &(req_wrap.req), dir_from_env, 0777, nullptr);
+  Debug(this,
+        DebugCategory::COMPILER_CACHE,
+        "[compiler cache] creating cache directory %s...%d\n",
+        dir_from_env,
+        err);
+  if (err != 0 && err != UV_EEXIST) {
+    return;
+  }
+
+  uv_fs_t req;
+  auto clean = OnScopeLeave([&req]() { uv_fs_req_cleanup(&req); });
+  err = uv_fs_realpath(nullptr, &req, dir_from_env.data(), nullptr);
+  if (err != 0 && err != UV_ENOENT) {
+    return;
+  }
+
+  compiler_cache_dir_ = std::string(static_cast<char*>(req.ptr));
+  Debug(this,
+        DebugCategory::COMPILER_CACHE,
+        "[compiler cache] resolved real path %s -> %s\n",
+        dir_from_env,
+        compiler_cache_dir_);
+
+  // TODO(joyeecheung): implement locks.
+
+  AtExit(
+      [](void* env) { static_cast<Environment*>(env)->PersistCompilerCache(); },
+      this);
 }
 
 void Environment::ExitEnv(StopFlags::Flags flags) {
