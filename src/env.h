@@ -1022,6 +1022,10 @@ class Environment : public MemoryRetainer {
       v8::Local<v8::String> code,
       v8::Local<v8::String> filename,
       CachedCodeType type);
+  std::unique_ptr<CompilerCacheEntry> GetCompilerCache(
+      std::string_view code_utf8,
+      v8::Local<v8::String> filename,
+      CachedCodeType type);
   void SaveCompilerCache(std::unique_ptr<CompilerCacheEntry> entry);
 
   void RunAndClearNativeImmediates(bool only_refed = false);

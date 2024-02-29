@@ -32,6 +32,7 @@
 #include "node_snapshot_builder.h"
 #include "node_watchdog.h"
 #include "util-inl.h"
+#include "simdutf.h"
 
 namespace node {
 namespace contextify {
@@ -957,6 +958,77 @@ Maybe<bool> StoreCodeCacheResult(
   return Just(true);
 }
 
+// An external resource intended to be used with dynamic lifetime.
+template <typename Char, typename IChar, typename Base>
+class DynamicExternalByteResource : public Base {
+  static_assert(sizeof(IChar) == sizeof(Char),
+                "incompatible interface and internal pointers");
+
+ public:
+  explicit DynamicExternalByteResource(const Char* data,
+                                      size_t length,
+                                      std::shared_ptr<void> owning_ptr)
+      : data_(data), length_(length), owning_ptr_(owning_ptr) {}
+
+  const IChar* data() const override {
+    return reinterpret_cast<const IChar*>(data_);
+  }
+  size_t length() const override { return length_; }
+
+  void Dispose() override {
+    owning_ptr_.reset();
+    data_ = nullptr;
+  }
+
+  DynamicExternalByteResource(const DynamicExternalByteResource&) = delete;
+  DynamicExternalByteResource& operator=(const DynamicExternalByteResource&) =
+      delete;
+
+ private:
+  const Char* data_;
+  const size_t length_;
+  std::shared_ptr<void> owning_ptr_;
+};
+
+
+using DynamicExternalOneByteResource =
+    DynamicExternalByteResource<uint8_t,
+                               char,
+                               v8::String::ExternalOneByteStringResource>;
+using DynamicExternalTwoByteResource =
+    DynamicExternalByteResource<uint16_t,
+                               uint16_t,
+                               v8::String::ExternalStringResource>;
+
+class DynamicUnionBytes {
+ public:
+  explicit DynamicUnionBytes(char* one_byte_resource)
+      : one_byte_resource_(one_byte_resource), two_byte_resource_(nullptr) {}
+  explicit DynamicUnionBytes(DynamicExternalTwoByteResource* two_byte_resource)
+      : one_byte_resource_(nullptr), two_byte_resource_(two_byte_resource) {}
+
+  DynamicUnionBytes(const DynamicUnionBytes&) = default;
+  DynamicUnionBytes& operator=(const DynamicUnionBytes&) = default;
+  DynamicUnionBytes(DynamicUnionBytes&&) = default;
+  DynamicUnionBytes& operator=(DynamicUnionBytes&&) = default;
+
+  bool is_one_byte() const { return one_byte_resource_ != nullptr; }
+
+  v8::Local<v8::String> ToStringChecked(v8::Isolate* isolate) const {
+    if (is_one_byte()) {
+      return String::NewExternalOneByte(isolate, one_byte_resource_)
+          .ToLocalChecked();
+    } else {
+      return String::NewExternalTwoByte(isolate, two_byte_resource_)
+          .ToLocalChecked();
+    }
+  }
+
+ private:
+  DynamicExternalOneByteResource* one_byte_resource_;
+  DynamicExternalTwoByteResource* two_byte_resource_;
+};
+
 static Local<PrimitiveArray> GetHostDefinedOptions(Isolate* isolate,
                                                    Local<Symbol> id_symbol) {
   Local<PrimitiveArray> host_defined_options =
@@ -968,9 +1040,9 @@ static Local<PrimitiveArray> GetHostDefinedOptions(Isolate* isolate,
 
 static void CompileFunctionForCJSLoader(
     const FunctionCallbackInfo<Value>& args) {
-  CHECK(args[0]->IsString());
+  CHECK(args[0]->IsString() || args[0]->IsArrayBufferView());
   CHECK(args[1]->IsString());
-  Local<String> code = args[0].As<String>();
+  Local<Value> code = args[0];
   Local<String> filename = args[1].As<String>();
   Isolate* isolate = args.GetIsolate();
   Local<Context> context = isolate->GetCurrentContext();
@@ -1009,11 +1081,42 @@ static void CompileFunctionForCJSLoader(
   }
 #endif
 
+  bool uses_code_buffer = false;
+  std::string_view code_utf8;
+  if (args[0]->IsArrayBufferView()) {
+    uses_code_buffer = true;
+    auto code_buffer = args[0].As<ArrayBufferView>();
+    auto data = static_cast<char*>(code_buffer->Buffer()->Data());
+    code_utf8 = std::string_view(data + code_buffer->ByteOffset(), code_buffer->ByteLength());
+
+    size_t count;
+    std::shared_ptr<char> store(new char[code_utf8.size() * 2], std::default_delete<char[]>());
+    auto result = simdutf::convert_utf8_to_latin1_with_errors(code_utf8.data(), code_utf8.size(), store.get());
+    if (result.error) {
+      result = simdutf::convert_utf8_to_utf16_with_errors(code_utf8.data(), code_utf8.size(), reinterpret_cast<char16_t*>(store.get()));
+      if (result.error) {
+        Utf8Value filename_utf8(isolate, filename);
+        std::string message = "Content of " + filename_utf8.ToString() + "is not valid UTF-8";
+        env->ThrowError(message.c_str());
+        return;
+      } else {
+
+      }
+    } else {
+
+    }
+  }
+
   bool used_cache_from_env = false;
   std::unique_ptr<Environment::CompilerCacheEntry> cache_entry;
   if (!used_cache_from_sea && env->use_compiler_cache()) {
-    cache_entry = env->GetCompilerCache(
-        code, filename, Environment::CachedCodeType::kCommonJS);
+    if (uses_code_buffer) {
+      cache_entry = env->GetCompilerCache(
+          code_utf8, filename, Environment::CachedCodeType::kCommonJS);
+    } else {
+      cache_entry = env->GetCompilerCache(
+          code.As<String>(), filename, Environment::CachedCodeType::kCommonJS);
+    }
     if (cache_entry->cache != nullptr) {
       // Source takes ownership.
       cached_data = cache_entry->cache.release();

@@ -1253,7 +1253,6 @@ CompressionError BrotliDecoderContext::GetErrorInfo() const {
   }
 }
 
-
 template <typename Stream>
 struct MakeClass {
   static void Make(Environment* env, Local<Object> target, const char* name) {
@@ -1285,6 +1284,7 @@ struct MakeClass {
     registry->Register(Stream::Reset);
   }
 };
+
 
 void Initialize(Local<Object> target,
                 Local<Value> unused,

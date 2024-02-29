@@ -1131,18 +1131,24 @@ uint32_t Environment::HashFileForCompilerCache(std::string_view code,
 
   return crc;
 }
-
 std::unique_ptr<Environment::CompilerCacheEntry> Environment::GetCompilerCache(
     v8::Local<v8::String> code,
+    v8::Local<v8::String> filename,
+    CachedCodeType type) {
+  Utf8Value code_utf8(isolate_, code);
+  return GetCompilerCache(code_utf8.ToStringView(), filename, type);
+}
+
+std::unique_ptr<Environment::CompilerCacheEntry> Environment::GetCompilerCache(
+    std::string_view code_utf8,
     v8::Local<v8::String> filename,
     CachedCodeType type) {
   CHECK(use_compiler_cache());
   auto result = std::make_unique<Environment::CompilerCacheEntry>();
 
   Utf8Value filename_utf8(isolate_, filename);
-  Utf8Value code_utf8(isolate_, code);
   result->cache_hash = HashFileForCompilerCache(
-      code_utf8.ToStringView(), filename_utf8.ToStringView(), type);
+      code_utf8, filename_utf8.ToStringView(), type);
   result->cache_filename =
       compiler_cache_dir_ + kPathSeparator + Uint32ToHex(result->cache_hash);
   result->source_filename = filename_utf8.ToString();
