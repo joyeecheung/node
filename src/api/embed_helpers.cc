@@ -73,7 +73,20 @@ Maybe<ExitCode> SpinEventLoopInternal(Environment* env) {
 
   env->PrintInfoForSnapshotIfDebug();
   env->ForEachRealm([](Realm* realm) { realm->VerifyNoStrongBaseObjects(); });
-  return EmitProcessExitInternal(env);
+  Maybe<ExitCode> exit_code = EmitProcessExitInternal(env);
+  if (exit_code.FromMaybe(ExitCode::kGenericUserError) !=
+      ExitCode::kNoFailure) {
+    return exit_code;
+  }
+
+  auto unfinished_tla = env->CheckUnfinishedTopLevelAwait();
+  if (unfinished_tla.IsNothing()) {
+    return Nothing<ExitCode>();
+  }
+  if (!unfinished_tla.FromJust()) {
+    return Just(ExitCode::kUnfinishedTopLevelAwait);
+  }
+  return Just(ExitCode::kNoFailure);
 }
 
 struct CommonEnvironmentSetup::Impl {
