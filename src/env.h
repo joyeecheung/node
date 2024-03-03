@@ -841,7 +841,7 @@ class Environment : public MemoryRetainer {
   void AtExit(void (*cb)(void* arg), void* arg);
   void RunAtExitCallbacks();
 
-  v8::Maybe<bool> CheckUnfinishedTopLevelAwait();
+  v8::Maybe<bool> CheckUnsettledTopLevelAwait();
   void RunWeakRefCleanup();
 
   v8::MaybeLocal<v8::Value> RunSnapshotSerializeCallback() const;

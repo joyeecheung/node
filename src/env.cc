@@ -1230,7 +1230,7 @@ void Environment::AtExit(void (*cb)(void* arg), void* arg) {
   at_exit_functions_.push_front(ExitCallback{cb, arg});
 }
 
-Maybe<bool> Environment::CheckUnfinishedTopLevelAwait() {
+Maybe<bool> Environment::CheckUnsettledTopLevelAwait() {
   HandleScope scope(isolate_);
   Local<Context> ctx = context();
   Local<Value> value;
@@ -1247,7 +1247,7 @@ Maybe<bool> Environment::CheckUnfinishedTopLevelAwait() {
   CHECK_EQ(object->InternalFieldCount(),
            loader::ModuleWrap::kInternalFieldCount);
   auto* wrap = BaseObject::FromJSObject<loader::ModuleWrap>(object);
-  return wrap->CheckUnfinishedTopLevelAwait();
+  return wrap->CheckUnsettledTopLevelAwait();
 }
 
 void Environment::RunAndClearInterrupts() {

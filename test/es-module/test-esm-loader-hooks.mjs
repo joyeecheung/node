@@ -72,7 +72,7 @@ describe('Loader hooks', { concurrency: true }, () => {
         fixtures.path('es-module-loaders/never-settling-resolve-step/never-resolve.mjs'),
       ]);
 
-      assert.match(stderr, /Warning: Detected unfinished top-level await at.+never-resolve\.mjs:5/);
+      assert.match(stderr, /Warning: Detected unsettled top-level await at.+never-resolve\.mjs:5/);
       assert.match(stdout, /^should be output\r?\n$/);
       assert.strictEqual(code, 13);
       assert.strictEqual(signal, null);
@@ -99,7 +99,7 @@ describe('Loader hooks', { concurrency: true }, () => {
         fixtures.path('es-module-loaders/never-settling-resolve-step/never-load.mjs'),
       ]);
 
-      assert.match(stderr, /Warning: Detected unfinished top-level await at.+never-load\.mjs:5/);
+      assert.match(stderr, /Warning: Detected unsettled top-level await at.+never-load\.mjs:5/);
       assert.match(stdout, /^should be output\r?\n$/);
       assert.strictEqual(code, 13);
       assert.strictEqual(signal, null);

@@ -104,7 +104,7 @@ ModuleWrap* ModuleWrap::GetFromModule(Environment* env,
   return nullptr;
 }
 
-v8::Maybe<bool> ModuleWrap::CheckUnfinishedTopLevelAwait() {
+v8::Maybe<bool> ModuleWrap::CheckUnsettledTopLevelAwait() {
   Isolate* isolate = env()->isolate();
   Local<Context> context = env()->context();
 
@@ -131,7 +131,7 @@ v8::Maybe<bool> ModuleWrap::CheckUnfinishedTopLevelAwait() {
     for (auto pair : stalled) {
       Local<v8::Message> message = std::get<1>(pair);
 
-      std::string reason = "Warning: Detected unfinished top-level await at ";
+      std::string reason = "Warning: Detected unsettled top-level await at ";
       std::string info = FormatMessage(isolate, context, "", message, true);
       reason += info;
       FPrintF(stderr, "%s\n", reason);

@@ -17,7 +17,7 @@ describe('ESM: unsettled and rejected promises', { concurrency: true }, () => {
       'await new Promise(() => {})',
     ]);
 
-    assert.match(stderr, /Warning: Detected unfinished top-level await at.+\[eval1\]:1/);
+    assert.match(stderr, /Warning: Detected unsettled top-level await at.+\[eval1\]:1/);
     assert.match(stderr, /await new Promise/);
     assert.strictEqual(stdout, '');
     assert.strictEqual(code, 13);
@@ -76,7 +76,7 @@ describe('ESM: unsettled and rejected promises', { concurrency: true }, () => {
       fixtures.path('es-modules/tla/unresolved.mjs'),
     ]);
 
-    assert.match(stderr, /Warning: Detected unfinished top-level await at.+unresolved\.mjs:1/);
+    assert.match(stderr, /Warning: Detected unsettled top-level await at.+unresolved\.mjs:1/);
     assert.match(stderr, /await new Promise/);
     assert.strictEqual(stdout, '');
     assert.strictEqual(code, 13);
@@ -142,7 +142,7 @@ describe('ESM: unsettled and rejected promises', { concurrency: true }, () => {
       fixtures.path('es-modules/tla/unresolved-with-worker-process-exit.mjs'),
     ]);
 
-    assert.match(stderr, /Warning: Detected unfinished top-level await at.+with-worker-process-exit\.mjs:5/);
+    assert.match(stderr, /Warning: Detected unsettled top-level await at.+with-worker-process-exit\.mjs:5/);
     assert.match(stderr, /await new Promise/);
     assert.strictEqual(stdout, '');
     assert.strictEqual(code, 13);

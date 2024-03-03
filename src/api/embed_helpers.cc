@@ -79,12 +79,12 @@ Maybe<ExitCode> SpinEventLoopInternal(Environment* env) {
     return exit_code;
   }
 
-  auto unfinished_tla = env->CheckUnfinishedTopLevelAwait();
-  if (unfinished_tla.IsNothing()) {
+  auto unsettled_tla = env->CheckUnsettledTopLevelAwait();
+  if (unsettled_tla.IsNothing()) {
     return Nothing<ExitCode>();
   }
-  if (!unfinished_tla.FromJust()) {
-    return Just(ExitCode::kUnfinishedTopLevelAwait);
+  if (!unsettled_tla.FromJust()) {
+    return Just(ExitCode::kUnsettledTopLevelAwait);
   }
   return Just(ExitCode::kNoFailure);
 }
