@@ -28,6 +28,7 @@
 #include "node_errors.h"
 #include "node_external_reference.h"
 #include "node_internals.h"
+#include "node_process-inl.h"
 #include "node_sea.h"
 #include "node_snapshot_builder.h"
 #include "node_watchdog.h"
@@ -56,6 +57,7 @@ using v8::Maybe;
 using v8::MaybeLocal;
 using v8::MeasureMemoryExecution;
 using v8::MeasureMemoryMode;
+using v8::Message;
 using v8::MicrotaskQueue;
 using v8::MicrotasksPolicy;
 using v8::Name;
@@ -966,6 +968,39 @@ static Local<PrimitiveArray> GetHostDefinedOptions(Isolate* isolate,
   return host_defined_options;
 }
 
+// When compiling as CommonJS source code that contains ESM syntax, the
+// following error messages are returned:
+// - `import` statements: "Cannot use import statement outside a module"
+// - `export` statements: "Unexpected token 'export'"
+// - `import.meta` references: "Cannot use 'import.meta' outside a module"
+// Dynamic `import()` is permitted in CommonJS, so it does not error.
+// While top-level `await` is not permitted in CommonJS, it returns the same
+// error message as when `await` is used in a sync function, so we don't use it
+// as a disambiguation.
+
+// TODO(joyeecheung): allow unexpected await here so that we can parse it as ESM
+// for require(esm) but warn users about where it comes from to help then find
+// it when it's rejected.
+constexpr std::array<std::string_view, 3> esm_syntax_error_messages = {
+    "Cannot use import statement outside a module",  // `import` statements
+    "Unexpected token 'export'",                     // `export` statements
+    "Cannot use 'import.meta' outside a module"};    // `import.meta` references
+
+bool IsESMSyntaxError(Isolate* isolate, Local<Message> error_message) {
+  if (error_message.IsEmpty()) {
+    return false;
+  }
+  Utf8Value message_utf8(isolate, error_message->Get());
+  auto message = message_utf8.ToStringView();
+
+  for (const auto& error_message : esm_syntax_error_messages) {
+    if (message.find(error_message) != std::string_view::npos) {
+      return true;
+    }
+  }
+  return false;
+}
+
 static void CompileFunctionForCJSLoader(
     const FunctionCallbackInfo<Value>& args) {
   CHECK(args[0]->IsString());
@@ -1030,13 +1065,35 @@ static void CompileFunctionForCJSLoader(
       v8::ScriptCompiler::NoCacheReason::kNoCacheNoReason);
 
   Local<Function> fn;
+  bool retry_as_esm = false;
   if (!maybe_fn.ToLocal(&fn)) {
-    if (try_catch.HasCaught() && !try_catch.HasTerminated()) {
-      errors::DecorateErrorStack(env, try_catch);
-      if (!try_catch.HasTerminated()) {
-        try_catch.ReThrow();
-      }
+    if (try_catch.HasTerminated()) {
       return;
+    }
+    if (try_catch.HasCaught()) {
+      Local<Value> error = try_catch.Exception();
+      Local<Message> message = try_catch.Message();
+      if (!error->IsNativeError() || message.IsEmpty() ||
+          !IsESMSyntaxError(isolate, message)) {
+        errors::DecorateErrorStack(env, try_catch);
+        try_catch.ReThrow();
+        return;
+      }
+
+      if (!env->options()->require_module) {
+        if (ProcessEmitWarningSync(env,
+                                   "(To load an ES module, set \"type\": "
+                                   "\"module\" in the package.json "
+                                   "or use the .mjs extension.)")
+                .IsJust()) {
+          errors::DecorateErrorStack(env, try_catch);
+          try_catch.ReThrow();
+        }
+        return;
+      }
+
+      // The file being compiled is likely ESM.
+      retry_as_esm = true;
     }
   }
 
@@ -1051,11 +1108,14 @@ static void CompileFunctionForCJSLoader(
       env->cached_data_rejected_string(),
       env->source_map_url_string(),
       env->function_string(),
+      FIXED_ONE_BYTE_STRING(isolate, "retryAsESM"),
   };
   std::vector<Local<Value>> values = {
       Boolean::New(isolate, cache_rejected),
-      fn->GetScriptOrigin().SourceMapUrl(),
-      fn,
+      retry_as_esm ? v8::Undefined(isolate).As<Value>()
+                   : fn->GetScriptOrigin().SourceMapUrl(),
+      retry_as_esm ? v8::Undefined(isolate).As<Value>() : fn.As<Value>(),
+      Boolean::New(isolate, retry_as_esm),
   };
   Local<Object> result = Object::New(
       isolate, v8::Null(isolate), names.data(), values.data(), names.size());
@@ -1481,20 +1541,6 @@ Local<Object> ContextifyContext::CompileFunctionAndCacheResult(
   return result;
 }
 
-// When compiling as CommonJS source code that contains ESM syntax, the
-// following error messages are returned:
-// - `import` statements: "Cannot use import statement outside a module"
-// - `export` statements: "Unexpected token 'export'"
-// - `import.meta` references: "Cannot use 'import.meta' outside a module"
-// Dynamic `import()` is permitted in CommonJS, so it does not error.
-// While top-level `await` is not permitted in CommonJS, it returns the same
-// error message as when `await` is used in a sync function, so we don't use it
-// as a disambiguation.
-constexpr std::array<std::string_view, 3> esm_syntax_error_messages = {
-    "Cannot use import statement outside a module",  // `import` statements
-    "Unexpected token 'export'",                     // `export` statements
-    "Cannot use 'import.meta' outside a module"};    // `import.meta` references
-
 void ContextifyContext::ContainsModuleSyntax(
     const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
@@ -1569,15 +1615,8 @@ void ContextifyContext::ContainsModuleSyntax(
 
   bool found_error_message_caused_by_module_syntax = false;
   if (try_catch.HasCaught() && !try_catch.HasTerminated()) {
-    Utf8Value message_value(env->isolate(), try_catch.Message()->Get());
-    auto message = message_value.ToStringView();
-
-    for (const auto& error_message : esm_syntax_error_messages) {
-      if (message.find(error_message) != std::string_view::npos) {
-        found_error_message_caused_by_module_syntax = true;
-        break;
-      }
-    }
+    found_error_message_caused_by_module_syntax =
+        IsESMSyntaxError(env->isolate(), try_catch.Message());
   }
   args.GetReturnValue().Set(found_error_message_caused_by_module_syntax);
 }
