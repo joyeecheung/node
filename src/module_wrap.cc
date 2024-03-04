@@ -320,6 +320,72 @@ static Local<Object> createImportAttributesContainer(
   return attributes;
 }
 
+void ModuleWrap::LinkSync(const FunctionCallbackInfo<Value>& args) {
+  Realm* realm = Realm::GetCurrent(args);
+  Isolate* isolate = args.GetIsolate();
+
+  CHECK_EQ(args.Length(), 1);
+  CHECK(args[0]->IsFunction());
+
+  Local<Object> that = args.This();
+
+  ModuleWrap* obj;
+  ASSIGN_OR_RETURN_UNWRAP(&obj, that);
+
+  if (obj->linked_) return;
+  obj->linked_ = true;
+
+  Local<Function> resolver_arg = args[0].As<Function>();
+
+  Local<Context> mod_context = obj->context();
+  Local<Module> module = obj->module_.Get(isolate);
+
+  Local<FixedArray> module_requests = module->GetModuleRequests();
+  const int module_requests_length = module_requests->Length();
+
+  MaybeStackBuffer<Local<Value>, 16> modules(module_requests_length);
+  // call the dependency resolve callbacks
+  for (int i = 0; i < module_requests_length; i++) {
+    Local<ModuleRequest> module_request =
+        module_requests->Get(realm->context(), i).As<ModuleRequest>();
+    Local<String> specifier = module_request->GetSpecifier();
+    Utf8Value specifier_utf8(realm->isolate(), specifier);
+    std::string specifier_std(*specifier_utf8, specifier_utf8.length());
+
+    Local<FixedArray> raw_attributes = module_request->GetImportAssertions();
+    Local<Object> attributes =
+        createImportAttributesContainer(realm, isolate, raw_attributes, 3);
+
+    Local<Value> argv[] = {
+        specifier,
+        attributes,
+    };
+
+    MaybeLocal<Value> maybe_resolve_return_value =
+        resolver_arg->Call(mod_context, that, arraysize(argv), argv);
+    if (maybe_resolve_return_value.IsEmpty()) {
+      return;
+    }
+    Local<Value> resolve_return_value =
+        maybe_resolve_return_value.ToLocalChecked();
+    // TODO(joyeecheung): the resolve cache should not hold on to the wraps
+    // using a Global<Promise>, it's unnecessary and leaky. We should create a
+    // map of ModuleWraps directly instead.
+    Local<Promise::Resolver> resolver;
+    if (!Promise::Resolver::New(mod_context).ToLocal(&resolver)) {
+      return;
+    }
+    if (resolver->Resolve(mod_context, resolve_return_value).IsNothing()) {
+      return;
+    }
+    obj->resolve_cache_[specifier_std].Reset(isolate, resolver->GetPromise());
+    modules[i] = resolve_return_value;
+  }
+
+  args.GetReturnValue().Set(
+      Array::New(isolate, modules.out(), modules.length()));
+}
+
 void ModuleWrap::Link(const FunctionCallbackInfo<Value>& args) {
   Realm* realm = Realm::GetCurrent(args);
   Isolate* isolate = args.GetIsolate();
@@ -817,6 +883,7 @@ void ModuleWrap::CreatePerIsolateProperties(IsolateData* isolate_data,
       ModuleWrap::kInternalFieldCount);
 
   SetProtoMethod(isolate, tpl, "link", Link);
+  SetProtoMethod(isolate, tpl, "linkSync", LinkSync);
   SetProtoMethod(isolate, tpl, "instantiate", Instantiate);
   SetProtoMethod(isolate, tpl, "evaluate", Evaluate);
   SetProtoMethod(isolate, tpl, "setExport", SetSyntheticExport);
@@ -868,6 +935,7 @@ void ModuleWrap::RegisterExternalReferences(
   registry->Register(New);
 
   registry->Register(Link);
+  registry->Register(LinkSync);
   registry->Register(Instantiate);
   registry->Register(Evaluate);
   registry->Register(SetSyntheticExport);

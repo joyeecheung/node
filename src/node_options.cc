@@ -352,6 +352,11 @@ EnvironmentOptionsParser::EnvironmentOptionsParser() {
             "ES module syntax, try again to evaluate them as ES modules",
             &EnvironmentOptions::detect_module,
             kAllowedInEnvvar);
+  AddOption("--experimental-require-module",
+            "Allow loading ES Module in require()",
+            &EnvironmentOptions::require_module,
+            kAllowedInEnvvar);
+
   AddOption("--diagnostic-dir",
             "set dir for all output files"
             " (default: current working directory)",
