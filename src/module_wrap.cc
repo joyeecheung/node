@@ -595,6 +595,25 @@ void ModuleWrap::RunSync(const FunctionCallbackInfo<Value>& args) {
   args.GetReturnValue().Set(module->GetModuleNamespace());
 }
 
+void ModuleWrap::CompileWasmSync(const FunctionCallbackInfo<Value>& args) {
+  CHECK(args[0]->IsArrayBufferView());
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext();
+  Environment* env = Environment::GetCurrent(context);
+
+  ArrayBufferViewContents<uint8_t> wire_bytes(args[0]);
+  v8::MemorySpan<const uint8_t> span(wire_bytes.data(), wire_bytes.length());
+  v8::Local<v8::WasmModuleObject> mod;
+  TryCatchScope try_catch(env);
+  if (!v8::WasmModuleObject::Compile(isolate, span).ToLocal(&mod)) {
+    if (try_catch.HasCaught() && !try_catch.HasTerminated()) {
+      try_catch.ReThrow();
+    }
+    return;
+  }
+  args.GetReturnValue().Set(mod);
+}
+
 void ModuleWrap::GetNamespace(const FunctionCallbackInfo<Value>& args) {
   Realm* realm = Realm::GetCurrent(args);
   Isolate* isolate = args.GetIsolate();
@@ -929,6 +948,7 @@ void ModuleWrap::CreatePerIsolateProperties(IsolateData* isolate_data,
   SetProtoMethod(isolate, tpl, "link", Link);
   SetProtoMethod(isolate, tpl, "linkSync", LinkSync);
   SetProtoMethod(isolate, tpl, "runSync", RunSync);
+  SetProtoMethod(isolate, tpl, "compileWasmSync", CompileWasmSync);
   SetProtoMethod(isolate, tpl, "instantiate", Instantiate);
   SetProtoMethod(isolate, tpl, "evaluate", Evaluate);
   SetProtoMethod(isolate, tpl, "setExport", SetSyntheticExport);
@@ -982,6 +1002,7 @@ void ModuleWrap::RegisterExternalReferences(
   registry->Register(Link);
   registry->Register(LinkSync);
   registry->Register(RunSync);
+  registry->Register(CompileWasmSync);
   registry->Register(Instantiate);
   registry->Register(Evaluate);
   registry->Register(SetSyntheticExport);
