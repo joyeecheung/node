@@ -1578,6 +1578,17 @@ changes:
 
 Identical to `-e` but prints the result.
 
+### `--print-pending-tla`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+Print pending top-level await in the graph.
+
+<!-- TODO(joyeecheung): do a PR separately for this flag because we can also
+fix https://github.com/nodejs/node/issues/42868 with it -->
+
 ### `--prof`
 
 <!-- YAML
@@ -2556,6 +2567,7 @@ Node.js options that are allowed are:
 * `--policy-integrity`
 * `--preserve-symlinks-main`
 * `--preserve-symlinks`
+* `--print-pending-tla`
 * `--prof-process`
 * `--redirect-warnings`
 * `--report-compact`
