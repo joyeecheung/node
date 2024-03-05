@@ -579,12 +579,12 @@ void ModuleWrap::RunSync(const FunctionCallbackInfo<Value>& args) {
 
   // Proceeds to evaluation even if it's async because we want to detect the
   // TLA for hinting in errors.
-  if (module->IsGraphAsync()) {
-    realm->env()->ThrowError(
-        "require() cannot be used on an ESM graph with top-level "
-        "await. Use import() instead.");
-    return;
-  }
+  // if (module->IsGraphAsync()) {
+  //   realm->env()->ThrowError(
+  //       "require() cannot be used on an ESM graph with top-level "
+  //       "await. Use import() instead.");
+  //   return;
+  // }
 
   Local<Value> result;
   {
@@ -605,20 +605,23 @@ void ModuleWrap::RunSync(const FunctionCallbackInfo<Value>& args) {
     return;
   }
 
-  // if (module->IsGraphAsync() && module->IsSourceTextModule()) {
-  //   auto stalled = module->GetStalledTopLevelAwaitMessage(isolate);
-  //   if (stalled.size() != 0) {
-  //     for (auto pair : stalled) {
-  //       Local<v8::Message> message = std::get<1>(pair);
+  if (module->IsGraphAsync()) {
+    auto stalled = module->GetStalledTopLevelAwaitMessage(isolate);
+    if (stalled.size() != 0) {
+      for (auto pair : stalled) {
+        Local<v8::Message> message = std::get<1>(pair);
 
-  //       std::string reason = "Error: unexpected top-level await at ";
-  //       std::string info = FormatMessage(isolate, context, "", message, true);
-  //       reason += info;
-  //       FPrintF(stderr, "%s\n", reason);
-  //     }
-  //   }
-  //   return;
-  // }
+        std::string reason = "Error: unexpected top-level await at ";
+        std::string info = FormatMessage(isolate, context, "", message, true);
+        reason += info;
+        FPrintF(stderr, "%s\n", reason);
+      }
+    }
+    realm->env()->ThrowError(
+        "require() cannot be used on an ESM graph with top-level "
+        "await. Use import() instead.");
+    return;
+  }
 
   CHECK_EQ(promise->State(), Promise::PromiseState::kFulfilled);
 
