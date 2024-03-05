@@ -871,6 +871,22 @@ added: v11.8.0
 
 Use the specified file as a security policy.
 
+### `--experimental-require-module`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+> Stability: 1.1 - Active Developement
+
+Supports loading a synchronous ES module graph in `require()`. If the module
+graph is not synchronous (contains top-level await), it throws an error.
+
+By default, a `.js` file will be parsed as a CommonJS module first. If it
+contains ES module syntax, Node.js will try to parse and evaluate the module
+again as an ES module. If it turns out to be synchronous and can be evaluated
+successfully, the module namespace object will be returned by `require()`.
+
 ### `--experimental-sea-config`
 
 <!-- YAML
@@ -2523,6 +2539,7 @@ Node.js options that are allowed are:
 * `--experimental-network-imports`
 * `--experimental-permission`
 * `--experimental-policy`
+* `--experimental-require-module`
 * `--experimental-shadow-realm`
 * `--experimental-specifier-resolution`
 * `--experimental-top-level-await`

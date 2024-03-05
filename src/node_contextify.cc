@@ -28,6 +28,7 @@
 #include "node_errors.h"
 #include "node_external_reference.h"
 #include "node_internals.h"
+#include "node_process-inl.h"
 #include "node_sea.h"
 #include "node_snapshot_builder.h"
 #include "node_watchdog.h"
@@ -56,6 +57,7 @@ using v8::Maybe;
 using v8::MaybeLocal;
 using v8::MeasureMemoryExecution;
 using v8::MeasureMemoryMode;
+using v8::Message;
 using v8::MicrotaskQueue;
 using v8::MicrotasksPolicy;
 using v8::Name;
@@ -1399,6 +1401,22 @@ constexpr std::array<std::string_view, 3> esm_syntax_error_messages = {
     "Unexpected token 'export'",                     // `export` statements
     "Cannot use 'import.meta' outside a module"};    // `import.meta` references
 
+// TODO(joyeecheung): see if we can upstream an API to V8 for this.
+bool IsESMSyntaxError(Isolate* isolate, Local<Message> error_message) {
+  if (error_message.IsEmpty()) {
+    return false;
+  }
+  Utf8Value message_utf8(isolate, error_message->Get());
+  auto message = message_utf8.ToStringView();
+
+  for (const auto& error_message : esm_syntax_error_messages) {
+    if (message.find(error_message) != std::string_view::npos) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void ContextifyContext::ContainsModuleSyntax(
     const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
@@ -1473,15 +1491,8 @@ void ContextifyContext::ContainsModuleSyntax(
 
   bool found_error_message_caused_by_module_syntax = false;
   if (try_catch.HasCaught() && !try_catch.HasTerminated()) {
-    Utf8Value message_value(env->isolate(), try_catch.Message()->Get());
-    auto message = message_value.ToStringView();
-
-    for (const auto& error_message : esm_syntax_error_messages) {
-      if (message.find(error_message) != std::string_view::npos) {
-        found_error_message_caused_by_module_syntax = true;
-        break;
-      }
-    }
+    found_error_message_caused_by_module_syntax =
+        IsESMSyntaxError(env->isolate(), try_catch.Message());
   }
   args.GetReturnValue().Set(found_error_message_caused_by_module_syntax);
 }
@@ -1527,8 +1538,6 @@ static void CompileFunctionForCJSLoader(
 #endif
   ScriptCompiler::Source source(code, origin, cached_data);
 
-  TryCatchScope try_catch(env);
-
   // TODO(joyeecheung): make it a per-realm persistent.
   std::vector<Local<String>> params = {
       FIXED_ONE_BYTE_STRING(isolate, "exports"),
@@ -1537,26 +1546,57 @@ static void CompileFunctionForCJSLoader(
       FIXED_ONE_BYTE_STRING(isolate, "__filename"),
       FIXED_ONE_BYTE_STRING(isolate, "__dirname"),
   };
-  MaybeLocal<Function> maybe_fn = ScriptCompiler::CompileFunction(
-      context,
-      &source,
-      params.size(),
-      params.data(),
-      0,       /* context extensions size */
-      nullptr, /* context extensions data */
-      // TODO(joyeecheung): allow optional eager compilation.
-      cached_data == nullptr ? ScriptCompiler::kNoCompileOptions
-                             : ScriptCompiler::kConsumeCodeCache,
-      v8::ScriptCompiler::NoCacheReason::kNoCacheNoReason);
 
+  bool retry_as_esm = false;
   Local<Function> fn;
-  if (!maybe_fn.ToLocal(&fn)) {
-    if (try_catch.HasCaught() && !try_catch.HasTerminated()) {
-      errors::DecorateErrorStack(env, try_catch);
-      if (!try_catch.HasTerminated()) {
-        try_catch.ReThrow();
+
+  {
+    TryCatchScope try_catch(env);
+    MaybeLocal<Function> maybe_fn;
+    {
+      ShouldNotAbortOnUncaughtScope should_not_abort(env);
+      maybe_fn = ScriptCompiler::CompileFunction(
+          context,
+          &source,
+          params.size(),
+          params.data(),
+          0,       /* context extensions size */
+          nullptr, /* context extensions data */
+          // TODO(joyeecheung): allow optional eager compilation.
+          cached_data == nullptr ? ScriptCompiler::kNoCompileOptions
+                                 : ScriptCompiler::kConsumeCodeCache,
+          v8::ScriptCompiler::NoCacheReason::kNoCacheNoReason);
+    }
+    if (!maybe_fn.ToLocal(&fn)) {
+      if (try_catch.HasCaught()) {
+        Local<Value> error = try_catch.Exception();
+        Local<Message> message = try_catch.Message();
+        if (!error->IsNativeError() || message.IsEmpty() ||
+            !IsESMSyntaxError(isolate, message)) {
+          errors::DecorateErrorStack(env, try_catch);
+          try_catch.ReThrow();
+          return;
+        }
+
+        if (!env->options()->require_module) {
+          // If emitting the warning somehow leads to another exception, ignore
+          // it.
+          USE(ProcessEmitWarningSync(
+              env,
+              "To load an ES module, use --experimental-require-module if you "
+              "want to"
+              "require() it and it contains no top-level await. If it's "
+              "import'ed, "
+              "set \"type\": \"module\" in the package.json, or use the .mjs "
+              "extension."));
+          errors::DecorateErrorStack(env, try_catch);
+          try_catch.ReThrow();
+          return;
+        }
+
+        // The file being compiled is likely ESM.
+        retry_as_esm = true;
       }
-      return;
     }
   }
 
@@ -1571,11 +1611,14 @@ static void CompileFunctionForCJSLoader(
       env->cached_data_rejected_string(),
       env->source_map_url_string(),
       env->function_string(),
+      FIXED_ONE_BYTE_STRING(isolate, "retryAsESM"),
   };
   std::vector<Local<Value>> values = {
       Boolean::New(isolate, cache_rejected),
-      fn->GetScriptOrigin().SourceMapUrl(),
-      fn,
+      retry_as_esm ? v8::Undefined(isolate).As<Value>()
+                   : fn->GetScriptOrigin().SourceMapUrl(),
+      retry_as_esm ? v8::Undefined(isolate).As<Value>() : fn.As<Value>(),
+      Boolean::New(isolate, retry_as_esm),
   };
   Local<Object> result = Object::New(
       isolate, v8::Null(isolate), names.data(), values.data(), names.size());
