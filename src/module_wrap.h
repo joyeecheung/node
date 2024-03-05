@@ -59,6 +59,7 @@ class ModuleWrap : public BaseObject {
 
   v8::Local<v8::Context> context() const;
   v8::Maybe<bool> CheckUnsettledTopLevelAwait();
+  bool PrintUnsettledTopLevelAwait();
 
   SET_MEMORY_INFO_NAME(ModuleWrap)
   SET_SELF_SIZE(ModuleWrap)
@@ -81,6 +82,7 @@ class ModuleWrap : public BaseObject {
   static void New(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void LinkSync(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Link(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void RunSync(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Instantiate(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Evaluate(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void GetNamespace(const v8::FunctionCallbackInfo<v8::Value>& args);

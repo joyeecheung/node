@@ -108,9 +108,6 @@ v8::Maybe<bool> ModuleWrap::CheckUnsettledTopLevelAwait() {
   Isolate* isolate = env()->isolate();
   Local<Context> context = env()->context();
 
-  // This must be invoked when the environment is shutting down, and the module
-  // is kept alive by the module wrap via an internal field.
-  CHECK(env()->exiting());
   CHECK(!module_.IsEmpty());
 
   Local<Module> module = module_.Get(isolate);
@@ -551,6 +548,80 @@ void ModuleWrap::Evaluate(const FunctionCallbackInfo<Value>& args) {
   args.GetReturnValue().Set(result.ToLocalChecked());
 }
 
+void ModuleWrap::RunSync(const FunctionCallbackInfo<Value>& args) {
+  Realm* realm = Realm::GetCurrent(args);
+  Isolate* isolate = args.GetIsolate();
+  ModuleWrap* obj;
+  ASSIGN_OR_RETURN_UNWRAP(&obj, args.This());
+  Local<Context> context = obj->context();
+  Local<Module> module = obj->module_.Get(isolate);
+
+  // TODO(joyeecheung): use a separate callback that doesn't use promises
+  // for the cache.
+  {
+    TryCatchScope try_catch(realm->env());
+    USE(module->InstantiateModule(context, ResolveModuleCallback));
+
+    // clear resolve cache on instantiate
+    obj->resolve_cache_.clear();
+
+    if (try_catch.HasCaught() && !try_catch.HasTerminated()) {
+      CHECK(!try_catch.Message().IsEmpty());
+      CHECK(!try_catch.Exception().IsEmpty());
+      AppendExceptionLine(realm->env(),
+                          try_catch.Exception(),
+                          try_catch.Message(),
+                          ErrorHandlingMode::MODULE_ERROR);
+      try_catch.ReThrow();
+      return;
+    }
+  }
+
+  // Proceeds to evaluation even if it's async because we want to detect the
+  // TLA for hinting in errors.
+  // TODO(joyeecheung): maybe make this behind a flag?
+  Local<Value> result;
+  {
+    ShouldNotAbortOnUncaughtScope no_abort_scope(realm->env());
+    TryCatchScope try_catch(realm->env());
+    if (!module->Evaluate(context).ToLocal(&result)) {
+      if (try_catch.HasCaught()) {
+        if (!try_catch.HasTerminated()) try_catch.ReThrow();
+        return;
+      }
+    }
+  }
+
+  CHECK(result->IsPromise());
+  Local<Promise> promise = result.As<Promise>();
+  if (promise->State() == Promise::PromiseState::kRejected) {
+    isolate->ThrowException(promise->Result());
+    return;
+  }
+
+  if (module->IsGraphAsync() && module->IsSourceTextModule()) {
+    auto stalled = module->GetStalledTopLevelAwaitMessage(isolate);
+    if (stalled.size() != 0) {
+      for (auto pair : stalled) {
+        Local<v8::Message> message = std::get<1>(pair);
+
+        std::string reason = "Error: unexpected top-level await at ";
+        std::string info = FormatMessage(isolate, context, "", message, true);
+        reason += info;
+        FPrintF(stderr, "%s\n", reason);
+      }
+    }
+    realm->env()->ThrowError(
+        "require() cannot be used on an ESM graph with top-level "
+        "await. Use import() instead.");
+    return;
+  }
+
+  CHECK_EQ(promise->State(), Promise::PromiseState::kFulfilled);
+
+  args.GetReturnValue().Set(module->GetModuleNamespace());
+}
+
 void ModuleWrap::GetNamespace(const FunctionCallbackInfo<Value>& args) {
   Realm* realm = Realm::GetCurrent(args);
   Isolate* isolate = args.GetIsolate();
@@ -885,6 +956,7 @@ void ModuleWrap::CreatePerIsolateProperties(IsolateData* isolate_data,
   SetProtoMethod(isolate, tpl, "link", Link);
   SetProtoMethod(isolate, tpl, "linkSync", LinkSync);
   SetProtoMethod(isolate, tpl, "instantiate", Instantiate);
+  SetProtoMethod(isolate, tpl, "runSync", RunSync);
   SetProtoMethod(isolate, tpl, "evaluate", Evaluate);
   SetProtoMethod(isolate, tpl, "setExport", SetSyntheticExport);
   SetProtoMethodNoSideEffect(
@@ -937,6 +1009,7 @@ void ModuleWrap::RegisterExternalReferences(
   registry->Register(Link);
   registry->Register(LinkSync);
   registry->Register(Instantiate);
+  registry->Register(RunSync);
   registry->Register(Evaluate);
   registry->Register(SetSyntheticExport);
   registry->Register(CreateCachedData);
