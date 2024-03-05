@@ -547,9 +547,8 @@ void ModuleWrap::RunSync(const FunctionCallbackInfo<Value>& args) {
   // If --print-pending-tla is true, proceeds to evaluation even if it's
   // async because we want to search for the TLA and help users locate them.
   if (module->IsGraphAsync() && !env->options()->print_pending_tla) {
-    env->ThrowError(
-        "require() cannot be used on an ESM graph with top-level "
-        "await. Use import() instead.");
+    env->ThrowError("require() cannot be used on an ESM graph with top-level "
+                    "await. Use import() instead.");
     return;
   }
 
@@ -579,14 +578,14 @@ void ModuleWrap::RunSync(const FunctionCallbackInfo<Value>& args) {
         Local<v8::Message> message = std::get<1>(pair);
 
         std::string reason = "Error: unexpected top-level await at ";
-        std::string info = FormatMessage(isolate, context, "", message, true);
+        std::string info =
+            FormatErrorMessage(isolate, context, "", message, true);
         reason += info;
         FPrintF(stderr, "%s\n", reason);
       }
     }
-    env->ThrowError(
-        "require() cannot be used on an ESM graph with top-level "
-        "await. Use import() instead.");
+    env->ThrowError("require() cannot be used on an ESM graph with top-level "
+                    "await. Use import() instead.");
     return;
   }
 

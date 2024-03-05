@@ -1577,14 +1577,14 @@ static void CompileFunctionForCJSLoader(
       }
 
       if (!env->options()->require_module) {
-        if (ProcessEmitWarningSync(env,
-                                   "(To load an ES module, set \"type\": "
-                                   "\"module\" in the package.json "
-                                   "or use the .mjs extension.)")
-                .IsJust()) {
-          errors::DecorateErrorStack(env, try_catch);
-          try_catch.ReThrow();
-        }
+        // If emitting the warning somehow leads to another exception, ignore it.
+        USE(ProcessEmitWarningSync(
+            env,
+            "To load an ES module, use --experimental-require-module if you want to"
+            "require() it and it contains no top-level await. If it's import'ed, "
+            "set \"type\": \"module\" in the package.json, or use the .mjs extension."));
+        errors::DecorateErrorStack(env, try_catch);
+        try_catch.ReThrow();
         return;
       }
 
