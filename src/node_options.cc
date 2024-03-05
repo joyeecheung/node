@@ -352,6 +352,13 @@ EnvironmentOptionsParser::EnvironmentOptionsParser() {
             "ES module syntax, try again to evaluate them as ES modules",
             &EnvironmentOptions::detect_module,
             kAllowedInEnvvar);
+  AddOption("--print-pending-tla",
+            "Print pending top-level await. If --experimental-require-module "
+            "is true, evaluate asynchronous graphs loaded by `require()` but "
+            "do not run the microtasks, in order to to find and print "
+            "top-level await in the graph",
+            &EnvironmentOptions::print_pending_tla,
+            kAllowedInEnvvar);
   AddOption("--diagnostic-dir",
             "set dir for all output files"
             " (default: current working directory)",
