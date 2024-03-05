@@ -79,6 +79,8 @@ class ModuleWrap : public BaseObject {
   ~ModuleWrap() override;
 
   static void New(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void LinkSync(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void RunSync(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Link(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Instantiate(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Evaluate(const v8::FunctionCallbackInfo<v8::Value>& args);
