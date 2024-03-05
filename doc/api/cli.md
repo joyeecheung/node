@@ -871,6 +871,43 @@ added: v11.8.0
 
 Use the specified file as a security policy.
 
+### `--experimental-require-module`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+> Stability: 1.1 - Active Developement
+
+Supports loading a synchronous ES module graph in `require()`.
+
+When `--experimental-require-module` is enabled, and `require()`
+resolves to an ES module, if the module is fully synchronous
+(contains no top-level await), the `require()` call returns the
+module name space object. Otherwise, Node.js throws an error
+without executing the module. If `--experimental-print-required-tla`
+is passed, Node.js will evaluate the module, try to locate the
+top-level awaits, and print their location to help users fix them.
+
+With this option alone, the module being `require()`'d should be
+explicitly marked as an ES module either using the `"type": "module"`
+field in `package.json` or the `.mjs` extension. To load implicit ES
+modules ending with `.js` using automatic syntax-based module type
+detection, use `--experimental-require-module-with-detection`.
+
+### `--experimental-require-module-with-detection`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+> Stability: 1.1 - Active Developement
+
+In addition to what `--experimental-require-module` supports, when the module
+being `require()`'d is not explicitly marked as an ES Module using the
+`"type": "module"` field in `package.json` or the `.mjs` extension, it will
+try to detect module type based on the syntax of the module.
+
 ### `--experimental-sea-config`
 
 <!-- YAML
@@ -1577,6 +1614,17 @@ changes:
 -->
 
 Identical to `-e` but prints the result.
+
+### `--experimental-print-required-tla`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+Print pending top-level await in the graph.
+
+<!-- TODO(joyeecheung): do a PR separately for this flag because we can also
+fix https://github.com/nodejs/node/issues/42868 with it -->
 
 ### `--prof`
 
@@ -2512,6 +2560,9 @@ Node.js options that are allowed are:
 * `--experimental-network-imports`
 * `--experimental-permission`
 * `--experimental-policy`
+* `--experimental-print-required-tla`
+* `--experimental-require-module-with-detection`
+* `--experimental-require-module`
 * `--experimental-shadow-realm`
 * `--experimental-specifier-resolution`
 * `--experimental-top-level-await`
