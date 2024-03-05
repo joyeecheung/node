@@ -359,6 +359,11 @@ EnvironmentOptionsParser::EnvironmentOptionsParser() {
             "top-level await in the graph",
             &EnvironmentOptions::print_pending_tla,
             kAllowedInEnvvar);
+  AddOption("--experimental-require-module",
+            "Allow loading ES Module in require()",
+            &EnvironmentOptions::require_module,
+            kAllowedInEnvvar);
+
   AddOption("--diagnostic-dir",
             "set dir for all output files"
             " (default: current working directory)",
