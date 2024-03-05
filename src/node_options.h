@@ -105,6 +105,7 @@ class EnvironmentOptions : public Options {
   bool abort_on_uncaught_exception = false;
   std::vector<std::string> conditions;
   bool detect_module = false;
+  bool print_pending_tla = false;
   std::string dns_result_order;
   bool enable_source_maps = false;
   bool experimental_fetch = true;
