@@ -1538,8 +1538,6 @@ static void CompileFunctionForCJSLoader(
 #endif
   ScriptCompiler::Source source(code, origin, cached_data);
 
-  TryCatchScope try_catch(env);
-
   // TODO(joyeecheung): make it a per-realm persistent.
   std::vector<Local<String>> params = {
       FIXED_ONE_BYTE_STRING(isolate, "exports"),
@@ -1548,48 +1546,57 @@ static void CompileFunctionForCJSLoader(
       FIXED_ONE_BYTE_STRING(isolate, "__filename"),
       FIXED_ONE_BYTE_STRING(isolate, "__dirname"),
   };
-  MaybeLocal<Function> maybe_fn = ScriptCompiler::CompileFunction(
-      context,
-      &source,
-      params.size(),
-      params.data(),
-      0,       /* context extensions size */
-      nullptr, /* context extensions data */
-      // TODO(joyeecheung): allow optional eager compilation.
-      cached_data == nullptr ? ScriptCompiler::kNoCompileOptions
-                             : ScriptCompiler::kConsumeCodeCache,
-      v8::ScriptCompiler::NoCacheReason::kNoCacheNoReason);
 
-  Local<Function> fn;
   bool retry_as_esm = false;
-  if (!maybe_fn.ToLocal(&fn)) {
-    if (try_catch.HasTerminated()) {
-      return;
+  Local<Function> fn;
+
+  {
+    TryCatchScope try_catch(env);
+    MaybeLocal<Function> maybe_fn;
+    {
+      ShouldNotAbortOnUncaughtScope should_not_abort(env);
+      maybe_fn = ScriptCompiler::CompileFunction(
+          context,
+          &source,
+          params.size(),
+          params.data(),
+          0,       /* context extensions size */
+          nullptr, /* context extensions data */
+          // TODO(joyeecheung): allow optional eager compilation.
+          cached_data == nullptr ? ScriptCompiler::kNoCompileOptions
+                                 : ScriptCompiler::kConsumeCodeCache,
+          v8::ScriptCompiler::NoCacheReason::kNoCacheNoReason);
     }
-    if (try_catch.HasCaught()) {
-      Local<Value> error = try_catch.Exception();
-      Local<Message> message = try_catch.Message();
-      if (!error->IsNativeError() || message.IsEmpty() ||
-          !IsESMSyntaxError(isolate, message)) {
-        errors::DecorateErrorStack(env, try_catch);
-        try_catch.ReThrow();
-        return;
-      }
+    if (!maybe_fn.ToLocal(&fn)) {
+      if (try_catch.HasCaught()) {
+        Local<Value> error = try_catch.Exception();
+        Local<Message> message = try_catch.Message();
+        if (!error->IsNativeError() || message.IsEmpty() ||
+            !IsESMSyntaxError(isolate, message)) {
+          errors::DecorateErrorStack(env, try_catch);
+          try_catch.ReThrow();
+          return;
+        }
 
-      if (!env->options()->require_module) {
-        // If emitting the warning somehow leads to another exception, ignore it.
-        USE(ProcessEmitWarningSync(
-            env,
-            "To load an ES module, use --experimental-require-module if you want to"
-            "require() it and it contains no top-level await. If it's import'ed, "
-            "set \"type\": \"module\" in the package.json, or use the .mjs extension."));
-        errors::DecorateErrorStack(env, try_catch);
-        try_catch.ReThrow();
-        return;
-      }
+        if (!env->options()->require_module) {
+          // If emitting the warning somehow leads to another exception, ignore
+          // it.
+          USE(ProcessEmitWarningSync(
+              env,
+              "To load an ES module, use --experimental-require-module if you "
+              "want to"
+              "require() it and it contains no top-level await. If it's "
+              "import'ed, "
+              "set \"type\": \"module\" in the package.json, or use the .mjs "
+              "extension."));
+          errors::DecorateErrorStack(env, try_catch);
+          try_catch.ReThrow();
+          return;
+        }
 
-      // The file being compiled is likely ESM.
-      retry_as_esm = true;
+        // The file being compiled is likely ESM.
+        retry_as_esm = true;
+      }
     }
   }
 
