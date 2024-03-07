@@ -24,14 +24,38 @@ const { isModuleNamespaceObject } = require('util/types');
   assert.deepStrictEqual({ ...mod }, {});
   assert(isModuleNamespaceObject(mod));
 }
+
+{
+  const mod = require('../fixtures/es-modules/cjs-exports.mjs');
+  assert.deepStrictEqual({ ...mod }, {});
+  assert(isModuleNamespaceObject(mod));
+}
+
 {
   const mod = require('../fixtures/es-modules/loose.js');
   assert.deepStrictEqual({ ...mod }, { default: 'module' });
   assert(isModuleNamespaceObject(mod));
 }
 
+{
+  const mod = require('../fixtures/es-modules/package-without-type/noext-esm');
+  assert.deepStrictEqual({ ...mod }, { default: 'module' });
+  assert(isModuleNamespaceObject(mod));
+}
+
+assert.throws(() => {
+  require('../fixtures/es-modules/es-note-unexpected-export-1.cjs');
+}, {
+  message: /Unexpected token 'export'/
+});
+
 assert.throws(() => {
   require('../fixtures/es-modules/tla/a.mjs');
 }, {
   message: /require\(\) cannot be used on an ESM graph with top-level await\. Use import\(\) instead\./
 });
+
+// TODO(joyeecheung): test --require
+// TODO(joyeecheung): test import() and import return the same thing
+// TODO(joyeecheung): test "type" field
+// TODO(joyeecheung): test "exports" field

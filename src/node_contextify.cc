@@ -1417,6 +1417,12 @@ bool IsESMSyntaxError(Isolate* isolate, Local<Message> error_message) {
   return false;
 }
 
+const char* require_esm_warning =
+    "To load an ES module, use --experimental-require-module if you want to"
+    "require() it and it contains no top-level await.\n"
+    "If it's import'ed, set \"type\": \"module\" in the package.json, "
+    "or use the .mjs extension.";
+
 void ContextifyContext::ContainsModuleSyntax(
     const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
@@ -1569,6 +1575,16 @@ static void CompileFunctionForCJSLoader(
     }
     if (!maybe_fn.ToLocal(&fn)) {
       if (try_catch.HasCaught()) {
+        Utf8Value filename_utf8(isolate, filename);
+        size_t flen = filename_utf8.length();
+        if (flen < 4 ||
+            filename_utf8.ToString().substr(flen - 4, flen) == ".cjs") {
+          USE(ProcessEmitWarningSync(env, require_esm_warning));
+          errors::DecorateErrorStack(env, try_catch);
+          try_catch.ReThrow();
+          return;
+        }
+
         Local<Value> error = try_catch.Exception();
         Local<Message> message = try_catch.Message();
         if (!error->IsNativeError() || message.IsEmpty() ||
@@ -1579,16 +1595,7 @@ static void CompileFunctionForCJSLoader(
         }
 
         if (!env->options()->require_module) {
-          // If emitting the warning somehow leads to another exception, ignore
-          // it.
-          USE(ProcessEmitWarningSync(
-              env,
-              "To load an ES module, use --experimental-require-module if you "
-              "want to"
-              "require() it and it contains no top-level await. If it's "
-              "import'ed, "
-              "set \"type\": \"module\" in the package.json, or use the .mjs "
-              "extension."));
+          USE(ProcessEmitWarningSync(env, require_esm_warning));
           errors::DecorateErrorStack(env, try_catch);
           try_catch.ReThrow();
           return;

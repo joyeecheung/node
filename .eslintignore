@@ -14,3 +14,4 @@ doc/changelogs/CHANGELOG_v1*.md
 !doc/api_assets/*.js
 !.eslintrc.js
 test/es-module/test-require-module-entry-point.js
+test/es-module/test-require-module-entry-point-aou.js
