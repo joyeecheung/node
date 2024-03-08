@@ -871,6 +871,39 @@ added: v11.8.0
 
 Use the specified file as a security policy.
 
+### `--experimental-require-module`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+> Stability: 1.1 - Active Developement
+
+Supports loading a synchronous ES module graph in `require()`. If the module
+graph is not synchronous (contains top-level await), Node.js throws an error
+without executing the module. If `--print-pending-tla` is passed, Node.js
+will evaluate the module, try to locate the top-level awaits, and print
+their location to help users fix them.
+
+With this option alone, the module being `require()`'d should be explicitly
+marked as an ES module either using the `"type": "module"` field in
+`package.json` or the `.mjs` extension. To load implicit ES modules with
+automatic syntax-based module type detection, use
+`--experimental-require-module-with-detection`.
+
+### `--experimental-require-module-with-detection`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+> Stability: 1.1 - Active Developement
+
+In addition to what `--experimental-require-module` supports, when the module
+being `require()`'d is not explicitly marked as an ES Module using the
+`"type": "module"` field in `package.json` or the `.mjs` extension, it will
+try to detect module type based on the syntax of the module.
+
 ### `--experimental-sea-config`
 
 <!-- YAML
@@ -2523,6 +2556,8 @@ Node.js options that are allowed are:
 * `--experimental-network-imports`
 * `--experimental-permission`
 * `--experimental-policy`
+* `--experimental-require-module-with-detection`
+* `--experimental-require-module`
 * `--experimental-shadow-realm`
 * `--experimental-specifier-resolution`
 * `--experimental-top-level-await`
