@@ -1412,26 +1412,22 @@ constexpr std::array<std::string_view, 3> esm_syntax_error_messages = {
     "Cannot use 'import.meta' outside a module"};    // `import.meta` references
 
 // TODO(joyeecheung): see if we can upstream an API to V8 for this.
-bool IsESMSyntaxError(Isolate* isolate, Local<Message> error_message) {
+bool FindMessage(Isolate* isolate,
+                 Local<Message> error_message,
+                 const std::array<std::string_view, 3>& allow_list) {
   if (error_message.IsEmpty()) {
     return false;
   }
   Utf8Value message_utf8(isolate, error_message->Get());
   auto message = message_utf8.ToStringView();
 
-  for (const auto& error_message : esm_syntax_error_messages) {
+  for (const auto& error_message : allow_list) {
     if (message.find(error_message) != std::string_view::npos) {
       return true;
     }
   }
   return false;
 }
-
-const char* require_esm_warning =
-    "To load an ES module, use --experimental-require-module if you want to"
-    "require() it and it contains no top-level await.\n"
-    "If it's import'ed, set \"type\": \"module\" in the package.json, "
-    "or use the .mjs extension.";
 
 void ContextifyContext::ContainsModuleSyntax(
     const FunctionCallbackInfo<Value>& args) {
@@ -1502,18 +1498,34 @@ void ContextifyContext::ContainsModuleSyntax(
 
   bool found_error_message_caused_by_module_syntax = false;
   if (try_catch.HasCaught() && !try_catch.HasTerminated()) {
-    found_error_message_caused_by_module_syntax =
-        IsESMSyntaxError(env->isolate(), try_catch.Message());
+    found_error_message_caused_by_module_syntax = FindMessage(
+        env->isolate(), try_catch.Message(), esm_syntax_error_messages);
   }
   args.GetReturnValue().Set(found_error_message_caused_by_module_syntax);
 }
 
+const char* require_esm_warning =
+    "To load an ES module, use --experimental-require-module if you want to"
+    "require() it and it contains no top-level await.\n"
+    "If it's import'ed, set \"type\": \"module\" in the package.json, "
+    "or use the .mjs extension.";
+
+const char* require_esm_warning_without_detection =
+    "The module being require()d looks like an ES module, but it is not "
+    "explicitly marked with \"type\": \"module\" in the package.json or "
+    "with a .mjs extention. To enable automatic detection of module syntax "
+    "in require(), use --experimental-require-module-with-detection.";
+
+static bool warned_about_require_esm = false;
+static bool warned_about_require_esm_detection = false;
 static void CompileFunctionForCJSLoader(
     const FunctionCallbackInfo<Value>& args) {
   CHECK(args[0]->IsString());
   CHECK(args[1]->IsString());
+
   Local<String> code = args[0].As<String>();
   Local<String> filename = args[1].As<String>();
+
   Isolate* isolate = args.GetIsolate();
   Local<Context> context = isolate->GetCurrentContext();
   Environment* env = Environment::GetCurrent(context);
@@ -1572,6 +1584,7 @@ static void CompileFunctionForCJSLoader(
                                  : ScriptCompiler::kConsumeCodeCache,
           v8::ScriptCompiler::NoCacheReason::kNoCacheNoReason);
     }
+
     if (!maybe_fn.ToLocal(&fn)) {
       if (try_catch.HasCaught()) {
         Utf8Value filename_utf8(isolate, filename);
@@ -1587,14 +1600,28 @@ static void CompileFunctionForCJSLoader(
         Local<Value> error = try_catch.Exception();
         Local<Message> message = try_catch.Message();
         if (!error->IsNativeError() || message.IsEmpty() ||
-            !IsESMSyntaxError(isolate, message)) {
+            !FindMessage(isolate, message, esm_syntax_error_messages)) {
           errors::DecorateErrorStack(env, try_catch);
           try_catch.ReThrow();
           return;
         }
 
         if (!env->options()->require_module) {
-          USE(ProcessEmitWarningSync(env, require_esm_warning));
+          if (!warned_about_require_esm) {
+            USE(ProcessEmitWarningSync(env, require_esm_warning));
+            warned_about_require_esm = true;
+          }
+          errors::DecorateErrorStack(env, try_catch);
+          try_catch.ReThrow();
+          return;
+        }
+
+        if (!env->options()->require_module_with_detection) {
+          if (!warned_about_require_esm_detection) {
+            USE(ProcessEmitWarningSync(env,
+                                       require_esm_warning_without_detection));
+            warned_about_require_esm_detection = true;
+          }
           errors::DecorateErrorStack(env, try_catch);
           try_catch.ReThrow();
           return;
@@ -1605,6 +1632,10 @@ static void CompileFunctionForCJSLoader(
       }
     }
   }
+
+  // TODO(joyeecheung): refactor the ESM compilation so that we can reparse
+  // as ESM here to confirm it's ESM, and pass the compiled module into the
+  // ModuleWrap to save the subsequent compilation.
 
   bool cache_rejected = false;
 #ifndef DISABLE_SINGLE_EXECUTABLE_APPLICATION

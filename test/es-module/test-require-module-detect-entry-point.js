@@ -1,4 +1,4 @@
-// Flags: --experimental-require-module --abort-on-uncaught-exception
+// Flags: --experimental-require-module-with-detection
 'use strict';
 
 import { mustCall } from '../common/index.mjs';

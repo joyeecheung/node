@@ -11,11 +11,11 @@ import { describe, it } from 'node:test';
 const expectedNote = 'Warning: To load an ES module';
 
 const mustIncludeMessage = {
-  getMessage: () => (stderr) => `${expectedNote} not found in ${stderr}`,
+  getMessage: (stderr) => `${expectedNote} not found in ${stderr}`,
   includeNote: true,
 };
 const mustNotIncludeMessage = {
-  getMessage: () => (stderr) => `${expectedNote} must not be included in ${stderr}`,
+  getMessage: (stderr) => `${expectedNote} must not be included in ${stderr}`,
   includeNote: false,
 };
 
