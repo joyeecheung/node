@@ -45,7 +45,7 @@ assert.throws(() => {
 {
   spawnSyncAndExit(process.execPath, [
     '--experimental-require-module',
-    '--print-pending-tla',
+    '--experimental-print-required-tla',
     fixtures.path('es-modules/tla/require-execution.js'),
   ], {
     signal: null,

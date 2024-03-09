@@ -571,9 +571,10 @@ void ModuleWrap::InstantiateSync(const FunctionCallbackInfo<Value>& args) {
     }
   }
 
-  // If --print-pending-tla is true, proceeds to evaluation even if it's
-  // async because we want to search for the TLA and help users locate them.
-  if (module->IsGraphAsync() && !env->options()->print_pending_tla) {
+  // If --experimental-print-required-tla is true, proceeds to evaluation even
+  // if it's async because we want to search for the TLA and help users locate
+  // them.
+  if (module->IsGraphAsync() && !env->options()->print_required_tla) {
     THROW_ERR_REQUIRE_ASYNC_MODULE(env);
     return;
   }
@@ -607,7 +608,7 @@ void ModuleWrap::EvaluateSync(const FunctionCallbackInfo<Value>& args) {
   }
 
   if (module->IsGraphAsync()) {
-    CHECK(env->options()->print_pending_tla);
+    CHECK(env->options()->print_required_tla);
     auto stalled = module->GetStalledTopLevelAwaitMessage(isolate);
     if (stalled.size() != 0) {
       for (auto pair : stalled) {

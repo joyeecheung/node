@@ -879,17 +879,21 @@ added: REPLACEME
 
 > Stability: 1.1 - Active Developement
 
-Supports loading a synchronous ES module graph in `require()`. If the module
-graph is not synchronous (contains top-level await), Node.js throws an error
-without executing the module. If `--print-pending-tla` is passed, Node.js
-will evaluate the module, try to locate the top-level awaits, and print
-their location to help users fix them.
+Supports loading a synchronous ES module graph in `require()`.
 
-With this option alone, the module being `require()`'d should be explicitly
-marked as an ES module either using the `"type": "module"` field in
-`package.json` or the `.mjs` extension. To load implicit ES modules with
-automatic syntax-based module type detection, use
-`--experimental-require-module-with-detection`.
+When `--experimental-require-module` is enabled, and `require()`
+resolves to an ES module, if the module is fully synchronous
+(contains no top-level await), the `require()` call returns the
+module name space object. Otherwise, Node.js throws an error
+without executing the module. If `--experimental-print-required-tla`
+is passed, Node.js will evaluate the module, try to locate the
+top-level awaits, and print their location to help users fix them.
+
+With this option alone, the module being `require()`'d should be
+explicitly marked as an ES module either using the `"type": "module"`
+field in `package.json` or the `.mjs` extension. To load implicit ES
+modules ending with `.js` using automatic syntax-based module type
+detection, use `--experimental-require-module-with-detection`.
 
 ### `--experimental-require-module-with-detection`
 
@@ -1611,7 +1615,7 @@ changes:
 
 Identical to `-e` but prints the result.
 
-### `--print-pending-tla`
+### `--experimental-print-required-tla`
 
 <!-- YAML
 added: REPLACEME
@@ -2556,6 +2560,7 @@ Node.js options that are allowed are:
 * `--experimental-network-imports`
 * `--experimental-permission`
 * `--experimental-policy`
+* `--experimental-print-required-tla`
 * `--experimental-require-module-with-detection`
 * `--experimental-require-module`
 * `--experimental-shadow-realm`
@@ -2602,7 +2607,6 @@ Node.js options that are allowed are:
 * `--policy-integrity`
 * `--preserve-symlinks-main`
 * `--preserve-symlinks`
-* `--print-pending-tla`
 * `--prof-process`
 * `--redirect-warnings`
 * `--report-compact`

@@ -2496,8 +2496,8 @@ object.
 When trying to `require()` a [ES Module][] under `--experimental-require-module`,
 the module turns out to be asynchronous. That is, it contains top-level await.
 To see where the top-level await is, use
-`--print-pending-tla` (this would execute the modules before looking for
-the top-level awaits).
+`--experimental-print-required-tla` (this would execute the modules
+before looking for the top-level awaits).
 
 <a id="ERR_REQUIRE_ESM"></a>
 

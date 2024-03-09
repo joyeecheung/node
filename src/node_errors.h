@@ -192,7 +192,7 @@ ERRORS_WITH_CODE(V)
   V(ERR_REQUIRE_ASYNC_MODULE,                                                  \
     "require() cannot be used on an ESM graph with top-level await. Use "      \
     "import() instead. To see where the top-level await comes from, use "      \
-    "--print-pending-tla.")                                                    \
+    "--experimental-print-required-tla.")                                      \
   V(ERR_SCRIPT_EXECUTION_INTERRUPTED,                                          \
     "Script execution was interrupted by `SIGINT`")                            \
   V(ERR_TLS_PSK_SET_IDENTIY_HINT_FAILED, "Failed to set PSK identity hint")    \
