@@ -1411,7 +1411,6 @@ constexpr std::array<std::string_view, 3> esm_syntax_error_messages = {
     "Unexpected token 'export'",                     // `export` statements
     "Cannot use 'import.meta' outside a module"};    // `import.meta` references
 
-// TODO(joyeecheung): see if we can upstream an API to V8 for this.
 bool FindMessage(Isolate* isolate,
                  Local<Message> error_message,
                  const std::array<std::string_view, 3>& allow_list) {
@@ -1596,6 +1595,8 @@ static void CompileFunctionForCJSLoader(
           return;
         }
 
+        // TODO(joyeecheung): see if we can get V8 to provide better hints about unexpected
+        // ESM syntax or formal parameter conflicts from CompileFunction.
         Local<Value> error = try_catch.Exception();
         Local<Message> message = try_catch.Message();
         if (!error->IsNativeError() || message.IsEmpty() ||
