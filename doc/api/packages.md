@@ -126,21 +126,24 @@ There is the CommonJS module loader:
 * It is monkey patchable.
 * It supports [folders as modules][].
 * When resolving a specifier, if no exact match is found, it will try to add
-  extensions (`.js`, `.json`, and finally `.node`) and then attempt to resolve
+  extensions (`.js`, `.json`, `.node`, and if `--experimental-require-module`
+  is enabled, `.mjs`) and then attempt to resolve
   [folders as modules][].
 * It treats `.json` as JSON text files.
 * `.node` files are interpreted as compiled addon modules loaded with
   `process.dlopen()`.
 * It treats all files that lack `.json` or `.node` extensions as JavaScript
   text files.
-* It cannot be used to load ECMAScript modules (although it is possible to
-  [load ECMASCript modules from CommonJS modules][]). When used to load a
-  JavaScript text file that is not an ECMAScript module, it loads it as a
-  CommonJS module.
+* It can only be used to load synchronous ECMAScript modules (that contains
+  no top-level `await`) when `--experimental-require-module` is enabled. It
+  is also possible to [load ECMASCript modules from CommonJS modules][].
+  When used to load a JavaScript text file that is not an ECMAScript module,
+  the file will be loaded as a CommonJS module.
 
 There is the ECMAScript module loader:
 
-* It is asynchronous.
+* It is asynchronous, unless it's being used to load modules for `require()`
+  under `--experimental-require-module`.
 * It is responsible for handling `import` statements and `import()` expressions.
 * It is not monkey patchable, can be customized using [loader hooks][].
 * It does not support folders as modules, directory indexes (e.g.
@@ -623,9 +626,9 @@ specific to least specific as conditions should be defined:
 * `"require"` - matches when the package is loaded via `require()`. The
   referenced file should be loadable with `require()` although the condition
   matches regardless of the module format of the target file. Expected
-  formats include CommonJS, JSON, and native addons but not ES modules as
-  `require()` doesn't support them. _Always mutually exclusive with
-  `"import"`._
+  formats include CommonJS, JSON, native addons, and ES modules
+  if `--experimental-require-module` is enabled. _Always mutually
+  exclusive with `"import"`._
 * `"default"` - the generic fallback that always matches. Can be a CommonJS
   or ES module file. _This condition should always come last._
 
@@ -1371,7 +1374,7 @@ This field defines [subpath imports][] for the current package.
 [entry points]: #package-entry-points
 [folders as modules]: modules.md#folders-as-modules
 [import maps]: https://github.com/WICG/import-maps
-[load ECMASCript modules from CommonJS modules]: modules.md#the-mjs-extension
+[load ECMASCript modules from CommonJS modules]: modules.md#loading-ecmascript-modules-using-require
 [loader hooks]: esm.md#loaders
 [packages folder mapping]: https://github.com/WICG/import-maps#packages-via-trailing-slashes
 [self-reference]: #self-referencing-a-package-using-its-name
