@@ -594,7 +594,9 @@ void ModuleWrap::EvaluateSync(const FunctionCallbackInfo<Value>& args) {
     TryCatchScope try_catch(env);
     if (!module->Evaluate(context).ToLocal(&result)) {
       if (try_catch.HasCaught()) {
-        if (!try_catch.HasTerminated()) try_catch.ReThrow();
+        if (!try_catch.HasTerminated()) {
+          try_catch.ReThrow();
+        }
         return;
       }
     }
@@ -603,7 +605,12 @@ void ModuleWrap::EvaluateSync(const FunctionCallbackInfo<Value>& args) {
   CHECK(result->IsPromise());
   Local<Promise> promise = result.As<Promise>();
   if (promise->State() == Promise::PromiseState::kRejected) {
-    isolate->ThrowException(promise->Result());
+    Local<Value> exception = promise->Result();
+    Local<v8::Message> message =
+        v8::Exception::CreateMessage(isolate, exception);
+    AppendExceptionLine(
+        env, exception, message, ErrorHandlingMode::MODULE_ERROR);
+    isolate->ThrowException(exception);
     return;
   }
 
