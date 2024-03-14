@@ -26,3 +26,10 @@ assert.throws(() => {
   assert.deepStrictEqual({ ...mod }, { type: 'cjs' });
   assert(!isModuleNamespaceObject(mod));
 }
+
+// If "import" and "default" are defined, "default" is used.
+{
+  const mod = require('../fixtures/es-modules/exports-import-default/load.cjs');
+  assert.deepStrictEqual({ ...mod }, { type: 'cjs' });
+  assert(!isModuleNamespaceObject(mod));
+}

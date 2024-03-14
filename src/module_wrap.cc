@@ -650,8 +650,7 @@ void ModuleWrap::GetNamespaceSync(const FunctionCallbackInfo<Value>& args) {
       return realm->env()->ThrowError(
           "cannot get namespace, module has not been instantiated");
     case v8::Module::Status::kEvaluating:
-      return realm->env()->ThrowError(
-          "Asynchronous module is not allowed in require(esm)");
+      return THROW_ERR_REQUIRE_ASYNC_MODULE(realm->env());
     case v8::Module::Status::kInstantiated:
     case v8::Module::Status::kEvaluated:
     case v8::Module::Status::kErrored:
@@ -661,8 +660,7 @@ void ModuleWrap::GetNamespaceSync(const FunctionCallbackInfo<Value>& args) {
   }
 
   if (module->IsGraphAsync()) {
-    return realm->env()->ThrowError(
-        "Asynchronous module is not allowed in require(esm)");
+    return THROW_ERR_REQUIRE_ASYNC_MODULE(realm->env());
   }
   Local<Value> result = module->GetModuleNamespace();
   args.GetReturnValue().Set(result);

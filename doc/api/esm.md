@@ -466,8 +466,8 @@ compatibility.
 
 ### `require`
 
-The CommonJS module `require` currently only supports loading ES modules
-when `--experimental-require-module` is enabled.
+The CommonJS module `require` currently only supports loading synchronous ES
+modules when `--experimental-require-module` is enabled.
 
 See [Loading ECMAScript modules using `require()`][] for details.
 
