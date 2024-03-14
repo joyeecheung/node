@@ -7,5 +7,5 @@ const assert = require('assert');
 assert.throws(() => {
   require('../fixtures/es-modules/network-import.mjs');
 }, {
-  code: 'ERR_UNSUPPORTED_ESM_URL_SCHEME'
+  code: 'ERR_NETWORK_IMPORT_DISALLOWED'
 });

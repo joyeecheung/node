@@ -5,8 +5,8 @@
 // require()'d results.
 const common = require('../common');
 const assert = require('assert');
-const { pathToFileURL } = require('url');
 const path = require('path');
+const { pathToFileURL } = require('url');
 
 (async () => {
   const modules = [
@@ -24,4 +24,9 @@ const path = require('path');
     assert.strictEqual(imported, required,
                        `import()'ed and require()'ed result of ${id} was not reference equal`);
   }
+
+  const id = '../fixtures/es-modules/data-import.mjs';
+  const required = require(id);
+  const imported = await import(required.id);  // Load the data: module.
+  assert.strictEqual(imported.data, required.default);
 })().then(common.mustCall());

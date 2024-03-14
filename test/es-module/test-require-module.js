@@ -50,3 +50,13 @@ common.expectWarning(
   assert.deepStrictEqual({ ...mod }, { default: 'package-type-module' });
   assert(isModuleNamespaceObject(mod));
 }
+
+// Test data: import.
+{
+  const mod = require('../fixtures/es-modules/data-import.mjs');
+  assert.deepStrictEqual({ ...mod }, {
+    data: { hello: 'world' },
+    id: 'data:text/javascript,export default %7B%20hello%3A%20%22world%22%20%7D'
+  });
+  assert(isModuleNamespaceObject(mod));
+}

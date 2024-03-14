@@ -24,4 +24,9 @@ const path = require('path');
     assert.strictEqual(imported, required,
                        `import()'ed and require()'ed result of ${id} was not reference equal`);
   }
+
+  const id = '../fixtures/es-modules/data-import.mjs';
+  const required = require(id);
+  const imported = await import(id);
+  assert.strictEqual(imported.data, required.data);
 })().then(common.mustCall());
