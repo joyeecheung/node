@@ -1,7 +1,7 @@
 // Flags: --experimental-require-module
 'use strict';
 
-// Tests that dynamically import()'ed results are reference equal to
+// Tests that previously dynamically import()'ed results are reference equal to
 // require()'d results.
 const common = require('../common');
 const assert = require('assert');

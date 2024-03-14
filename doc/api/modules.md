@@ -183,7 +183,9 @@ loaded by `require()` meets the following requirements:
 * Fully synchronous (contains no top-level `await`).
 
 `require()` will load the requested module as an ES Module, and return
-the module name space object.
+the module name space object. In this case it is similar to dynamic
+`import()` but is run synchronously and returns the name space object
+directly.
 
 ```mjs
 // point.mjs
@@ -195,11 +197,17 @@ export default Point;
 ```
 
 ```cjs
+const required = require('./point.mjs');
 // [Module: null prototype] {
 //   default: [class Point],
 //   distance: [Function: distance]
 // }
-console.log(require('./point.mjs'));
+console.log(required);
+
+(async () => {
+  const imported = await import('./point.mjs');
+  console.log(imported === required);  // true
+})();
 ```
 
 If the module being `require()`'d contains top-level `await`, or the module
