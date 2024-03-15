@@ -169,6 +169,7 @@ relative, and based on the real path of the files making the calls to
 
 ## Loading ECMAScript modules using `require()`
 
+The `.mjs` extension is reserved for [ECMAScript Modules][].
 Currently, if the flag `--experimental-require-module` is not used, loading
 an ECMAScript module using `require()` will throw a [`ERR_REQUIRE_ESM`][]
 error, and users need to use [`import()`][] instead. See
