@@ -126,7 +126,7 @@ There is the CommonJS module loader:
 * It is monkey patchable.
 * It supports [folders as modules][].
 * When resolving a specifier, if no exact match is found, it will try to add
-  extensions (`.js`, `.json`, `.node`, , and finally `.node`) and then attempt to resolve
+  extensions (`.js`, `.json`, and finally `.node`) and then attempt to resolve
   [folders as modules][].
 * It treats `.json` as JSON text files.
 * `.node` files are interpreted as compiled addon modules loaded with

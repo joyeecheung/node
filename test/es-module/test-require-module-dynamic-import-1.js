@@ -26,7 +26,7 @@ const { pathToFileURL } = require('url');
   }
 
   const id = '../fixtures/es-modules/data-import.mjs';
+  const imported = await import(id);
   const required = require(id);
-  const imported = await import(required.id);  // Load the data: module.
-  assert.strictEqual(imported.data, required.default);
+  assert.strictEqual(imported.data, required.data);
 })().then(common.mustCall());
