@@ -1606,7 +1606,7 @@ This flag is only useful when `--experimental-require-module` is enabled.
 
 If the ES module being `require()`'d contains top-level await, this flag
 allows Node.js to evaluate the module, try to locate the
-top-level awaits, and print their location to help users fix them.
+top-level awaits, and print their location to help users find them.
 
 ### `--prof`
 

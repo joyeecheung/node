@@ -13,5 +13,5 @@ assert.throws(() => {
   const mod = require('../fixtures/es-modules/package-default-extension');
   console.log(mod);  // In case it succeeds, log the result for debugging.
 }, {
-  message: /Cannot find module.*package-default-extension/
+  code: 'MODULE_NOT_FOUND',
 });

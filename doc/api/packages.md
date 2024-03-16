@@ -133,16 +133,15 @@ There is the CommonJS module loader:
   `process.dlopen()`.
 * It treats all files that lack `.json` or `.node` extensions as JavaScript
   text files.
-* It can only be used to load synchronous ECMAScript modules (that contains
-  no top-level `await`) when `--experimental-require-module` is enabled. It
-  is also possible to [load ECMASCript modules from CommonJS modules][].
+* It can only be used to [load ECMASCript modules from CommonJS modules][] if
+  the module graph is synchronous (that contains no top-level `await`) when
+  `--experimental-require-module` is enabled.
   When used to load a JavaScript text file that is not an ECMAScript module,
   the file will be loaded as a CommonJS module.
 
 There is the ECMAScript module loader:
 
-* It is asynchronous, unless it's being used to load modules for `require()`
-  under `--experimental-require-module`.
+* It is asynchronous, unless it's being used to load modules for `require()`.
 * It is responsible for handling `import` statements and `import()` expressions.
 * It is not monkey patchable, can be customized using [loader hooks][].
 * It does not support folders as modules, directory indexes (e.g.
