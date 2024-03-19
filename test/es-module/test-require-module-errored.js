@@ -1,7 +1,7 @@
 // Flags: --experimental-require-module
 'use strict';
 
-require('../common');
+const common = require('../common');
 const assert = require('assert');
 
 const message = /require\(\) cannot be used on an ESM graph with top-level await/;
@@ -17,4 +17,4 @@ assert.throws(() => {
   assert.throws(() => {
     require('../fixtures/es-modules/tla/resolved.mjs');
   }, { message, code });
-})();
+})().then(common.mustCall())
