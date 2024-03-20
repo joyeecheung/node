@@ -27,6 +27,7 @@ const assert = require('assert');
 const { exec, execSync, spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const net = require('net');
+const { isModuleNamespaceObject } = require('util/types');
 // Do not require 'os' until needed so that test-os-checked-function can
 // monkey patch it. If 'os' is required here, that test will fail.
 const path = require('path');
@@ -938,6 +939,13 @@ function getPrintedStackTrace(stderr) {
   return result;
 }
 
+function expectNamespace(mod, expectation) {
+  const namespace = Object.getPrototypeOf(mod);
+  assert.deepStrictEqual({ ...namespace }, { ...expectation });
+  assert(isModuleNamespaceObject(namespace));
+  assert.strictEqual(mod.__esModule, true);
+}
+
 const common = {
   allowGlobals,
   buildType,
@@ -947,6 +955,7 @@ const common = {
   defaultAutoSelectFamilyAttemptTimeout,
   expectsError,
   expectWarning,
+  expectNamespace,
   gcUntil,
   getArrayBufferViews,
   getBufferSources,
