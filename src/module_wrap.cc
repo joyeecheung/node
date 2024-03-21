@@ -647,10 +647,10 @@ void ModuleWrap::GetNamespaceSync(const FunctionCallbackInfo<Value>& args) {
     case v8::Module::Status::kInstantiating:
       return realm->env()->ThrowError(
           "Cannot get namespace, module has not been instantiated");
+    case v8::Module::Status::kInstantiated:
     case v8::Module::Status::kEvaluating:
       return realm->env()->ThrowError(
-          "Cannot get namespace, module is being evaluated");
-    case v8::Module::Status::kInstantiated:
+          "Cannot get namespace, module is not yet evaluated");
     case v8::Module::Status::kEvaluated:
     case v8::Module::Status::kErrored:
       break;
