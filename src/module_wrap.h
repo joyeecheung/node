@@ -119,6 +119,7 @@ class ModuleWrap : public BaseObject {
   bool synthetic_ = false;
   bool linked_ = false;
   int module_hash_;
+  std::string url_;
 };
 
 }  // namespace loader

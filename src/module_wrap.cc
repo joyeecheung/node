@@ -71,6 +71,9 @@ ModuleWrap::ModuleWrap(Realm* realm,
   if (!synthetic_evaluation_step->IsUndefined()) {
     synthetic_ = true;
   }
+  Utf8Value url_utf8(realm->isolate(), url);
+  url_ = url_utf8.ToString();
+
   MakeWeak();
   module_.SetWeak();
 }
@@ -143,7 +146,7 @@ v8::Maybe<bool> ModuleWrap::CheckUnsettledTopLevelAwait() {
 }
 
 // new ModuleWrap(url, context, source, lineOffset, columnOffset)
-// new ModuleWrap(url, context, exportNames, syntheticExecutionFunction)
+// new ModuleWrap(url, context, exportNames, evaluationCallback[, cjsModule])
 void ModuleWrap::New(const FunctionCallbackInfo<Value>& args) {
   CHECK(args.IsConstructCall());
   CHECK_GE(args.Length(), 3);
@@ -173,7 +176,8 @@ void ModuleWrap::New(const FunctionCallbackInfo<Value>& args) {
 
   bool synthetic = args[2]->IsArray();
   if (synthetic) {
-    // new ModuleWrap(url, context, exportNames, syntheticExecutionFunction)
+    // new ModuleWrap(url, context, exportNames, evaluationCallback[,
+    // cjsModule])
     CHECK(args[3]->IsFunction());
   } else {
     // new ModuleWrap(url, context, source, lineOffset, columOffset, cachedData)
@@ -282,6 +286,12 @@ void ModuleWrap::New(const FunctionCallbackInfo<Value>& args) {
   if (that->SetPrivate(context,
                        realm->isolate_data()->host_defined_option_symbol(),
                        id_symbol)
+          .IsNothing()) {
+    return;
+  }
+
+  if (synthetic && args[4]->IsObject() &&
+      that->Set(context, realm->isolate_data()->imported_cjs_symbol(), args[4])
           .IsNothing()) {
     return;
   }
@@ -646,14 +656,12 @@ void ModuleWrap::GetNamespaceSync(const FunctionCallbackInfo<Value>& args) {
     case v8::Module::Status::kUninstantiated:
     case v8::Module::Status::kInstantiating:
       return realm->env()->ThrowError(
-          "cannot get namespace, module has not been instantiated");
-    case v8::Module::Status::kEvaluating:
-      return THROW_ERR_REQUIRE_ASYNC_MODULE(realm->env());
+          "Cannot get namespace, module has not been instantiated");
     case v8::Module::Status::kInstantiated:
     case v8::Module::Status::kEvaluated:
     case v8::Module::Status::kErrored:
       break;
-    default:
+    case v8::Module::Status::kEvaluating:
       UNREACHABLE();
   }
 
