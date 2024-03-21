@@ -4,8 +4,7 @@ require('../common');
 const { spawnSyncAndExit, spawnSyncAndAssert } = require('../common/child_process');
 const fixtures = require('../common/fixtures');
 
-// require-b.cjs -> a.mjs -> b.cjs is okay, because it's fully synchronous, and b.cjs
-// is loaded synchronously and gets cached by the CJS loader.
+// require-a.cjs -> a.mjs -> b.cjs -> a.mjs.
 {
   spawnSyncAndAssert(
     process.execPath,
@@ -14,14 +13,15 @@ const fixtures = require('../common/fixtures');
       fixtures.path('es-modules/esm-cjs-esm-cycle/require-a.cjs'),
     ],
     {
+      signal: null,
+      status: 1,
       trim: true,
-      stdout: 'require a.mjs in b.cjs undefined\nimport b.cjs from a.mjs {}'
+      stderr: /The required\(\)\-d ES module .*a\.mjs cannot be in a cycle \(from .*require-a\.cjs\)/,
     }
   );
 }
 
-// require-a.cjs -> b.cjs -> a.mjs -> b.cjs is okay, because the CJS loader can
-// cache b.cjs in the first edge, and a.mjs is only loading a facade of the cached b.cjs.
+// require-b.cjs -> b.cjs -> a.mjs -> b.cjs.
 {
   spawnSyncAndAssert(
     process.execPath,
