@@ -71,6 +71,9 @@ ModuleWrap::ModuleWrap(Realm* realm,
   if (!synthetic_evaluation_step->IsUndefined()) {
     synthetic_ = true;
   }
+  Utf8Value url_utf8(realm->isolate(), url);
+  url_ = url_utf8.ToString();
+
   MakeWeak();
   module_.SetWeak();
 }
@@ -647,10 +650,15 @@ void ModuleWrap::GetNamespaceSync(const FunctionCallbackInfo<Value>& args) {
     case v8::Module::Status::kInstantiating:
       return realm->env()->ThrowError(
           "Cannot get namespace, module has not been instantiated");
+    case v8::Module::Status::kEvaluating: {
+      std::string message = "Cannot require() ES Module " + obj->url_ + " in a cycle.";
+      if (args[0]->IsString()) {
+        Utf8Value parent_filename(isolate, args[0]);
+        message += " (from " + parent_filename.ToString() + ")";
+      }
+      return THROW_ERR_REQUIRE_CYCLE_MODULE(realm, "%s", message.c_str());
+    }
     case v8::Module::Status::kInstantiated:
-    case v8::Module::Status::kEvaluating:
-      return realm->env()->ThrowError(
-          "Cannot get namespace, module is not yet evaluated");
     case v8::Module::Status::kEvaluated:
     case v8::Module::Status::kErrored:
       break;
