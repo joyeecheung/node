@@ -603,7 +603,7 @@ std::vector<char> SnapshotData::ToBlob() const {
   written_total += w.WriteArithmetic<uint32_t>(kMagic);
   w.Debug("Write metadata\n");
   written_total += w.Write<SnapshotMetadata>(metadata);
-
+  w.Debug("Write snapshot blob\n");
   written_total += w.Write<v8::StartupData>(v8_snapshot_blob_data);
   w.Debug("Write isolate_data_indices\n");
   written_total += w.Write<IsolateDataSerializeInfo>(isolate_data_info);
