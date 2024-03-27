@@ -3620,6 +3620,11 @@ MaybeHandle<SharedFunctionInfo> GetSharedFunctionInfoForScriptImpl(
         is_compiled_scope = result->is_compiled_scope(isolate);
         if (is_compiled_scope.is_compiled()) {
           consuming_code_cache_succeeded = true;
+          {
+            DisallowGarbageCollection no_gc;
+            Handle<Script> script = handle(Script::cast(result->script()), isolate);
+            SetScriptFieldsFromDetails(isolate, *script, script_details, &no_gc);
+          }
           // Promote to per-isolate compilation cache.
           compilation_cache->PutScript(source, language_mode, result);
         }
@@ -3785,6 +3790,11 @@ MaybeHandle<JSFunction> Compiler::GetWrappedFunction(
       is_compiled_scope = result->is_compiled_scope(isolate);
       if (is_compiled_scope.is_compiled()) {
         consuming_code_cache_succeeded = true;
+        {
+          DisallowGarbageCollection no_gc;
+          Handle<Script> script = handle(Script::cast(result->script()), isolate);
+          SetScriptFieldsFromDetails(isolate, *script, script_details, &no_gc);
+        }
         // Promote to per-isolate compilation cache.
         compilation_cache->PutScript(source, language_mode, result);
       }
