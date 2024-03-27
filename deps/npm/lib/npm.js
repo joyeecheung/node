@@ -140,6 +140,7 @@ class Npm {
     if (!this.#loadPromise) {
       this.#loadPromise = this.time('npm:load', () => this.#load().catch((er) => {
         this.loadErr = er
+        console.log(er);
         throw er
       }))
     }
