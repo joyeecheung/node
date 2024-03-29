@@ -1,4 +1,6 @@
 #include "base_object-inl.h"
+#include "cppgc/allocation.h"
+#include "cppgc_helpers.h"
 #include "node_buffer.h"
 #include "node_errors.h"
 #include "node_external_reference.h"
@@ -29,13 +31,22 @@ using v8::ValueSerializer;
 
 namespace serdes {
 
-class SerializerContext : public BaseObject,
-                          public ValueSerializer::Delegate {
+#ifdef ASSIGN_OR_RETURN_UNWRAP
+#undef ASSIGN_OR_RETURN_UNWRAP
+#endif
+
+#define ASSIGN_OR_RETURN_UNWRAP ASSIGN_OR_RETURN_UNWRAP_CPPGC
+
+class SerializerContext final
+    : public cppgc::GarbageCollected<SerializerContext>,
+      public cppgc::NameProvider,
+      public CppgcMixin,
+      public ValueSerializer::Delegate {
  public:
   SerializerContext(Environment* env,
                     Local<Object> wrap);
-
-  ~SerializerContext() override = default;
+  DEFAULT_CPPGC_TRACE()
+  SET_CPPGC_NAME(SerializerContext)
 
   void ThrowDataCloneError(Local<String> message) override;
   Maybe<bool> WriteHostObject(Isolate* isolate, Local<Object> object) override;
@@ -55,22 +66,20 @@ class SerializerContext : public BaseObject,
   static void WriteDouble(const FunctionCallbackInfo<Value>& args);
   static void WriteRawBytes(const FunctionCallbackInfo<Value>& args);
 
-  SET_NO_MEMORY_INFO()
-  SET_MEMORY_INFO_NAME(SerializerContext)
-  SET_SELF_SIZE(SerializerContext)
-
  private:
   ValueSerializer serializer_;
 };
 
-class DeserializerContext : public BaseObject,
+class DeserializerContext : public cppgc::GarbageCollected<DeserializerContext>,
+                            public cppgc::NameProvider,
+                            public CppgcMixin,
                             public ValueDeserializer::Delegate {
  public:
   DeserializerContext(Environment* env,
                       Local<Object> wrap,
                       Local<Value> buffer);
-
-  ~DeserializerContext() override = default;
+  DEFAULT_CPPGC_TRACE()
+  SET_CPPGC_NAME(DeserializerContext)
 
   MaybeLocal<Object> ReadHostObject(Isolate* isolate) override;
 
@@ -84,11 +93,8 @@ class DeserializerContext : public BaseObject,
   static void ReadDouble(const FunctionCallbackInfo<Value>& args);
   static void ReadRawBytes(const FunctionCallbackInfo<Value>& args);
 
-  SET_NO_MEMORY_INFO()
-  SET_MEMORY_INFO_NAME(DeserializerContext)
-  SET_SELF_SIZE(DeserializerContext)
-
  private:
+  // These are shortcuts to an ArrayBufferView referenced by the wrap object.
   const uint8_t* data_;
   const size_t length_;
 
@@ -96,9 +102,8 @@ class DeserializerContext : public BaseObject,
 };
 
 SerializerContext::SerializerContext(Environment* env, Local<Object> wrap)
-  : BaseObject(env, wrap),
-    serializer_(env->isolate(), this) {
-  MakeWeak();
+    : serializer_(env->isolate(), this) {
+  InitializeCppgc(this, env, wrap);
 }
 
 void SerializerContext::ThrowDataCloneError(Local<String> message) {
@@ -175,7 +180,8 @@ void SerializerContext::New(const FunctionCallbackInfo<Value>& args) {
         env, "Class constructor Serializer cannot be invoked without 'new'");
   }
 
-  new SerializerContext(env, args.This());
+  cppgc::MakeGarbageCollected<SerializerContext>(
+      env->isolate()->GetCppHeap()->GetAllocationHandle(), env, args.Holder());
 }
 
 void SerializerContext::WriteHeader(const FunctionCallbackInfo<Value>& args) {
@@ -285,13 +291,11 @@ void SerializerContext::WriteRawBytes(const FunctionCallbackInfo<Value>& args) {
 DeserializerContext::DeserializerContext(Environment* env,
                                          Local<Object> wrap,
                                          Local<Value> buffer)
-  : BaseObject(env, wrap),
-    data_(reinterpret_cast<const uint8_t*>(Buffer::Data(buffer))),
-    length_(Buffer::Length(buffer)),
-    deserializer_(env->isolate(), data_, length_, this) {
-  object()->Set(env->context(), env->buffer_string(), buffer).Check();
-
-  MakeWeak();
+    : data_(reinterpret_cast<const uint8_t*>(Buffer::Data(buffer))),
+      length_(Buffer::Length(buffer)),
+      deserializer_(env->isolate(), data_, length_, this) {
+  InitializeCppgc(this, env, wrap);
+  wrap->Set(env->context(), env->buffer_string(), buffer).Check();
 }
 
 MaybeLocal<Object> DeserializerContext::ReadHostObject(Isolate* isolate) {
@@ -334,7 +338,11 @@ void DeserializerContext::New(const FunctionCallbackInfo<Value>& args) {
         env, "buffer must be a TypedArray or a DataView");
   }
 
-  new DeserializerContext(env, args.This(), args[0]);
+  cppgc::MakeGarbageCollected<DeserializerContext>(
+      env->isolate()->GetCppHeap()->GetAllocationHandle(),
+      env,
+      args.Holder(),
+      args[0]);
 }
 
 void DeserializerContext::ReadHeader(const FunctionCallbackInfo<Value>& args) {
