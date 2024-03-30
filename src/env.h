@@ -1013,6 +1013,7 @@ class Environment : public MemoryRetainer {
   // TODO(joyeecheung): move it into a CacheHandler class.
   enum class CachedCodeType : uint8_t {
     kCommonJS = 0,
+    kESM,
   };
   inline bool use_compiler_cache() const;
   void InitializeCompileCache();
@@ -1022,12 +1023,24 @@ class Environment : public MemoryRetainer {
     uint32_t cache_hash;
     std::string cache_filename;
     std::string source_filename;
+    CachedCodeType type;
+    bool refreshed = false;
+    // Copy the cache into a new store for V8 to consume. Caller takes
+    // ownership.
+    v8::ScriptCompiler::CachedData* CopyCache() const;
   };
-  std::unique_ptr<CompileCacheEntry> GetCompileCache(
-      v8::Local<v8::String> code,
-      v8::Local<v8::String> filename,
-      CachedCodeType type);
-  void SaveCompileCache(std::unique_ptr<CompileCacheEntry> entry);
+  CompileCacheEntry* GetCompileCache(v8::Local<v8::String> code,
+                                     v8::Local<v8::String> filename,
+                                     CachedCodeType type);
+  void MaybeSaveCompileCache(CompileCacheEntry* entry,
+                             v8::Local<v8::Function> func,
+                             bool rejected);
+  void MaybeSaveCompileCache(CompileCacheEntry* entry,
+                             v8::Local<v8::Module> mod,
+                             bool rejected);
+  void MaybeSaveCompileCache(CompileCacheEntry* entry,
+                             v8::ScriptCompiler::CachedData* data,
+                             bool rejected);
 
   void RunAndClearNativeImmediates(bool only_refed = false);
   void RunAndClearInterrupts();
@@ -1120,8 +1133,8 @@ class Environment : public MemoryRetainer {
 #endif  // HAVE_INSPECTOR
 
   uint32_t HashFileForCompileCache(std::string_view code,
-                                    std::string_view filename,
-                                    Environment::CachedCodeType type);
+                                   std::string_view filename,
+                                   Environment::CachedCodeType type);
   std::string compiler_cache_dir_;
   uint32_t compiler_cache_hash_ = 0;
   std::unordered_map<uint32_t, std::unique_ptr<CompileCacheEntry>>

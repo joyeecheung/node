@@ -1122,8 +1122,8 @@ uint32_t GetCacheVersionTag() {
 }
 
 uint32_t Environment::HashFileForCompileCache(std::string_view code,
-                                               std::string_view filename,
-                                               CachedCodeType type) {
+                                              std::string_view filename,
+                                              CachedCodeType type) {
   uLong crc = crc32(compiler_cache_hash_,
                     reinterpret_cast<const Bytef*>(&type),
                     sizeof(CachedCodeType));
@@ -1134,25 +1134,49 @@ uint32_t Environment::HashFileForCompileCache(std::string_view code,
   return crc;
 }
 
-std::unique_ptr<Environment::CompileCacheEntry> Environment::GetCompileCache(
+v8::ScriptCompiler::CachedData* Environment::CompileCacheEntry::CopyCache()
+    const {
+  CHECK_NOT_NULL(cache);
+  int cache_size = cache->length;
+  uint8_t* data = new uint8_t[cache_size];
+  memcpy(data, cache->data, cache_size);
+  return new v8::ScriptCompiler::CachedData(
+      data, cache_size, v8::ScriptCompiler::CachedData::BufferOwned);
+}
+
+Environment::CompileCacheEntry* Environment::GetCompileCache(
     v8::Local<v8::String> code,
     v8::Local<v8::String> filename,
     CachedCodeType type) {
-  CHECK(use_compiler_cache());
-  auto result = std::make_unique<Environment::CompileCacheEntry>();
+  if (!use_compiler_cache()) {
+    return nullptr;
+  }
 
   Utf8Value filename_utf8(isolate_, filename);
   Utf8Value code_utf8(isolate_, code);
-  result->cache_hash = HashFileForCompileCache(
+  uint32_t hash = HashFileForCompileCache(
       code_utf8.ToStringView(), filename_utf8.ToStringView(), type);
+
+  auto loaded = compiler_cache_store_.find(hash);
+  if (loaded != compiler_cache_store_.end()) {
+    return loaded->second.get();
+  }
+
+  auto emplaced = compiler_cache_store_.emplace(
+      hash, std::make_unique<Environment::CompileCacheEntry>());
+  auto* result = emplaced.first->second.get();
+  result->cache_hash = hash;
   result->cache_filename =
       compiler_cache_dir_ + kPathSeparator + Uint32ToHex(result->cache_hash);
   result->source_filename = filename_utf8.ToString();
+  result->cache = nullptr;
+  result->type = type;
 
   Debug(this,
         DebugCategory::COMPILE_CACHE,
-        "[compiler cache] Reading cache from %s for %s...",
+        "[compiler cache] Reading cache from %s for %s %s...",
         result->cache_filename,
+        type == CachedCodeType::kCommonJS ? "CommonJS" : "ESM",
         result->source_filename);
   // TODO(joyeecheung): if we fail enough times, stop trying for any future
   // files.
@@ -1162,6 +1186,7 @@ std::unique_ptr<Environment::CompileCacheEntry> Environment::GetCompileCache(
     Debug(this, DebugCategory::COMPILE_CACHE, " failed: %d\n", err);
     return result;
   }
+
   size_t cache_size = code_cache_store.size();
   // TODO(joyeecheung): add a helper that just read into new uint8_t[]
   // to avoid the copy.
@@ -1170,24 +1195,77 @@ std::unique_ptr<Environment::CompileCacheEntry> Environment::GetCompileCache(
   result->cache.reset(new v8::ScriptCompiler::CachedData(
       data, cache_size, v8::ScriptCompiler::CachedData::BufferOwned));
   Debug(this, DebugCategory::COMPILE_CACHE, " success, size=%d\n", cache_size);
+
   return result;
 }
 
-void Environment::SaveCompileCache(std::unique_ptr<CompileCacheEntry> entry) {
+void Environment::MaybeSaveCompileCache(CompileCacheEntry* entry,
+                                        v8::Local<v8::Function> func,
+                                        bool rejected) {
+  DCHECK_NOT_NULL(entry);
   Debug(this,
         DebugCategory::COMPILE_CACHE,
-        "[compiler cache] saving cache for %s\n",
-        entry->source_filename);
-  CHECK_EQ(entry->cache->buffer_policy,
+        "[compiler cache] checking for %s which was %s\n",
+        entry->source_filename,
+        rejected ? "rejected" : "not rejected");
+  if (entry->cache != nullptr && !rejected) {
+    return;
+  }
+  MaybeSaveCompileCache(
+      entry, v8::ScriptCompiler::CreateCodeCacheForFunction(func), rejected);
+}
+
+void Environment::MaybeSaveCompileCache(CompileCacheEntry* entry,
+                                        v8::Local<v8::Module> mod,
+                                        bool rejected) {
+  DCHECK_NOT_NULL(entry);
+  DCHECK(mod->IsSourceTextModule());
+  if (entry->cache != nullptr && !rejected) {
+    return;
+  }
+  Debug(this,
+        DebugCategory::COMPILE_CACHE,
+        "[compiler cache] checking for %s which was %s\n",
+        entry->source_filename,
+        rejected ? "rejected" : "not rejected");
+  MaybeSaveCompileCache(
+      entry,
+      v8::ScriptCompiler::CreateCodeCache(mod->GetUnboundModuleScript()),
+      rejected);
+}
+
+void Environment::MaybeSaveCompileCache(CompileCacheEntry* entry,
+                                        v8::ScriptCompiler::CachedData* data,
+                                        bool rejected) {
+  Debug(this,
+        DebugCategory::COMPILE_CACHE,
+        "[compiler cache] saving cache for %s because it's %s\n",
+        entry->source_filename,
+        rejected ? "rejected" : "not cached before");
+  CHECK_EQ(data->buffer_policy,
            v8::ScriptCompiler::CachedData::BufferOwned);
-  auto result = compiler_cache_store_.emplace(entry->cache_hash, std::move(entry));
-  CHECK(result.second);
+  entry->refreshed = true;
+  entry->cache.reset(data);
 }
 
 void Environment::PersistCompileCache() {
   CHECK(use_compiler_cache());
   for (auto& pair : compiler_cache_store_) {
     auto* entry = pair.second.get();
+    if (entry->cache == nullptr) {
+      Debug(this,
+            DebugCategory::COMPILE_CACHE,
+            "[compiler cache] skip %s because there was no cache\n",
+            entry->source_filename);
+      continue;
+    }
+    if (entry->refreshed == false) {
+      Debug(this,
+            DebugCategory::COMPILE_CACHE,
+            "[compiler cache] skip %s because cache was the same\n",
+            entry->source_filename);
+      continue;
+    }
     Debug(this,
           DebugCategory::COMPILE_CACHE,
           "[compiler cache] writing cache for %s in %s...",
@@ -1195,6 +1273,7 @@ void Environment::PersistCompileCache() {
           entry->cache_filename);
     CHECK_EQ(entry->cache->buffer_policy,
              v8::ScriptCompiler::CachedData::BufferOwned);
+    // TODO(joyeecheung): prepend checksum.
     uv_buf_t buf = uv_buf_init(
         reinterpret_cast<char*>(const_cast<uint8_t*>(entry->cache->data)),
         entry->cache->length);
@@ -1229,6 +1308,7 @@ void Environment::InitializeCompileCache() {
 
   uv_fs_t req;
   auto clean = OnScopeLeave([&req]() { uv_fs_req_cleanup(&req); });
+  // TODO(joyeecheung): use something cheaper.
   err = uv_fs_realpath(nullptr, &req, dir_from_env.data(), nullptr);
   if (err != 0 && err != UV_ENOENT) {
     return;

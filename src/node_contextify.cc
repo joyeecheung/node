@@ -1597,7 +1597,6 @@ static void CompileFunctionForCJSLoader(
                       hdo);
   ScriptCompiler::CachedData* cached_data = nullptr;
 
-  ScriptCompiler::CompileOptions options = ScriptCompiler::kNoCompileOptions;
   bool used_cache_from_sea = false;
 #ifndef DISABLE_SINGLE_EXECUTABLE_APPLICATION
   if (sea::IsSingleExecutable()) {
@@ -1608,28 +1607,30 @@ static void CompileFunctionForCJSLoader(
           reinterpret_cast<const uint8_t*>(data.data()),
           static_cast<int>(data.size()),
           v8::ScriptCompiler::CachedData::BufferNotOwned);
-      options = ScriptCompiler::kConsumeCodeCache;
       used_cache_from_sea = true;
     }
   }
 #endif
 
-  bool used_cache_from_env = false;
-  std::unique_ptr<Environment::CompileCacheEntry> cache_entry;
-  if (!used_cache_from_sea && env->use_compiler_cache()) {
+  // bool used_cache_from_env = false;
+  Environment::CompileCacheEntry* cache_entry = nullptr;
+  if (!used_cache_from_sea) {
     cache_entry = env->GetCompileCache(
         code, filename, Environment::CachedCodeType::kCommonJS);
-    if (cache_entry->cache != nullptr) {
-      // Source takes ownership.
-      cached_data = cache_entry->cache.release();
-      options = ScriptCompiler::kConsumeCodeCache;
-      used_cache_from_env = true;
-    } else {
-      // TODO(joyeecheung): allow optional eager compilation.
-    }
+  }
+  if (cache_entry != nullptr && cache_entry->cache != nullptr) {
+    // Source takes ownership.
+    cached_data = cache_entry->CopyCache();
+    // used_cache_from_env = true;
   }
 
   ScriptCompiler::Source source(code, origin, cached_data);
+  ScriptCompiler::CompileOptions options;
+  if (cached_data == nullptr) {
+    options = ScriptCompiler::kNoCompileOptions;
+  } else {
+    options = ScriptCompiler::kConsumeCodeCache;
+  }
 
   TryCatchScope try_catch(env);
 
@@ -1661,11 +1662,8 @@ static void CompileFunctionForCJSLoader(
   if (options == ScriptCompiler::kConsumeCodeCache) {
     cache_rejected = source.GetCachedData()->rejected;
   }
-  if (cache_entry != nullptr && cache_entry->cache == nullptr
-      && !used_cache_from_env) {
-    cache_entry->cache.reset(
-        v8::ScriptCompiler::CreateCodeCacheForFunction(fn));
-    env->SaveCompileCache(std::move(cache_entry));
+  if (cache_entry != nullptr) {
+    env->MaybeSaveCompileCache(cache_entry, fn, cache_rejected);
   }
 
   std::vector<Local<Name>> names = {
