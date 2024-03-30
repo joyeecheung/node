@@ -1120,8 +1120,8 @@ class Environment : public MemoryRetainer {
 #endif  // HAVE_INSPECTOR
 
   uint32_t HashFileForCompileCache(std::string_view code,
-                                    std::string_view filename,
-                                    Environment::CachedCodeType type);
+                                   std::string_view filename,
+                                   Environment::CachedCodeType type);
   std::string compiler_cache_dir_;
   uint32_t compiler_cache_hash_ = 0;
   std::unordered_map<uint32_t, std::unique_ptr<CompileCacheEntry>>

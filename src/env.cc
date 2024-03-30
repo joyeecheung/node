@@ -1122,8 +1122,8 @@ uint32_t GetCacheVersionTag() {
 }
 
 uint32_t Environment::HashFileForCompileCache(std::string_view code,
-                                               std::string_view filename,
-                                               CachedCodeType type) {
+                                              std::string_view filename,
+                                              CachedCodeType type) {
   uLong crc = crc32(compiler_cache_hash_,
                     reinterpret_cast<const Bytef*>(&type),
                     sizeof(CachedCodeType));
@@ -1180,7 +1180,8 @@ void Environment::SaveCompileCache(std::unique_ptr<CompileCacheEntry> entry) {
         entry->source_filename);
   CHECK_EQ(entry->cache->buffer_policy,
            v8::ScriptCompiler::CachedData::BufferOwned);
-  auto result = compiler_cache_store_.emplace(entry->cache_hash, std::move(entry));
+  auto result =
+      compiler_cache_store_.emplace(entry->cache_hash, std::move(entry));
   CHECK(result.second);
 }
 

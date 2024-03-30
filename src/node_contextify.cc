@@ -1661,8 +1661,8 @@ static void CompileFunctionForCJSLoader(
   if (options == ScriptCompiler::kConsumeCodeCache) {
     cache_rejected = source.GetCachedData()->rejected;
   }
-  if (cache_entry != nullptr && cache_entry->cache == nullptr
-      && !used_cache_from_env) {
+  if (cache_entry != nullptr && cache_entry->cache == nullptr &&
+      !used_cache_from_env) {
     cache_entry->cache.reset(
         v8::ScriptCompiler::CreateCodeCacheForFunction(fn));
     env->SaveCompileCache(std::move(cache_entry));
