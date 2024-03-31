@@ -507,10 +507,13 @@ MaybeLocal<Object> New(Environment* env,
   EscapableHandleScope handle_scope(env->isolate());
 
   auto free_callback = [](void* data, size_t length, void* deleter_data) {
+    Environment* env = static_cast<Environment*>(deleter_data);
     free(data);
+    env->isolate()->AdjustAmountOfExternalAllocatedMemory(-static_cast<int64_t>(length));
   };
   std::unique_ptr<BackingStore> bs =
-      v8::ArrayBuffer::NewBackingStore(data, length, free_callback, nullptr);
+      v8::ArrayBuffer::NewBackingStore(data, length, free_callback, env);
+  env->isolate()->AdjustAmountOfExternalAllocatedMemory(static_cast<int64_t>(length));
 
   Local<ArrayBuffer> ab = v8::ArrayBuffer::New(env->isolate(), std::move(bs));
 
