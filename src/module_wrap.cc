@@ -142,10 +142,18 @@ v8::Maybe<bool> ModuleWrap::CheckUnsettledTopLevelAwait() {
   return v8::Just(false);
 }
 
-// new ModuleWrap(url, context, source, lineOffset, columnOffset, cachedData)
+Local<PrimitiveArray> ModuleWrap::GetHostDefinedOptions(
+    Isolate* isolate, Local<Symbol> id_symbol) {
+  Local<PrimitiveArray> host_defined_options =
+      PrimitiveArray::New(isolate, HostDefinedOptions::kLength);
+  host_defined_options->Set(isolate, HostDefinedOptions::kID, id_symbol);
+  return host_defined_options;
+}
+
+// new ModuleWrap(url, context, source, lineOffset, columnOffset[, cachedData]);
 // new ModuleWrap(url, context, source, lineOffset, columOffset,
-// hostDefinedOption) new ModuleWrap(url, context, exportNames,
-// syntheticExecutionFunction)
+//                idSymbol);
+// new ModuleWrap(url, context, exportNames, syntheticExecutionFunction)
 void ModuleWrap::New(const FunctionCallbackInfo<Value>& args) {
   CHECK(args.IsConstructCall());
   CHECK_GE(args.Length(), 3);
@@ -174,17 +182,16 @@ void ModuleWrap::New(const FunctionCallbackInfo<Value>& args) {
   int column_offset = 0;
 
   bool synthetic = args[2]->IsArray();
-
-  Local<PrimitiveArray> host_defined_options =
-      PrimitiveArray::New(isolate, HostDefinedOptions::kLength);
+  Local<PrimitiveArray> host_defined_options;
   Local<Symbol> id_symbol;
   if (synthetic) {
     // new ModuleWrap(url, context, exportNames, syntheticExecutionFunction)
     CHECK(args[3]->IsFunction());
   } else {
-    // new ModuleWrap(url, context, source, lineOffset, columOffset, cachedData)
+    // new ModuleWrap(url, context, source, lineOffset, columOffset[,
+    //                cachedData]);
     // new ModuleWrap(url, context, source, lineOffset, columOffset,
-    // hostDefinedOption)
+    //                idSymbol);
     CHECK(args[2]->IsString());
     CHECK(args[3]->IsNumber());
     line_offset = args[3].As<Int32>()->Value();
@@ -195,7 +202,7 @@ void ModuleWrap::New(const FunctionCallbackInfo<Value>& args) {
     } else {
       id_symbol = Symbol::New(isolate, url);
     }
-    host_defined_options->Set(isolate, HostDefinedOptions::kID, id_symbol);
+    host_defined_options = GetHostDefinedOptions(isolate, id_symbol);
 
     if (that->SetPrivate(context,
                          realm->isolate_data()->host_defined_option_symbol(),
@@ -230,36 +237,32 @@ void ModuleWrap::New(const FunctionCallbackInfo<Value>& args) {
       module = Module::CreateSyntheticModule(
           isolate, url, span, SyntheticModuleEvaluationStepsCallback);
     } else {
-      ScriptCompiler::CachedData* cached_data = nullptr;
+      std::optional<v8::ScriptCompiler::CachedData*> user_cached_data;
+      if (id_symbol !=
+          realm->isolate_data()->source_text_module_default_hdo()) {
+        // TODO(joyeecheung): when we are compiling for the default loader, this
+        // will be std::nullopt, and CompileSourceTextModule() should use
+        // on-disk cache. See: https://github.com/nodejs/node/issues/47472
+        user_cached_data = nullptr;
+      }
       if (args[5]->IsArrayBufferView()) {
         Local<ArrayBufferView> cached_data_buf = args[5].As<ArrayBufferView>();
         uint8_t* data =
             static_cast<uint8_t*>(cached_data_buf->Buffer()->Data());
-        cached_data =
+        user_cached_data =
             new ScriptCompiler::CachedData(data + cached_data_buf->ByteOffset(),
                                            cached_data_buf->ByteLength());
       }
-
       Local<String> source_text = args[2].As<String>();
-      ScriptOrigin origin(isolate,
-                          url,
-                          line_offset,
-                          column_offset,
-                          true,                             // is cross origin
-                          -1,                               // script id
-                          Local<Value>(),                   // source map URL
-                          false,                            // is opaque (?)
-                          false,                            // is WASM
-                          true,                             // is ES Module
-                          host_defined_options);
-      ScriptCompiler::Source source(source_text, origin, cached_data);
-      ScriptCompiler::CompileOptions options;
-      if (source.GetCachedData() == nullptr) {
-        options = ScriptCompiler::kNoCompileOptions;
-      } else {
-        options = ScriptCompiler::kConsumeCodeCache;
-      }
-      if (!ScriptCompiler::CompileModule(isolate, &source, options)
+      bool cache_rejected = false;
+      if (!CompileSourceTextModule(realm,
+                                   source_text,
+                                   url,
+                                   line_offset,
+                                   column_offset,
+                                   host_defined_options,
+                                   user_cached_data,
+                                   &cache_rejected)
                .ToLocal(&module)) {
         if (try_catch.HasCaught() && !try_catch.HasTerminated()) {
           CHECK(!try_catch.Message().IsEmpty());
@@ -272,8 +275,9 @@ void ModuleWrap::New(const FunctionCallbackInfo<Value>& args) {
         }
         return;
       }
-      if (options == ScriptCompiler::kConsumeCodeCache &&
-          source.GetCachedData()->rejected) {
+
+      if (user_cached_data.has_value() && user_cached_data.value() != nullptr &&
+          cache_rejected) {
         THROW_ERR_VM_MODULE_CACHED_DATA_REJECTED(
             realm, "cachedData buffer was rejected");
         try_catch.ReThrow();
@@ -308,6 +312,51 @@ void ModuleWrap::New(const FunctionCallbackInfo<Value>& args) {
 
   that->SetIntegrityLevel(context, IntegrityLevel::kFrozen);
   args.GetReturnValue().Set(that);
+}
+
+MaybeLocal<Module> ModuleWrap::CompileSourceTextModule(
+    Realm* realm,
+    Local<String> source_text,
+    Local<String> url,
+    int line_offset,
+    int column_offset,
+    Local<PrimitiveArray> host_defined_options,
+    std::optional<ScriptCompiler::CachedData*> user_cached_data,
+    bool* cache_rejected) {
+  Isolate* isolate = realm->isolate();
+  EscapableHandleScope scope(isolate);
+  ScriptOrigin origin(isolate,
+                      url,
+                      line_offset,
+                      column_offset,
+                      true,            // is cross origin
+                      -1,              // script id
+                      Local<Value>(),  // source map URL
+                      false,           // is opaque (?)
+                      false,           // is WASM
+                      true,            // is ES Module
+                      host_defined_options);
+  ScriptCompiler::CachedData* cached_data = nullptr;
+  if (user_cached_data.has_value()) {
+    cached_data = user_cached_data.value();
+  }
+  ScriptCompiler::Source source(source_text, origin, cached_data);
+  ScriptCompiler::CompileOptions options;
+  if (cached_data == nullptr) {
+    options = ScriptCompiler::kNoCompileOptions;
+  } else {
+    options = ScriptCompiler::kConsumeCodeCache;
+  }
+  Local<Module> module;
+  if (!ScriptCompiler::CompileModule(isolate, &source, options)
+           .ToLocal(&module)) {
+    return scope.EscapeMaybe(MaybeLocal<Module>());
+  }
+  if (cached_data != nullptr) {
+    *cache_rejected = source.GetCachedData()->rejected;
+  }
+
+  return scope.Escape(module);
 }
 
 static Local<Object> createImportAttributesContainer(
