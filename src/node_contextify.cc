@@ -1475,13 +1475,6 @@ const char* require_esm_warning =
     "or the module should use the .mjs extension.\n"
     "- If it's loaded using require(), use --experimental-require-module";
 
-static bool warned_about_require_esm_detection = false;
-const char* require_esm_warning_without_detection =
-    "The module being require()d looks like an ES module, but it is not "
-    "explicitly marked with \"type\": \"module\" in the package.json or "
-    "with a .mjs extention. To enable automatic detection of module syntax "
-    "in require(), use --experimental-require-module-with-detection.";
-
 static bool ShouldRetryAsESM(Realm* realm,
                              Local<String> message,
                              Local<String> code,
@@ -1491,16 +1484,17 @@ static void CompileFunctionForCJSLoader(
   CHECK(args[0]->IsString());
   CHECK(args[1]->IsString());
   CHECK(args[2]->IsBoolean());
+  CHECK(args[3]->IsBoolean());
   Local<String> code = args[0].As<String>();
   Local<String> filename = args[1].As<String>();
   bool is_main = args[2].As<Boolean>()->Value();
+  bool should_detect_module = args[3].As<Boolean>()->Value();
+
   Isolate* isolate = args.GetIsolate();
   Local<Context> context = isolate->GetCurrentContext();
   Realm* realm = Realm::GetCurrent(context);
   Environment* env = realm->env();
 
-  bool should_detect_module = env->options()->detect_module;
-  bool should_require_module = env->options()->require_module;
   bool cache_rejected = false;
   Local<Function> fn;
   Local<Value> cjs_exception;
@@ -1520,26 +1514,24 @@ static void CompileFunctionForCJSLoader(
     }
   }
 
-  bool should_retry_as_esm = false;
+  bool can_parse_as_esm = false;
   if (!cjs_exception.IsEmpty()) {
     // TODO(joyeecheung): use URL.
-    should_retry_as_esm =
+    can_parse_as_esm =
         ShouldRetryAsESM(realm, cjs_message->Get(), code, filename);
-    if (!should_retry_as_esm) {
+    if (!can_parse_as_esm) {
+      // The syntax error is not related to ESM.
       isolate->ThrowException(cjs_exception);
       return;
     }
 
-    if (!is_main && !should_require_module) {
-      if (!warned_about_require_esm &&
-          ProcessEmitWarningSync(env, require_esm_warning).IsJust()) {
-        isolate->ThrowException(cjs_exception);
+    if (!should_detect_module) {
+      bool should_throw = true;
+      if (!warned_about_require_esm) {
+        should_throw =
+            ProcessEmitWarningSync(env, require_esm_warning).IsJust();
       }
-      return;
-    } else if (!should_detect_module) {
-      if (!warned_about_require_esm_detection &&
-          ProcessEmitWarningSync(env, require_esm_warning_without_detection)
-              .IsJust()) {
+      if (should_throw) {
         isolate->ThrowException(cjs_exception);
       }
       return;
@@ -1551,13 +1543,13 @@ static void CompileFunctionForCJSLoader(
       env->cached_data_rejected_string(),
       env->source_map_url_string(),
       env->function_string(),
-      FIXED_ONE_BYTE_STRING(isolate, "shouldRetryAsESM"),
+      FIXED_ONE_BYTE_STRING(isolate, "canParseAsESM"),
   };
   std::vector<Local<Value>> values = {
       Boolean::New(isolate, cache_rejected),
       fn.IsEmpty() ? undefined : fn->GetScriptOrigin().SourceMapUrl(),
       fn.IsEmpty() ? undefined : fn.As<Value>(),
-      Boolean::New(isolate, should_retry_as_esm),
+      Boolean::New(isolate, can_parse_as_esm),
   };
   Local<Object> result = Object::New(
       isolate, v8::Null(isolate), names.data(), values.data(), names.size());
