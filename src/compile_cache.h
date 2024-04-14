@@ -19,7 +19,7 @@ enum class CachedCodeType : uint8_t {
 };
 
 struct CompileCacheEntry {
-  std::unique_ptr<v8::ScriptCompiler::CachedData> cache;
+  std::unique_ptr<v8::ScriptCompiler::CachedData> cache{nullptr};
   uint32_t cache_hash;
   std::string cache_filename;
   std::string source_filename;
@@ -47,9 +47,10 @@ class CompileCacheHandler {
                  bool rejected);
 
  private:
-  void MaybeSave(CompileCacheEntry* entry,
-                 v8::ScriptCompiler::CachedData* data,
-                 bool rejected);
+  template <typename T>
+  void MaybeSaveImpl(CompileCacheEntry* entry,
+                     v8::Local<T> func_or_mod,
+                     bool rejected);
 
   uint32_t HashFileFor(std::string_view code,
                        std::string_view filename,

@@ -1,0 +1,54 @@
+'use strict';
+
+// This tests NODE_COMPILE_CACHE works.
+
+require('../common');
+const { spawnSyncAndAssert } = require('../common/child_process');
+const assert = require('assert');
+const fixtures = require('../common/fixtures');
+const tmpdir = require('../common/tmpdir');
+
+{
+  // Test that it works with non-existent directory.
+  tmpdir.refresh();
+  const dir = tmpdir.resolve('.compile_cache_dir');
+
+  spawnSyncAndAssert(
+    process.execPath,
+    [fixtures.path('snapshot', 'typescript.js')],
+    {
+      env: {
+        ...process.env,
+        NODE_DEBUG_NATIVE: 'COMPILE_CACHE',
+        NODE_COMPILE_CACHE: dir
+      },
+      cwd: tmpdir.path
+    },
+    {
+      stderr(output) {
+        assert.match(output, /typescript\.js was not initialized, initializing the in-memory entry/);
+        assert.match(output, /writing cache for .*typescript\.js.*success/);
+        return true;
+      }
+    });
+
+  // Second run reads the cache, but no need to re-write because it didn't change.
+  spawnSyncAndAssert(
+    process.execPath,
+    [fixtures.path('snapshot', 'typescript.js')],
+    {
+      env: {
+        ...process.env,
+        NODE_DEBUG_NATIVE: 'COMPILE_CACHE',
+        NODE_COMPILE_CACHE: dir
+      },
+      cwd: tmpdir.path
+    },
+    {
+      stderr(output) {
+        assert.match(output, /cache for .*typescript\.js was accepted, keeping the in-memory entry/);
+        assert.match(output, /.*skip .*typescript\.js because cache was the same/);
+        return true;
+      }
+    });
+}

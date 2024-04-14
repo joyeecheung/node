@@ -90,7 +90,7 @@ CompileCacheEntry* CompileCacheHandler::Get(v8::Local<v8::String> code,
   result->cache = nullptr;
   result->type = type;
 
-  Debug("[compile cache] Reading cache from %s for %s %s...",
+  Debug("[compile cache] reading cache from %s for %s %s...",
         result->cache_filename,
         type == CachedCodeType::kCommonJS ? "CommonJS" : "ESM",
         result->source_filename);
@@ -99,7 +99,9 @@ CompileCacheEntry* CompileCacheHandler::Get(v8::Local<v8::String> code,
   std::string code_cache_store;
   int err = ReadFileSync(&code_cache_store, result->cache_filename.c_str());
   if (err < 0) {
-    Debug(" failed: %d\n", err);
+    if (is_debug_) {
+      Debug(" %s\n", uv_strerror(err));
+    }
     return result;
   }
 
@@ -115,45 +117,49 @@ CompileCacheEntry* CompileCacheHandler::Get(v8::Local<v8::String> code,
   return result;
 }
 
-void CompileCacheHandler::MaybeSave(CompileCacheEntry* entry,
-                                    v8::Local<v8::Function> func,
-                                    bool rejected) {
+v8::ScriptCompiler::CachedData* SerializeCodeCache(
+    v8::Local<v8::Function> func) {
+  return v8::ScriptCompiler::CreateCodeCacheForFunction(func);
+}
+
+v8::ScriptCompiler::CachedData* SerializeCodeCache(v8::Local<v8::Module> mod) {
+  return v8::ScriptCompiler::CreateCodeCache(mod->GetUnboundModuleScript());
+}
+
+template <typename T>
+void CompileCacheHandler::MaybeSaveImpl(CompileCacheEntry* entry,
+                                        v8::Local<T> func_or_mod,
+                                        bool rejected) {
   DCHECK_NOT_NULL(entry);
-  Debug("[compile cache] checking for %s which was %s\n",
+  Debug("[compile cache] cache for %s was %s, ",
         entry->source_filename,
-        rejected ? "rejected" : "not rejected");
-  if (entry->cache != nullptr && !rejected) {
+        rejected                    ? "rejected"
+        : (entry->cache == nullptr) ? "not initialized"
+                                    : "accepted");
+  if (entry->cache != nullptr && !rejected) {  // accepted
+    Debug("keeping the in-memory entry\n");
     return;
   }
-  MaybeSave(
-      entry, v8::ScriptCompiler::CreateCodeCacheForFunction(func), rejected);
+  Debug("%s the in-memory entry\n",
+        entry->cache == nullptr ? "initializing" : "refreshing");
+
+  v8::ScriptCompiler::CachedData* data = SerializeCodeCache(func_or_mod);
+  DCHECK_EQ(data->buffer_policy, v8::ScriptCompiler::CachedData::BufferOwned);
+  entry->refreshed = true;
+  entry->cache.reset(data);
 }
 
 void CompileCacheHandler::MaybeSave(CompileCacheEntry* entry,
                                     v8::Local<v8::Module> mod,
                                     bool rejected) {
-  DCHECK_NOT_NULL(entry);
   DCHECK(mod->IsSourceTextModule());
-  if (entry->cache != nullptr && !rejected) {
-    return;
-  }
-  Debug("[compile cache] checking for %s which was %s\n",
-        entry->source_filename,
-        rejected ? "rejected" : "not rejected");
-  MaybeSave(entry,
-            v8::ScriptCompiler::CreateCodeCache(mod->GetUnboundModuleScript()),
-            rejected);
+  MaybeSaveImpl(entry, mod, rejected);
 }
 
 void CompileCacheHandler::MaybeSave(CompileCacheEntry* entry,
-                                    v8::ScriptCompiler::CachedData* data,
+                                    v8::Local<v8::Function> func,
                                     bool rejected) {
-  Debug("[compile cache] saving cache for %s because it's %s\n",
-        entry->source_filename,
-        rejected ? "rejected" : "not cached before");
-  CHECK_EQ(data->buffer_policy, v8::ScriptCompiler::CachedData::BufferOwned);
-  entry->refreshed = true;
-  entry->cache.reset(data);
+  MaybeSaveImpl(entry, func, rejected);
 }
 
 void CompileCacheHandler::Persist() {
@@ -161,7 +167,7 @@ void CompileCacheHandler::Persist() {
   for (auto& pair : compiler_cache_store_) {
     auto* entry = pair.second.get();
     if (entry->cache == nullptr) {
-      Debug("[compile cache] skip %s because there was no cache\n",
+      Debug("[compile cache] skip %s because the cache was not initialized\n",
             entry->source_filename);
       continue;
     }
@@ -180,7 +186,9 @@ void CompileCacheHandler::Persist() {
         reinterpret_cast<char*>(const_cast<uint8_t*>(entry->cache->data)),
         entry->cache->length);
     int err = WriteFileSync(entry->cache_filename.c_str(), buf);
-    Debug("%d\n", err);
+    if (is_debug_) {
+      Debug("%s\n", err < 0 ? uv_strerror(err) : "success");
+    }
   }
 }
 
@@ -205,7 +213,11 @@ bool CompileCacheHandler::InitializeDirectory(const std::string& dir) {
 
   fs::FSReqWrapSync req_wrap;
   int err = fs::MKDirpSync(nullptr, &(req_wrap.req), cache_dir, 0777, nullptr);
-  Debug("[compile cache] creating cache directory %s...%d\n", cache_dir, err);
+  if (is_debug_) {
+    Debug("[compile cache] creating cache directory %s...%s\n",
+          cache_dir,
+          err < 0 ? uv_strerror(err) : "success");
+  }
   if (err != 0 && err != UV_EEXIST) {
     return false;
   }
@@ -214,6 +226,11 @@ bool CompileCacheHandler::InitializeDirectory(const std::string& dir) {
   auto clean = OnScopeLeave([&req]() { uv_fs_req_cleanup(&req); });
   // TODO(joyeecheung): use something cheaper.
   err = uv_fs_realpath(nullptr, &req, cache_dir.data(), nullptr);
+  if (is_debug_) {
+    Debug("[compile cache] resolving real path %s...%s\n",
+          cache_dir,
+          err < 0 ? uv_strerror(err) : "success");
+  }
   if (err != 0 && err != UV_ENOENT) {
     return false;
   }
