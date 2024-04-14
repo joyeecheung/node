@@ -27,8 +27,6 @@ if (!common.isLinux)
 
 const frequency = 99;
 
-const repeat = 5;
-
 // Expected number of samples we'll capture per repeat
 const sampleCount = 10;
 const sleepTime = sampleCount * (1.0 / frequency);
@@ -40,6 +38,7 @@ const perfFlags = [
 ];
 
 const nodeCommonFlags = [
+  '--allow-natives-syntax',
   '--perf-basic-prof',
   '--interpreted-frames-native-stack',
   '--no-turbo-inlining',  // Otherwise simple functions might get inlined.
@@ -50,10 +49,9 @@ const perfInterpretedFramesArgs = [
   '--',
   process.execPath,
   ...nodeCommonFlags,
-  '--no-opt',
   fixtures.path('linux-perf.js'),
   `${sleepTime}`,
-  `${repeat}`,
+  'dont-optimize',
 ];
 
 const perfCompiledFramesArgs = [
@@ -61,10 +59,9 @@ const perfCompiledFramesArgs = [
   '--',
   process.execPath,
   ...nodeCommonFlags,
-  '--always-turbofan',
   fixtures.path('linux-perf.js'),
   `${sleepTime}`,
-  `${repeat}`,
+  'optimize',
 ];
 
 const perfArgsList = [
