@@ -480,8 +480,14 @@ inline const std::string& Environment::exec_path() const {
   return exec_path_;
 }
 
-inline bool Environment::use_compiler_cache() const {
-  return !compiler_cache_dir_.empty();
+inline CompileCacheHandler* Environment::compile_cache_handler() {
+  auto* result = compile_cache_handler_.get();
+  DCHECK_NOT_NULL(result);
+  return result;
+}
+
+inline bool Environment::use_compile_cache() const {
+  return compile_cache_handler_.get() != nullptr;
 }
 
 #if HAVE_INSPECTOR

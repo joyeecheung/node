@@ -1619,10 +1619,10 @@ static void CompileFunctionForCJSLoader(
 #endif
 
   // bool used_cache_from_env = false;
-  Environment::CompileCacheEntry* cache_entry = nullptr;
-  if (!used_cache_from_sea) {
-    cache_entry = env->GetCompileCache(
-        code, filename, Environment::CachedCodeType::kCommonJS);
+  CompileCacheEntry* cache_entry = nullptr;
+  if (!used_cache_from_sea && env->use_compile_cache()) {
+    cache_entry = env->compile_cache_handler()->Get(
+        code, filename, CachedCodeType::kCommonJS);
   }
   if (cache_entry != nullptr && cache_entry->cache != nullptr) {
     // Source takes ownership.
@@ -1669,7 +1669,7 @@ static void CompileFunctionForCJSLoader(
     cache_rejected = source.GetCachedData()->rejected;
   }
   if (cache_entry != nullptr) {
-    env->MaybeSaveCompileCache(cache_entry, fn, cache_rejected);
+    env->compile_cache_handler()->MaybeSave(cache_entry, fn, cache_rejected);
   }
 
   std::vector<Local<Name>> names = {

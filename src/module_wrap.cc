@@ -261,10 +261,10 @@ void ModuleWrap::New(const FunctionCallbackInfo<Value>& args) {
                           host_defined_options);
 
       // bool used_cache_from_env = false;
-      Environment::CompileCacheEntry* cache_entry = nullptr;
-      if (can_use_builtin_cache) {
-        cache_entry = realm->env()->GetCompileCache(
-            source_text, url, Environment::CachedCodeType::kESM);
+      CompileCacheEntry* cache_entry = nullptr;
+      if (can_use_builtin_cache && realm->env()->use_compile_cache()) {
+        cache_entry = realm->env()->compile_cache_handler()->Get(
+            source_text, url, CachedCodeType::kESM);
       }
       if (cache_entry != nullptr && cache_entry->cache != nullptr) {
         // Source takes ownership.
@@ -299,7 +299,7 @@ void ModuleWrap::New(const FunctionCallbackInfo<Value>& args) {
       }
 
       if (cache_entry != nullptr) {
-        realm->env()->MaybeSaveCompileCache(
+        realm->env()->compile_cache_handler()->MaybeSave(
             cache_entry, module, cache_rejected);
       }
 
