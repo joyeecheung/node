@@ -98,6 +98,12 @@ void CompileCacheHandler::ReadCacheFile(CompileCacheEntry* entry) {
     return;
   }
 
+  Debug("[%d %d %d %d]...",
+        headers[kCodeSizeOffset],
+        headers[kCacheSizeOffset],
+        headers[kCodeHashOffset],
+        headers[kCacheHashOffset]);
+
   if (headers[kCodeSizeOffset] != entry->code_size) {
     Debug("code size mismatch: expected %d, actual %d\n",
           entry->code_size,
@@ -268,40 +274,34 @@ void CompileCacheHandler::Persist() {
               v8::ScriptCompiler::CachedData::BufferOwned);
     char* cache_ptr =
         reinterpret_cast<char*>(const_cast<uint8_t*>(entry->cache->data));
-    size_t cache_size = entry->cache->length;
+    uint32_t cache_size = static_cast<uint32_t>(entry->cache->length);
     uint32_t cache_hash = GetHash(cache_ptr, cache_size);
 
-    Debug("[compile cache] writing cache for %s in %s, code hash = %d, cache "
-          "hash = %d, code size %d, cache size %d...",
+    // Generating headers.
+    std::vector<uint32_t> headers(kHeaderCount);
+    headers[kCodeSizeOffset] = entry->code_size;
+    headers[kCacheSizeOffset] = cache_size;
+    headers[kCodeHashOffset] = entry->code_hash;
+    headers[kCacheHashOffset] = cache_hash;
+
+    Debug("[compile cache] writing cache for %s in %s [%d %d %d %d]...",
           entry->source_filename,
           entry->cache_filename,
-          entry->code_hash,
-          cache_hash,
-          entry->code_size,
-          cache_size);
+          headers[kCodeSizeOffset],
+          headers[kCacheSizeOffset],
+          headers[kCodeHashOffset],
+          headers[kCacheHashOffset]);
 
-    // Generating headers.
-    std::vector<char> headers(kHeaderCount * sizeof(uint32_t));
-    memcpy(headers.data() + kCodeSizeOffset * sizeof(uint32_t),
-           &(entry->code_size),
-           sizeof(entry->code_size));
-    memcpy(headers.data() + kCacheSizeOffset * sizeof(uint32_t),
-           &(cache_size),
-           sizeof(cache_size));
-    memcpy(headers.data() + kCodeHashOffset * sizeof(uint32_t),
-           &(entry->code_hash),
-           sizeof(entry->code_hash));
-    memcpy(headers.data() + kCacheHashOffset * sizeof(uint32_t),
-           &(cache_hash),
-           sizeof(cache_hash));
-
-    uv_buf_t headers_buf = uv_buf_init(headers.data(), headers.size());
+    uv_buf_t headers_buf = uv_buf_init(reinterpret_cast<char*>(headers.data()),
+                                       headers.size() * sizeof(uint32_t));
     uv_buf_t data_buf = uv_buf_init(cache_ptr, entry->cache->length);
     uv_buf_t bufs[] = {headers_buf, data_buf};
 
     int err = WriteFileSync(entry->cache_filename.c_str(), bufs, 2);
-    if (is_debug_) {
-      Debug("%s\n", err < 0 ? uv_strerror(err) : "success");
+    if (err < 0) {
+      Debug("failed: %s\n", uv_strerror(err));
+    } else {
+      Debug("success\n");
     }
   }
 }

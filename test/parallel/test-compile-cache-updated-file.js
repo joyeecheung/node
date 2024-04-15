@@ -50,7 +50,7 @@ const tmpdir = require('../common/tmpdir');
     },
     {
       stderr(output) {
-        assert.match(output, /reading cache from .* for .*script.js.*code hash mismatch:/);
+        assert.match(output, /reading cache from .* for .*script\.js.*code hash mismatch:/);
         assert.match(output, /writing cache for .*script\.js.*success/);
         return true;
       }
