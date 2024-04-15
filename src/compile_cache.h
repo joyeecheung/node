@@ -20,7 +20,10 @@ enum class CachedCodeType : uint8_t {
 
 struct CompileCacheEntry {
   std::unique_ptr<v8::ScriptCompiler::CachedData> cache{nullptr};
-  uint32_t cache_hash;
+  uint32_t cache_key;
+  uint32_t code_hash;
+  uint32_t code_size;
+
   std::string cache_filename;
   std::string source_filename;
   CachedCodeType type;
@@ -47,23 +50,35 @@ class CompileCacheHandler {
                  bool rejected);
 
  private:
+  int ReadCacheFile(const char* path,
+                    uint32_t expected_code_size,
+                    uint32_t expected_code_hash,
+                    uint32_t* headers,
+                    uint8_t** cache_data,
+                    size_t* cache_size,
+                    bool* is_header_mismatch);
+
   template <typename T>
   void MaybeSaveImpl(CompileCacheEntry* entry,
                      v8::Local<T> func_or_mod,
                      bool rejected);
 
-  uint32_t HashFileFor(std::string_view code,
-                       std::string_view filename,
-                       CachedCodeType type);
-
   template <typename... Args>
   inline void Debug(const char* format, Args&&... args) const;
+
+  static constexpr size_t kCodeSizeOffset = 0;
+  static constexpr size_t kCacheSizeOffset = 1;
+  static constexpr size_t kCodeHashOffset = 2;
+  static constexpr size_t kCacheHashOffset = 3;
+  static constexpr size_t kHeaderCount = 4;
 
   v8::Isolate* isolate_ = nullptr;
   bool is_debug_ = false;
 
   std::string compile_cache_dir_;
-  uint32_t compiler_cache_hash_ = 0;
+  // The compile cache is stored in a directory whose name is the hex string of
+  // compiler_cache_key_.
+  uint32_t compiler_cache_key_ = 0;
   std::unordered_map<uint32_t, std::unique_ptr<CompileCacheEntry>>
       compiler_cache_store_;
 };
