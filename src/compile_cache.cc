@@ -54,7 +54,7 @@ inline void CompileCacheHandler::Debug(const char* format,
 }
 
 v8::ScriptCompiler::CachedData* CompileCacheEntry::CopyCache() const {
-  CHECK_NOT_NULL(cache);
+  DCHECK_NOT_NULL(cache);
   int cache_size = cache->length;
   uint8_t* data = new uint8_t[cache_size];
   memcpy(data, cache->data, cache_size);
@@ -62,20 +62,20 @@ v8::ScriptCompiler::CachedData* CompileCacheEntry::CopyCache() const {
       data, cache_size, v8::ScriptCompiler::CachedData::BufferOwned);
 }
 
-int CompileCacheHandler::ReadCacheFile(const char* path,
-                                       uint32_t expected_code_size,
-                                       uint32_t expected_code_hash,
-                                       uint32_t* headers,
-                                       uint8_t** cache_data,
-                                       size_t* cache_size,
-                                       bool* is_header_mismatch) {
+void CompileCacheHandler::ReadCacheFile(CompileCacheEntry* entry) {
+  Debug("[compile cache] reading cache from %s for %s %s...",
+        entry->cache_filename,
+        entry->type == CachedCodeType::kCommonJS ? "CommonJS" : "ESM",
+        entry->source_filename);
+
   uv_fs_t req;
   auto defer_req_cleanup = OnScopeLeave([&req]() { uv_fs_req_cleanup(&req); });
-
+  const char* path = entry->cache_filename.c_str();
   uv_file file = uv_fs_open(nullptr, &req, path, O_RDONLY, 0, nullptr);
   if (req.result < 0) {
     // req will be cleaned up by scope leave.
-    return req.result;
+    Debug(" %s\n", uv_strerror(req.result));
+    return;
   }
   uv_fs_req_cleanup(&req);
 
@@ -85,31 +85,30 @@ int CompileCacheHandler::ReadCacheFile(const char* path,
     uv_fs_req_cleanup(&close_req);
   });
 
-  uv_buf_t headers_buf = uv_buf_init(reinterpret_cast<char*>(headers),
+  std::vector<uint32_t> headers(kHeaderCount);
+  uv_buf_t headers_buf = uv_buf_init(reinterpret_cast<char*>(headers.data()),
                                      kHeaderCount * sizeof(uint32_t));
   const int r = uv_fs_read(nullptr, &req, file, &headers_buf, 1, 0, nullptr);
   if (r != static_cast<int>(headers_buf.len)) {
-    *is_header_mismatch = true;
     Debug("reading header failed, bytes read %d", r);
     if (req.result < 0 && is_debug_) {
       Debug(", %s", uv_strerror(req.result));
     }
     Debug("\n");
-    return req.result < 0 ? req.result : -1;
+    return;
   }
-  if (headers[kCodeSizeOffset] != expected_code_size) {
-    *is_header_mismatch = true;
+
+  if (headers[kCodeSizeOffset] != entry->code_size) {
     Debug("code size mismatch: expected %d, actual %d\n",
-          expected_code_size,
+          entry->code_size,
           headers[kCodeSizeOffset]);
-    return -1;
+    return;
   }
-  if (headers[kCodeHashOffset] != expected_code_hash) {
-    *is_header_mismatch = true;
+  if (headers[kCodeHashOffset] != entry->code_hash) {
     Debug("code hash mismatch: expected %d, actual %d\n",
-          expected_code_hash,
+          entry->code_hash,
           headers[kCodeHashOffset]);
-    return -1;
+    return;
   }
 
   size_t offset = headers_buf.len;
@@ -136,7 +135,8 @@ int CompileCacheHandler::ReadCacheFile(const char* path,
     if (req.result < 0) {  // Error.
       // req will be cleaned up by scope leave.
       delete[] buffer;
-      return req.result;
+      Debug(" %s\n", uv_strerror(req.result));
+      return;
     }
     uv_fs_req_cleanup(&req);
     if (bytes_read <= 0) {
@@ -145,9 +145,23 @@ int CompileCacheHandler::ReadCacheFile(const char* path,
     total_read += bytes_read;
   }
 
-  *cache_data = buffer;
-  *cache_size = total_read;
-  return 0;
+  if (headers[kCacheSizeOffset] != total_read) {
+    Debug("cache size mismatch: expected %d, actual %d\n",
+          headers[kCacheSizeOffset],
+          total_read);
+    return;
+  }
+  uint32_t cache_hash = GetHash(reinterpret_cast<char*>(buffer), total_read);
+  if (headers[kCacheHashOffset] != cache_hash) {
+    Debug("cache hash mismatch: expected %d, actual %d\n",
+          headers[kCacheHashOffset],
+          cache_hash);
+    return;
+  }
+
+  entry->cache.reset(new v8::ScriptCompiler::CachedData(
+      buffer, total_read, v8::ScriptCompiler::CachedData::BufferOwned));
+  Debug(" success, size=%d\n", total_read);
 }
 
 CompileCacheEntry* CompileCacheHandler::Get(v8::Local<v8::String> code,
@@ -178,55 +192,9 @@ CompileCacheEntry* CompileCacheHandler::Get(v8::Local<v8::String> code,
   result->cache = nullptr;
   result->type = type;
 
-  Debug("[compile cache] reading cache from %s for %s %s...",
-        result->cache_filename,
-        type == CachedCodeType::kCommonJS ? "CommonJS" : "ESM",
-        result->source_filename);
   // TODO(joyeecheung): if we fail enough times, stop trying for any future
   // files.
-  std::string code_cache_store;
-
-  std::vector<uint32_t> headers(kHeaderCount);
-  uint8_t* cache_data = nullptr;
-  size_t cache_size = 0;
-  bool is_header_mismatch = false;
-  int err = ReadCacheFile(result->cache_filename.c_str(),
-                          result->code_size,
-                          result->code_hash,
-                          headers.data(),
-                          &cache_data,
-                          &cache_size,
-                          &is_header_mismatch);
-  if (is_header_mismatch) {
-    return result;
-  }
-  if (err < 0) {
-    if (is_debug_) {
-      Debug(" %s\n", uv_strerror(err));
-    }
-    return result;
-  }
-
-  if (headers[kCacheSizeOffset] != cache_size) {
-    Debug("cache size mismatch: expected %d, actual %d\n",
-          headers[kCacheSizeOffset],
-          cache_size);
-    return result;
-  }
-  uint32_t cache_hash =
-      GetHash(reinterpret_cast<char*>(cache_data), cache_size);
-
-  if (headers[kCacheHashOffset] != cache_hash) {
-    Debug("cache hash mismatch: expected %d, actual %d\n",
-          headers[kCacheHashOffset],
-          cache_hash);
-    return result;
-  }
-
-  result->cache.reset(new v8::ScriptCompiler::CachedData(
-      cache_data, cache_size, v8::ScriptCompiler::CachedData::BufferOwned));
-  Debug(" success, size=%d\n", cache_size);
-
+  ReadCacheFile(result);
   return result;
 }
 
@@ -275,6 +243,12 @@ void CompileCacheHandler::MaybeSave(CompileCacheEntry* entry,
   MaybeSaveImpl(entry, func, rejected);
 }
 
+// Layout of a cache file:
+// uint32_t: code size
+// uint32_t: code hash
+// uint32_t: cache size
+// uint32_t: cache hash
+// .... compile cache content ....
 void CompileCacheHandler::Persist() {
   DCHECK(!compile_cache_dir_.empty());
   for (auto& pair : compiler_cache_store_) {
@@ -290,21 +264,30 @@ void CompileCacheHandler::Persist() {
       continue;
     }
 
-    CHECK_EQ(entry->cache->buffer_policy,
-             v8::ScriptCompiler::CachedData::BufferOwned);
+    DCHECK_EQ(entry->cache->buffer_policy,
+              v8::ScriptCompiler::CachedData::BufferOwned);
     char* cache_ptr =
         reinterpret_cast<char*>(const_cast<uint8_t*>(entry->cache->data));
     size_t cache_size = entry->cache->length;
     uint32_t cache_hash = GetHash(cache_ptr, cache_size);
 
     Debug("[compile cache] writing cache for %s in %s, code hash = %d, cache "
-          "hash = %d, code size %d, cache_size %d...",
+          "hash = %d, code size %d, cache size %d...",
           entry->source_filename,
           entry->cache_filename,
           entry->code_hash,
+          cache_hash,
+          entry->code_size,
+          cache_size);
 
-          cache_hash);
+    // Generating headers.
     std::vector<char> headers(kHeaderCount * sizeof(uint32_t));
+    memcpy(headers.data() + kCodeSizeOffset * sizeof(uint32_t),
+           &(entry->code_size),
+           sizeof(entry->code_size));
+    memcpy(headers.data() + kCacheSizeOffset * sizeof(uint32_t),
+           &(cache_size),
+           sizeof(cache_size));
     memcpy(headers.data() + kCodeHashOffset * sizeof(uint32_t),
            &(entry->code_hash),
            sizeof(entry->code_hash));
@@ -315,6 +298,7 @@ void CompileCacheHandler::Persist() {
     uv_buf_t headers_buf = uv_buf_init(headers.data(), headers.size());
     uv_buf_t data_buf = uv_buf_init(cache_ptr, entry->cache->length);
     uv_buf_t bufs[] = {headers_buf, data_buf};
+
     int err = WriteFileSync(entry->cache_filename.c_str(), bufs, 2);
     if (is_debug_) {
       Debug("%s\n", err < 0 ? uv_strerror(err) : "success");
@@ -329,8 +313,7 @@ CompileCacheHandler::CompileCacheHandler(Environment* env)
 
 // Directory structure:
 // - Compile cache directory (from NODE_COMPILE_CACHE)
-//   - <cache_version_tag_1>: tag is a hash of CachedDataVersionTag() +
-//   NODE_VERSION
+//   - <cache_version_tag_1>: hash of CachedDataVersionTag + NODE_VERESION
 //   - <cache_version_tag_2>
 //   - <cache_version_tag_3>
 //     - <cache_file_1>: a hash of filename + module type

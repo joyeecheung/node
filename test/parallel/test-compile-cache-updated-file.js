@@ -36,7 +36,7 @@ const tmpdir = require('../common/tmpdir');
   // Update the content.
   fs.writeFileSync(script, 'const foo = 2;', 'utf-8');
 
-  // Second regenerates it.
+  // Another run regenerates it.
   spawnSyncAndAssert(
     process.execPath,
     [script],
@@ -50,13 +50,13 @@ const tmpdir = require('../common/tmpdir');
     },
     {
       stderr(output) {
-      // TODO(joyeecheung): overwrite rejected cache in the same file.
-        assert.match(output, /script\.js was not initialized, initializing the in-memory entry/);
+        assert.match(output, /reading cache from .* for .*script.js.*code hash mismatch:/);
         assert.match(output, /writing cache for .*script\.js.*success/);
         return true;
       }
     });
 
+  // Then it's consumed just fine.
   spawnSyncAndAssert(
     process.execPath,
     [script],

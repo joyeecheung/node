@@ -35,7 +35,7 @@ struct CompileCacheEntry {
 
 class CompileCacheHandler {
  public:
-  CompileCacheHandler(Environment* env);
+  explicit CompileCacheHandler(Environment* env);
   bool InitializeDirectory(const std::string& dir);
 
   void Persist();
@@ -50,13 +50,7 @@ class CompileCacheHandler {
                  bool rejected);
 
  private:
-  int ReadCacheFile(const char* path,
-                    uint32_t expected_code_size,
-                    uint32_t expected_code_hash,
-                    uint32_t* headers,
-                    uint8_t** cache_data,
-                    size_t* cache_size,
-                    bool* is_header_mismatch);
+  void ReadCacheFile(CompileCacheEntry* entry);
 
   template <typename T>
   void MaybeSaveImpl(CompileCacheEntry* entry,
