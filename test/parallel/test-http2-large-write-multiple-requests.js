@@ -38,10 +38,11 @@ server.listen(0, common.mustCall(() => {
       chunks.push(chunk);
     });
     req.on('end', common.mustCall(() => {
-      console.log('client receives content', ++endCount);
+      console.log('client receives content', finished, ++endCount);
       assert.deepStrictEqual(Buffer.concat(chunks), content);
 
       if (++finished === 100) {
+        console.log('finished', finished, endCount);
         client.close();
         server.close();
       }
