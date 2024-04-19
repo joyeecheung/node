@@ -45,7 +45,6 @@ import multiprocessing
 import errno
 import copy
 import io
-import resource
 
 if sys.version_info >= (3, 5):
   from importlib import machinery, util
@@ -785,6 +784,7 @@ def Execute(args, context, timeout=None, env=None, disable_core_files=False,
   preexec_fn = None
 
   def disableCoreFiles():
+    import resource
     resource.setrlimit(resource.RLIMIT_CORE, (0,0))
 
   if disable_core_files and not utils.IsWindows():
@@ -792,6 +792,7 @@ def Execute(args, context, timeout=None, env=None, disable_core_files=False,
 
   if max_virtual_memory is not None and utils.GuessOS() == 'linux':
     def setMaxVirtualMemory():
+      import resource
       resource.setrlimit(resource.RLIMIT_CORE, (0,0))
       resource.setrlimit(resource.RLIMIT_AS, (max_virtual_memory,max_virtual_memory + 1))
 
