@@ -402,27 +402,30 @@ inline char* UncheckedCalloc(size_t n) { return UncheckedCalloc<char>(n); }
 // headers than we really need to.
 void ThrowErrStringTooLong(v8::Isolate* isolate);
 
+template <typename T>
 struct ArrayIterationData {
-  std::vector<v8::Global<v8::Value>>* out;
+  std::vector<v8::Global<T>>* out;
   v8::Isolate* isolate = nullptr;
 };
 
+template <typename T>
 inline v8::Array::CallbackResult PushItemToVector(uint32_t index,
                                                   v8::Local<v8::Value> element,
                                                   void* data) {
-  auto vec = static_cast<ArrayIterationData*>(data)->out;
-  auto isolate = static_cast<ArrayIterationData*>(data)->isolate;
-  vec->push_back(v8::Global<v8::Value>(isolate, element));
+  auto vec = static_cast<ArrayIterationData<T>*>(data)->out;
+  auto isolate = static_cast<ArrayIterationData<T>*>(data)->isolate;
+  vec->push_back(v8::Global<T>(isolate, element.As<T>()));
   return v8::Array::CallbackResult::kContinue;
 }
 
+template <typename T>
 v8::Maybe<void> FromV8Array(v8::Local<v8::Context> context,
                             v8::Local<v8::Array> js_array,
-                            std::vector<v8::Global<v8::Value>>* out) {
+                            std::vector<v8::Global<T>>* out) {
   uint32_t count = js_array->Length();
   out->reserve(count);
-  ArrayIterationData data{out, context->GetIsolate()};
-  return js_array->Iterate(context, PushItemToVector, &data);
+  ArrayIterationData<T> data{out, context->GetIsolate()};
+  return js_array->Iterate(context, PushItemToVector<T>, &data);
 }
 
 v8::MaybeLocal<v8::Value> ToV8Value(v8::Local<v8::Context> context,

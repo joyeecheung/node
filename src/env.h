@@ -589,6 +589,11 @@ void DefaultProcessExitHandlerInternal(Environment* env, ExitCode exit_code);
 v8::Maybe<ExitCode> SpinEventLoopInternal(Environment* env);
 v8::Maybe<ExitCode> EmitProcessExitInternal(Environment* env);
 
+struct TemporarySyntheticModuleData {
+  std::vector<v8::Global<v8::String>> names;
+  std::vector<v8::Global<v8::Value>> values;
+};
+
 /**
  * Environment is a per-isolate data structure that represents an execution
  * environment. Each environment has a principal realm. An environment can
@@ -1051,6 +1056,8 @@ class Environment : public MemoryRetainer {
   std::unordered_map<std::string, size_t> alias_to_md_id_map;
   std::vector<std::string> supported_hash_algorithms;
 #endif  // HAVE_OPENSSL
+
+  TemporarySyntheticModuleData synthetic_module_data;
 
  private:
   inline void ThrowError(v8::Local<v8::Value> (*fun)(v8::Local<v8::String>,
