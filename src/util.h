@@ -710,9 +710,10 @@ using DeleteFnPtr = typename FunctionDeleter<T, function>::Pointer;
 // element in a C++ loop is still slower than iterating over the array in JS
 // and calling into native in the JS loop repeatedly on each element,
 // as of V8 11.9.
+template <typename T>
 inline v8::Maybe<void> FromV8Array(v8::Local<v8::Context> context,
                                    v8::Local<v8::Array> js_array,
-                                   std::vector<v8::Global<v8::Value>>* out);
+                                   std::vector<v8::Global<T>>* out);
 std::vector<std::string_view> SplitString(const std::string_view in,
                                           const std::string_view delim);
 

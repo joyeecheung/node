@@ -7,6 +7,7 @@
 #include "node_external_reference.h"
 #include "node_internals.h"
 #include "node_process-inl.h"
+#include "node_url.h"
 #include "node_watchdog.h"
 #include "util-inl.h"
 
@@ -1019,6 +1020,86 @@ void ModuleWrap::CreateCachedData(const FunctionCallbackInfo<Value>& args) {
   }
 }
 
+MaybeLocal<Module> UnreachableResolveModuleCallback(
+    Local<Context> context,
+    Local<String> specifier,
+    Local<FixedArray> import_attributes,
+    Local<Module> referrer) {
+  UNREACHABLE();
+}
+
+MaybeLocal<Value> EvaluateSyntheticModuleImmediately(Local<Context> context,
+                                                     Local<Module> module) {
+  Environment* env = Environment::GetCurrent(context);
+  Isolate* isolate = context->GetIsolate();
+  HandleScope scope(isolate);
+  CHECK(!env->synthetic_module_data.names.empty());
+  CHECK(!env->synthetic_module_data.values.empty());
+  size_t exports_count = env->synthetic_module_data.names.size();
+  CHECK_EQ(exports_count, env->synthetic_module_data.values.size());
+  for (size_t i = 0; i < exports_count; ++i) {
+    Local<String> name = env->synthetic_module_data.names[i].Get(isolate);
+    Local<Value> value = env->synthetic_module_data.values[i].Get(isolate);
+    if (module->SetSyntheticModuleExport(isolate, name, value).IsNothing()) {
+      return MaybeLocal<Value>();
+    }
+  }
+  env->synthetic_module_data.names.clear();
+  env->synthetic_module_data.values.clear();
+
+  Local<Promise::Resolver> resolver;
+  if (!Promise::Resolver::New(context).ToLocal(&resolver) ||
+      resolver->Resolve(context, Undefined(isolate)).IsNothing()) {
+    return MaybeLocal<Value>();
+  }
+
+  return resolver->GetPromise();
+}
+
+void CreateImmediateSyntheticModule(const FunctionCallbackInfo<Value>& args) {
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext();
+  Environment* env = Environment::GetCurrent(context);
+  CHECK(args[0]->IsArray());
+  CHECK(args[1]->IsArray());
+  CHECK(args[2]->IsString());
+  Local<Array> names = args[0].As<Array>();
+  Local<Array> values = args[1].As<Array>();
+  Local<String> filename = args[2].As<String>();
+  CHECK(env->synthetic_module_data.names.empty());
+  CHECK(env->synthetic_module_data.values.empty());
+  if (FromV8Array(context, names, &(env->synthetic_module_data.names))
+          .IsNothing() ||
+      FromV8Array(context, values, &(env->synthetic_module_data.values))
+          .IsNothing()) {
+    return;
+  }
+  Utf8Value filename_utf8(isolate, filename);
+  std::string url = url::FromFilePath(filename_utf8.ToStringView());
+  Local<String> url_value;
+  if (!String::NewFromUtf8(isolate, url.c_str()).ToLocal(&url_value)) {
+    return;
+  }
+  std::vector<Local<String>> export_names;
+  size_t exports_count = env->synthetic_module_data.names.size();
+  for (size_t i = 0; i < exports_count; ++i) {
+    export_names.push_back(env->synthetic_module_data.names[i].Get(isolate));
+  }
+  const MemorySpan<const Local<String>> span(export_names.begin(),
+                                             export_names.size());
+  auto module = Module::CreateSyntheticModule(
+      isolate, url_value, span, EvaluateSyntheticModuleImmediately);
+  Local<Value> evaluated;
+  if (module->InstantiateModule(context, UnreachableResolveModuleCallback)
+          .IsNothing() ||
+      !module->Evaluate(context).ToLocal(&evaluated)) {
+    return;
+  }
+  CHECK(evaluated->IsPromise());
+  CHECK_EQ(evaluated.As<Promise>()->State(), Promise::PromiseState::kFulfilled);
+  args.GetReturnValue().Set(module->GetModuleNamespace());
+}
+
 void ModuleWrap::CreatePerIsolateProperties(IsolateData* isolate_data,
                                             Local<ObjectTemplate> target) {
   Isolate* isolate = isolate_data->isolate();
@@ -1051,6 +1132,10 @@ void ModuleWrap::CreatePerIsolateProperties(IsolateData* isolate_data,
             target,
             "setInitializeImportMetaObjectCallback",
             SetInitializeImportMetaObjectCallback);
+  SetMethod(isolate,
+            target,
+            "createImmediateSyntheticModule",
+            CreateImmediateSyntheticModule);
 }
 
 void ModuleWrap::CreatePerContextProperties(Local<Object> target,
@@ -1090,6 +1175,8 @@ void ModuleWrap::RegisterExternalReferences(
   registry->Register(GetNamespace);
   registry->Register(GetStatus);
   registry->Register(GetError);
+
+  registry->Register(CreateImmediateSyntheticModule);
 
   registry->Register(SetImportModuleDynamicallyCallback);
   registry->Register(SetInitializeImportMetaObjectCallback);
