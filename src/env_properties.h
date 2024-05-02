@@ -142,6 +142,11 @@
   V(env_var_settings_string, "envVarSettings")                                 \
   V(errno_string, "errno")                                                     \
   V(error_string, "error")                                                     \
+  V(required_module_facade_source_string,                                      \
+    "export * from 'original'; export const __esModule = true;")               \
+  V(required_module_default_facade_source_string,                              \
+    "export * from 'original'; export { default } from 'original'; export "    \
+    "const __esModule = true;")                                                \
   V(exchange_string, "exchange")                                               \
   V(expire_string, "expire")                                                   \
   V(exponent_string, "exponent")                                               \
@@ -255,6 +260,7 @@
   V(openssl_error_stack, "opensslErrorStack")                                  \
   V(options_string, "options")                                                 \
   V(order_string, "order")                                                     \
+  V(original_string, "original")                                               \
   V(output_string, "output")                                                   \
   V(overlapped_string, "overlapped")                                           \
   V(parse_error_string, "Parse Error")                                         \

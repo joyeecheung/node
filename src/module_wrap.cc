@@ -1056,6 +1056,62 @@ MaybeLocal<Value> EvaluateSyntheticModuleImmediately(Local<Context> context,
   return resolver->GetPromise();
 }
 
+MaybeLocal<Module> ResolveReExportModule(Local<Context> context,
+                                         Local<String> specifier,
+                                         Local<FixedArray> import_attributes,
+                                         Local<Module> referrer) {
+  Environment* env = Environment::GetCurrent(context);
+  Isolate* isolate = context->GetIsolate();
+  CHECK(specifier->Equals(context, env->original_string()).ToChecked());
+  CHECK(!env->temporary_reexport_module.IsEmpty());
+  return env->temporary_reexport_module.Get(isolate);
+}
+
+void ModuleWrap::CreateRequiredModuleFacade(
+    const FunctionCallbackInfo<Value>& args) {
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext();
+  Environment* env = Environment::GetCurrent(context);
+  CHECK(args[0]->IsObject());
+  CHECK(args[1]->IsBoolean());
+  Local<Object> wrap = args[0].As<Object>();
+  ModuleWrap* original;
+  ASSIGN_OR_RETURN_UNWRAP(&original, wrap);
+  bool has_default = args[1].As<v8::Boolean>()->Value();
+
+  Local<String> url = wrap->GetInternalField(kURLSlot).As<String>();
+  ScriptOrigin origin(url,
+                      0,
+                      0,
+                      true,            // is cross origin
+                      -1,              // script id
+                      Local<Value>(),  // source map URL
+                      false,           // is opaque (?)
+                      false,           // is WASM
+                      true);           // is ES Module
+  ScriptCompiler::Source source(has_default ?
+                                env->required_module_default_facade_source_string() :
+                                env->required_module_facade_source_string(),
+                                origin);
+  Local<Module> module;
+  if (!ScriptCompiler::CompileModule(isolate, &source).ToLocal(&module)) {
+    return;
+  }
+  CHECK(env->temporary_reexport_module.IsEmpty());
+  env->temporary_reexport_module.Reset(isolate, original->module_.Get(isolate));
+  if (module->InstantiateModule(context, ResolveReExportModule).IsNothing()) {
+    return;
+  }
+  env->temporary_reexport_module.Reset();
+  Local<Value> evaluated;
+  if (!module->Evaluate(context).ToLocal(&evaluated)) {
+    return;
+  }
+  CHECK(evaluated->IsPromise());
+  CHECK_EQ(evaluated.As<Promise>()->State(), Promise::PromiseState::kFulfilled);
+  args.GetReturnValue().Set(module->GetModuleNamespace());
+}
+
 void CreateImmediateSyntheticModule(const FunctionCallbackInfo<Value>& args) {
   Isolate* isolate = args.GetIsolate();
   Local<Context> context = isolate->GetCurrentContext();
@@ -1136,6 +1192,10 @@ void ModuleWrap::CreatePerIsolateProperties(IsolateData* isolate_data,
             target,
             "createImmediateSyntheticModule",
             CreateImmediateSyntheticModule);
+  SetMethod(isolate,
+            target,
+            "createRequiredModuleFacade",
+            CreateRequiredModuleFacade);
 }
 
 void ModuleWrap::CreatePerContextProperties(Local<Object> target,
@@ -1177,6 +1237,7 @@ void ModuleWrap::RegisterExternalReferences(
   registry->Register(GetError);
 
   registry->Register(CreateImmediateSyntheticModule);
+  registry->Register(CreateRequiredModuleFacade);
 
   registry->Register(SetImportModuleDynamicallyCallback);
   registry->Register(SetInitializeImportMetaObjectCallback);

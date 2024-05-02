@@ -1059,6 +1059,7 @@ class Environment : public MemoryRetainer {
 #endif  // HAVE_OPENSSL
 
   TemporarySyntheticModuleData synthetic_module_data;
+  v8::Global<v8::Module> temporary_reexport_module;
 
  private:
   inline void ThrowError(v8::Local<v8::Value> (*fun)(v8::Local<v8::String>,
