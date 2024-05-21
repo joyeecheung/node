@@ -889,6 +889,7 @@ std::unique_ptr<T> static_unique_pointer_cast(std::unique_ptr<U>&& ptr) {
 int ReadFileSync(std::string* result, const char* path);
 // Reads all contents of a FILE*, aborts if it fails.
 std::vector<char> ReadFileSync(FILE* fp);
+int ReadFileSync(char** out, uv_file file);
 
 v8::Local<v8::FunctionTemplate> NewFunctionTemplate(
     v8::Isolate* isolate,

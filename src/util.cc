@@ -318,6 +318,80 @@ std::vector<char> ReadFileSync(FILE* fp) {
   return contents;
 }
 
+size_t kIoMaxLength = 0x7fffffff;
+size_t kBlockSize = 8192;
+
+int ReadFileSync(char** out, uv_file file) {
+  uv_fs_t req;
+  auto defer_req_cleanup = OnScopeLeave([&req]() { uv_fs_req_cleanup(&req); });
+
+  size_t capacity = kBlockSize;  // Initial buffer capacity
+  size_t total_read = 0;
+  char* initial_buffer = new char[kBlockSize];
+  uv_buf_t iov =
+      uv_buf_init(reinterpret_cast<char*>(initial_buffer), kBlockSize);
+  // Temporary buffers to concat into the final buffer, if the initial buffer
+  // is not big enough.
+  std::vector<std::vector<char>> additional_buffers;
+
+  while (true) {
+    int bytes_read = uv_fs_read(nullptr, &req, file, &iov, 1, -1, nullptr);
+    if (req.result < 0) {  // Error.
+      // req will be cleaned up by scope leave.
+      delete[] initial_buffer;
+      *out = nullptr;
+      return req.result;
+    }
+    uv_fs_req_cleanup(&req);
+    CHECK_GE(bytes_read, 0);
+    if (bytes_read == 0) {  // Read until EOF is reached (0 is returned).
+      break;
+    }
+    total_read += bytes_read;
+
+    // Match the exsiting behavior: fails for files larger than 2GB.
+    if (total_read > kIoMaxLength) {
+      delete[] initial_buffer;
+      *out = nullptr;
+      return 0;
+    }
+
+    if (bytes_read < iov.len) {
+      iov = uv_buf_init(iov.base + bytes_read, iov.len - bytes_read);
+    } else {
+      // If more buffers are needed, allocate them.
+      auto& buf =
+          additional_buffers.emplace_back(std::vector<char>(kBlockSize));
+      capacity = capacity + buf.size();
+      iov = uv_buf_init(buf.data(), buf.size());
+    }
+  }
+
+  // Only the initial buffer is used, return the initial buffer.
+  if (total_read <= kBlockSize) {
+    *out = initial_buffer;
+    return static_cast<int>(total_read);
+  }
+
+  // Concatenate the additional buffers with the initial buffer into a new
+  // buffer.
+  char* new_buffer = new char[total_read];
+  memcpy(new_buffer, initial_buffer, kBlockSize);
+  size_t offset = kBlockSize;
+
+  for (size_t i = 0; i < additional_buffers.size(); ++i) {
+    auto& buf = additional_buffers[i];
+    size_t remaining = total_read - offset;
+    size_t to_copy_size = remaining < buf.size() ? remaining : buf.size();
+    memcpy(new_buffer + offset, buf.data(), to_copy_size);
+    offset += to_copy_size;
+  }
+
+  delete[] initial_buffer;
+  *out = new_buffer;
+  return static_cast<int>(total_read);
+}
+
 void DiagnosticFilename::LocalTime(TIME_TYPE* tm_struct) {
 #ifdef _WIN32
   GetLocalTime(tm_struct);

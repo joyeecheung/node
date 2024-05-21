@@ -120,50 +120,22 @@ void CompileCacheHandler::ReadCacheFile(CompileCacheEntry* entry) {
     return;
   }
 
-  // Read the cache, grow the buffer exponentially whenever it fills up.
-  size_t offset = headers_buf.len;
-  size_t capacity = 4096;  // Initial buffer capacity
-  size_t total_read = 0;
-  uint8_t* buffer = new uint8_t[capacity];
-
-  while (true) {
-    // If there is not enough space to read more data, do a simple
-    // realloc here (we don't actually realloc because V8 requires
-    // the underlying buffer to be delete[]-able).
-    if (total_read == capacity) {
-      size_t new_capacity = capacity * 2;
-      auto* new_buffer = new uint8_t[new_capacity];
-      memcpy(new_buffer, buffer, capacity);
-      delete[] buffer;
-      buffer = new_buffer;
-      capacity = new_capacity;
-    }
-
-    uv_buf_t iov = uv_buf_init(reinterpret_cast<char*>(buffer + total_read),
-                               capacity - total_read);
-    int bytes_read =
-        uv_fs_read(nullptr, &req, file, &iov, 1, offset + total_read, nullptr);
-    if (req.result < 0) {  // Error.
-      // req will be cleaned up by scope leave.
-      delete[] buffer;
-      Debug(" %s\n", uv_strerror(req.result));
-      return;
-    }
-    uv_fs_req_cleanup(&req);
-    if (bytes_read <= 0) {
-      break;
-    }
-    total_read += bytes_read;
+  char* buffer = nullptr;
+  int total_read = ReadFileSync(&buffer, file);
+  if (total_read < 0) {
+    Debug(" %s\n", uv_strerror(total_read));
+    return;
   }
 
   // Check the cache size and hash.
-  if (headers[kCacheSizeOffset] != total_read) {
+  if (headers[kCacheSizeOffset] != static_cast<uint32_t>(total_read)) {
     Debug("cache size mismatch: expected %d, actual %d\n",
           headers[kCacheSizeOffset],
           total_read);
     return;
   }
-  uint32_t cache_hash = GetHash(reinterpret_cast<char*>(buffer), total_read);
+
+  uint32_t cache_hash = GetHash(buffer, total_read);
   if (headers[kCacheHashOffset] != cache_hash) {
     Debug("cache hash mismatch: expected %d, actual %d\n",
           headers[kCacheHashOffset],
@@ -172,7 +144,9 @@ void CompileCacheHandler::ReadCacheFile(CompileCacheEntry* entry) {
   }
 
   entry->cache.reset(new v8::ScriptCompiler::CachedData(
-      buffer, total_read, v8::ScriptCompiler::CachedData::BufferOwned));
+      reinterpret_cast<uint8_t*>(buffer),
+      total_read,
+      v8::ScriptCompiler::CachedData::BufferOwned));
   Debug(" success, size=%d\n", total_read);
 }
 
