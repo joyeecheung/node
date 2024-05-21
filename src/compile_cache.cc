@@ -122,25 +122,25 @@ void CompileCacheHandler::ReadCacheFile(CompileCacheEntry* entry) {
 
   // Read the cache, grow the buffer exponentially whenever it fills up.
   size_t offset = headers_buf.len;
-  size_t capacity = 4096;  // Initial buffer capacity
+  size_t block_size = 8192;
+  size_t capacity = block_size;  // Initial buffer capacity
   size_t total_read = 0;
-  uint8_t* buffer = new uint8_t[capacity];
+  uint8_t* buffer = new uint8_t[block_size];
+  uint8_t* current_buffer = buffer;
+  std::vector<std::vector<uint8_t>> additional_buffers;
 
   while (true) {
     // If there is not enough space to read more data, do a simple
     // realloc here (we don't actually realloc because V8 requires
     // the underlying buffer to be delete[]-able).
     if (total_read == capacity) {
-      size_t new_capacity = capacity * 2;
-      auto* new_buffer = new uint8_t[new_capacity];
-      memcpy(new_buffer, buffer, capacity);
-      delete[] buffer;
-      buffer = new_buffer;
-      capacity = new_capacity;
+      additional_buffers.emplace_back(std::vector<uint8_t>(block_size));
+      current_buffer = additional_buffers[additional_buffers.size() - 1].data();
+      capacity = capacity + block_size;
     }
 
-    uv_buf_t iov = uv_buf_init(reinterpret_cast<char*>(buffer + total_read),
-                               capacity - total_read);
+    uv_buf_t iov = uv_buf_init(reinterpret_cast<char*>(current_buffer),
+                               block_size);
     int bytes_read =
         uv_fs_read(nullptr, &req, file, &iov, 1, offset + total_read, nullptr);
     if (req.result < 0) {  // Error.
@@ -163,6 +163,25 @@ void CompileCacheHandler::ReadCacheFile(CompileCacheEntry* entry) {
           total_read);
     return;
   }
+
+  if (total_read > block_size) {
+    uint8_t* new_buffer = new uint8_t[total_read];
+    memcpy(new_buffer, buffer, block_size);
+    size_t remaining = total_read - block_size;
+
+    for (size_t i = 0; i < additional_buffers.size(); ++i) {
+      size_t to_copy_size = block_size;
+      if (remaining < block_size) {
+        to_copy_size = remaining;
+      }
+      memcpy(new_buffer + ((i + 1) * block_size), additional_buffers[i].data(), to_copy_size);
+      remaining -= to_copy_size;
+    }
+
+    delete [] buffer;
+    buffer = new_buffer;
+  }
+
   uint32_t cache_hash = GetHash(reinterpret_cast<char*>(buffer), total_read);
   if (headers[kCacheHashOffset] != cache_hash) {
     Debug("cache hash mismatch: expected %d, actual %d\n",
