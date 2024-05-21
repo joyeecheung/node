@@ -21,6 +21,32 @@ std::string Uint32ToHex(uint32_t crc) {
   return str;
 }
 
+enum class StringType : uint8_t {
+  kOneByte = 0,
+  kTwoByte = 1,
+};
+
+uint32_t HashString(v8::Isolate* isolate,
+                    v8::Local<v8::String> str,
+                    uint32_t start = 0) {
+  bool is_one_byte = str->IsOneByte();
+  StringType type = is_one_byte ? StringType::kOneByte : StringType::kTwoByte;
+  uint32_t result =
+      crc32(start, reinterpret_cast<const Bytef*>(&type), sizeof(type));
+
+  if (is_one_byte) {
+    MaybeStackBuffer<uint8_t> buf(str->Length());
+    str->WriteOneByte(isolate, buf.out(), 0, buf.length());
+    return crc32(
+        result, reinterpret_cast<const Bytef*>(buf.out()), buf.length());
+  }
+
+  MaybeStackBuffer<uint16_t> buf(str->Length());
+  str->Write(isolate, buf.out(), 0, buf.length());
+  return crc32(
+      result, reinterpret_cast<const Bytef*>(buf.out()), buf.length() * 2);
+}
+
 // TODO(joyeecheung): use other hashes?
 uint32_t GetHash(const char* data, size_t size) {
   uLong crc = crc32(0L, Z_NULL, 0);
@@ -188,8 +214,7 @@ CompileCacheEntry* CompileCacheHandler::GetOrInsert(
   // TODO(joyeecheung): don't encode this again into UTF8. If we read the
   // UTF8 content on disk as raw buffer (from the JS layer, while watching out
   // for monkey patching), we can just hash it directly.
-  Utf8Value code_utf8(isolate_, code);
-  uint32_t code_hash = GetHash(code_utf8.out(), code_utf8.length());
+  uint32_t code_hash = HashString(isolate_, code);
   auto loaded = compiler_cache_store_.find(key);
 
   // TODO(joyeecheung): let V8's in-isolate compilation cache take precedence.
@@ -203,7 +228,7 @@ CompileCacheEntry* CompileCacheHandler::GetOrInsert(
   auto* result = emplaced.first->second.get();
 
   result->code_hash = code_hash;
-  result->code_size = code_utf8.length();
+  result->code_size = code->Length();
   result->cache_key = key;
   result->cache_filename =
       compile_cache_dir_ + kPathSeparator + Uint32ToHex(result->cache_key);
