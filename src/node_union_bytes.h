@@ -75,7 +75,6 @@ class UnionBytes {
 };
 
 }  // namespace node
-
 #endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
 #endif  // SRC_NODE_UNION_BYTES_H_

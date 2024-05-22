@@ -997,6 +997,10 @@ void SetConstructorFunction(v8::Isolate* isolate,
                             SetConstructorFunctionFlag flag =
                                 SetConstructorFunctionFlag::SET_CLASS_NAME);
 
+v8::MaybeLocal<v8::String> ToOwningExternalString(v8::Isolate* isolate,
+                                                  const char* data,
+                                                  size_t length);
+
 // Like RAIIIsolate, except doesn't enter the isolate while it's in scope.
 class RAIIIsolateWithoutEntering {
  public:

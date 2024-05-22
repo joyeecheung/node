@@ -31,6 +31,7 @@
 #include "node_internals.h"
 #include "node_snapshot_builder.h"
 #include "node_v8_platform-inl.h"
+#include "simdutf.h"
 #include "string_bytes.h"
 #include "v8-value.h"
 
@@ -707,6 +708,94 @@ Local<String> UnionBytes::ToStringChecked(Isolate* isolate) const {
     return String::NewExternalTwoByte(isolate, two_byte_resource_)
         .ToLocalChecked();
   }
+}
+
+template <typename Char, typename Base>
+class OwningExternalByteResource : public Base {
+ public:
+  explicit OwningExternalByteResource(const Char* data, size_t length)
+      : data_(data), length_(length) {}
+
+  const Char* data() const override {
+    return reinterpret_cast<const Char*>(data_);
+  }
+  size_t length() const override { return length_; }
+
+  void Dispose() override {
+    CHECK(!IsDisposed());
+    delete data_;
+    data_ = nullptr;
+    delete this;
+  }
+  bool IsDisposed() const { return data_ == nullptr; }
+
+  OwningExternalByteResource(const OwningExternalByteResource&) = delete;
+  OwningExternalByteResource& operator=(const OwningExternalByteResource&) =
+      delete;
+
+ private:
+  const Char* data_;
+  const size_t length_;
+};
+
+template <typename T>
+v8::Local<v8::String> ToOwningExternalString(v8::Isolate* isolate,
+                                             const T* data,
+                                             size_t length) {
+  if constexpr (sizeof(T) == 1) {
+    auto* resource =
+        OwningExternalByteResource<char,
+                                   v8::String::ExternalOneByteStringResource>(
+            reinterpret_cast<const char*>(data), length);
+    return v8::String::NewExternalOneByte(isolate, resource).ToLocalChecked();
+  } else {
+    static_assert(sizeof(T) == 2);
+    auto* resource =
+        OwningExternalByteResource<char,
+                                   v8::String::ExternalTwoByteStringResource>(
+            reinterpret_cast<const uint16_t*>(data), length);
+    return v8::String::NewExternalTwoByte(isolate, resource).ToLocalChecked();
+  }
+}
+
+v8::MaybeLocal<v8::String> ToOwningExternalString(v8::Isolate* isolate,
+                                                  const char* data,
+                                                  size_t length) {
+  if (length == 0) {
+    return v8::String::Empty(isolate);
+  }
+
+  // If it only contains ASCII, just reuse the original buffer and there's no
+  // need to copy.
+  if (simdutf::validate_ascii(data, length)) {
+    // There is no need to do a copy for ASCII strings.
+    return ToOwningExternalString<char>(isolate, data, length);
+  }
+
+  // Try and see if it only contains one-byte characters (latin-1).
+  size_t latin1_size = simdutf::latin1_length_from_utf8(data, length);
+  char* latin1_buf = new char[latin1_size];
+  latin1_size = simdutf::convert_utf8_to_latin1(data, length, latin1_buf);
+  if (latin1_size != 0) {
+    // It's Latin-1 only, delete the original data and create the string owning
+    // the converted data.
+    delete data;
+    return ToOwningExternalString<char>(isolate, latin1_buf, latin1_size);
+  }
+  delete[] latin1_buf;
+
+  // Try and see if it's valid two-byte string (utf16).
+  size_t utf16_size = simdutf::utf16_length_from_utf8(data, length);
+  uint16_t* utf16_buf = new uint16_t[utf16_size];
+  utf16_size = simdutf::convert_utf8_to_utf16(
+      data, length, reinterpret_cast<char16_t*>(utf16_buf));
+  if (utf16_size != 0) {
+    delete data;
+    return ToOwningExternalString<uint16_t>(isolate, utf16_buf, utf16_size);
+  }
+
+  // Invalid string.
+  return v8::MaybeLocal<v8::String>();
 }
 
 RAIIIsolateWithoutEntering::RAIIIsolateWithoutEntering(const SnapshotData* data)
