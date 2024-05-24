@@ -2526,27 +2526,35 @@ static void ReadFileUtf8(const FunctionCallbackInfo<Value>& args) {
     uv_fs_req_cleanup(&req);
   });
 
-  std::string result{};
-  char buffer[8192];
-  uv_buf_t buf = uv_buf_init(buffer, sizeof(buffer));
-
-  FS_SYNC_TRACE_BEGIN(read);
-  while (true) {
-    auto r = uv_fs_read(nullptr, &req, file, &buf, 1, -1, nullptr);
-    if (req.result < 0) {
-      FS_SYNC_TRACE_END(read);
-      // req will be cleaned up by scope leave.
-      return env->ThrowUVException(req.result, "read", nullptr);
-    }
-    if (r <= 0) {
-      break;
-    }
-    result.append(buf.base, r);
+  char* buffer = nullptr;
+  int total_read = ReadFileSync(&buffer, file);
+  if (total_read < 0) {
+    FS_SYNC_TRACE_END(read);
+    // req will be cleaned up by scope leave.
+    return env->ThrowUVException(total_read, "read", nullptr);
   }
   FS_SYNC_TRACE_END(read);
+  if (total_read == 0) {
+    if (buffer == nullptr) {  // File is too large.
+      Utf8Value path(env->isolate(), args[0]);
+      THROW_ERR_FS_FILE_TOO_LARGE(
+          env, "File size of %s is greater than 2 GiB", *path);
+      return;
+    }
+    // File is empty.
+    delete[] buffer;
+    args.GetReturnValue().Set(String::Empty(isolate));
+    return;
+  }
 
-  args.GetReturnValue().Set(
-      ToV8Value(env->context(), result, isolate).ToLocalChecked());
+  v8::Local<v8::String> str;
+  if (!ToOwningExternalString(isolate, buffer, total_read).ToLocal(&str)) {
+    THROW_ERR_ENCODING_INVALID_ENCODED_DATA(
+        isolate, "The encoded data was not valid for encoding utf-8");
+    return;
+  }
+
+  args.GetReturnValue().Set(str);
 }
 
 // Wrapper for readv(2).
