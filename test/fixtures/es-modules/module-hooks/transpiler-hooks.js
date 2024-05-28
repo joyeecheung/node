@@ -38,8 +38,8 @@ function resolve(specifier, context, nextResolve) {
   return result;
 }
 
-function load(url, context, nextLoad) {
-  const loadResult = nextLoad(url, context);
+function load(context, nextLoad) {
+  const loadResult = nextLoad(context);
   const { source: rawSource, format } = loadResult;
   if (!format || !format.startsWith('typescript')) {
     return { format, source: rawSource };
