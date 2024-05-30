@@ -10123,13 +10123,18 @@ Isolate* Isolate::New(const IsolateGroup& group,
   return v8_isolate;
 }
 
-void Isolate::Dispose() {
+void Isolate::Dispose(Isolate::IsolateDisposeFlags flags) {
   i::Isolate* i_isolate = reinterpret_cast<i::Isolate*>(this);
   if (!Utils::ApiCheck(!i_isolate->IsInUse(), "v8::Isolate::Dispose()",
                        "Disposing the isolate that is entered by a thread")) {
     return;
   }
-  i::Isolate::Delete(i_isolate);
+  i::Isolate::Delete(i_isolate, flags);
+}
+
+void Isolate::Free(Isolate* isolate) {
+  i::Isolate* i_isolate = reinterpret_cast<i::Isolate*>(isolate);
+  i::Isolate::Free(i_isolate);
 }
 
 void Isolate::DumpAndResetStats() {

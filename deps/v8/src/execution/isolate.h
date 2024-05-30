@@ -665,7 +665,14 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   // Destroys the non-default isolates.
   // Sets default isolate into "has_been_disposed" state rather then destroying,
   // for legacy API reasons.
-  static void Delete(Isolate* isolate);
+  // If IsolateDisposeFlags::kDontFree is specified, embedders are expected to
+  // call Isolate::Free() which calls the internal Free() method below to free
+  // the Isolate pointer.
+  static void Delete(
+      Isolate* isolate,
+      v8::Isolate::IsolateDisposeFlags flags =
+          v8::Isolate::IsolateDisposeFlags::kDefault);
+  static void Free(Isolate* isolate);
 
   void SetUpFromReadOnlyArtifacts(ReadOnlyArtifacts* artifacts);
   void set_read_only_heap(ReadOnlyHeap* ro_heap) { read_only_heap_ = ro_heap; }
