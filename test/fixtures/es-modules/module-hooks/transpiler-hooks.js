@@ -26,7 +26,11 @@ const output = {
 
 function resolve(specifier, context, nextResolve) {
   const resolved = nextResolve(specifier, context);
-  const ext = path.extname(resolved.filename);
+  const index = resolved.url.lastIndexOf('.');
+  if (index === -1) {
+    return resolved;
+  }
+  const ext = resolved.url.slice(index);
   const supportedFormat = extensions[ext];
   if (!supportedFormat) {
     return resolved;
@@ -38,9 +42,10 @@ function resolve(specifier, context, nextResolve) {
   return result;
 }
 
-function load(context, nextLoad) {
-  const loadResult = nextLoad(context);
+function load(url, context, nextLoad) {
+  const loadResult = nextLoad(url, context);
   const { source: rawSource, format } = loadResult;
+
   if (!format || !format.startsWith('typescript')) {
     return { format, source: rawSource };
   }
@@ -49,12 +54,12 @@ function load(context, nextLoad) {
     compilerOptions: output[format].options
   });
 
+
   const result = {
     ...loadResult,
     format: output[format].format,
     source: transpiled.outputText,
   };
-
   return result;
 }
 
