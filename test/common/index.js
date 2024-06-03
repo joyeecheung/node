@@ -32,7 +32,6 @@ const net = require('net');
 const path = require('path');
 const { inspect } = require('util');
 const { isMainThread } = require('worker_threads');
-const { isModuleNamespaceObject } = require('util/types');
 
 const tmpdir = require('./tmpdir');
 const bits = ['arm64', 'loong64', 'mips', 'mipsel', 'ppc64', 'riscv64', 's390x', 'x64']
@@ -965,9 +964,7 @@ function getPrintedStackTrace(stderr) {
  * @param {object} expectation shape of expected namespace.
  */
 function expectRequiredModule(mod, expectation) {
-  const namespace = Object.getPrototypeOf(mod);
-  assert.deepStrictEqual({ ...namespace }, { ...expectation });
-  assert(isModuleNamespaceObject(namespace));
+  assert.deepStrictEqual({ ...mod }, { ...expectation });
   assert.strictEqual(mod.__esModule, true);
 }
 
