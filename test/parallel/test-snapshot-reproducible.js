@@ -23,7 +23,7 @@ function generateSnapshot(name = getName()) {
     process.execPath,
     [
       '--random_seed=42',
-      // '--serialization-statistics',
+      '--serialization-statistics',
       '--predictable',
       '--build-snapshot',
       'node:generate_default_snapshot',
@@ -37,6 +37,10 @@ function generateSnapshot(name = getName()) {
         let blobStatStarted = false;
         let blobStatEnded = false;
         for (const line of lines) {
+          if (/snapshot blob start at/.test(line)) {
+            console.log(line, name);
+            continue;
+          }
           if (/SnapshotByteSink/.test(line)) {
             log(line, name);
             continue;
@@ -63,6 +67,9 @@ function generateSnapshot(name = getName()) {
 
 const buf1 = generateSnapshot();
 const buf2 = generateSnapshot();
+console.log(buf1.length.toString(16));
+console.log(buf2.length.toString(16));
+
 const diff = [];
 let offset = 0;
 const step = 16;

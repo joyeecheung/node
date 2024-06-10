@@ -14,10 +14,10 @@ namespace v8 {
 namespace internal {
 
 constexpr uint32_t anchor = 0x11ee00 - 0x1016e4;
-constexpr uint32_t range = 52473;
+constexpr uint32_t range = 1024;
 
 bool IsInRange(size_t start, size_t end) {
-  return end >= (anchor - range) && start <= anchor + range;
+  return start >= (anchor - range) && start <= anchor + range;
 }
 
 void SnapshotByteSink::Put(uint8_t b, const char* description) {
