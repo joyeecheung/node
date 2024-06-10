@@ -1,25 +1,60 @@
 'use strict';
 
 require('../common');
-const { spawnSyncAndExitWithoutError } = require('../common/child_process');
+const { spawnSyncAndAssert } = require('../common/child_process');
 const tmpdir = require('../common/tmpdir');
 const fs = require('fs');
 const assert = require('assert');
 const fixtures = require('../common/fixtures');
 
-function generateSnapshot() {
+function log(line, name) {
+  fs.writeFileSync(name + '.txt', line + '\n', { flag: 'a' });
+}
+
+let i = 0;
+function getName() {
+  return 'abcdefg'[i++];
+}
+
+function generateSnapshot(name = getName()) {
   tmpdir.refresh();
 
-  spawnSyncAndExitWithoutError(
+  spawnSyncAndAssert(
     process.execPath,
     [
       '--random_seed=42',
+      // '--serialization-statistics',
       '--predictable',
       '--build-snapshot',
       'node:generate_default_snapshot',
     ],
     {
       cwd: tmpdir.path
+    },
+    {
+      stdout(output) {
+        const lines = output.split('\n');
+        let blobStatStarted = false;
+        let blobStatEnded = false;
+        for (const line of lines) {
+          if (/SnapshotByteSink/.test(line)) {
+            log(line, name);
+            continue;
+          }
+          if (/Snapshot blob consists of/.test(line)) {
+            blobStatStarted = true;
+            continue;
+          }
+          if (/Snapshot blob statistics end/.test(line)) {
+            blobStatEnded = true;
+            continue;
+          }
+          if (blobStatStarted && !blobStatEnded) {
+            log(line, name);
+          }
+        }
+        return true;
+      }
     }
   );
   const blobPath = tmpdir.resolve('snapshot.blob');
@@ -36,7 +71,7 @@ do {
   const slice1 = buf1.slice(offset, offset + length).toString('hex');
   const slice2 = buf2.slice(offset, offset + length).toString('hex');
   if (slice1 != slice2) {
-    diff.push({offset, slice1, slice2});
+    diff.push({offset: '0x' + (offset).toString(16), slice1, slice2});
   }
   offset += length;
 } while (offset < buf1.length);

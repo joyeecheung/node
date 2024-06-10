@@ -28,6 +28,7 @@ class V8_EXPORT_PRIVATE ContextSerializer : public Serializer {
 
   bool can_be_rehashed() const { return can_be_rehashed_; }
 
+  void set_should_log(bool value);
  private:
   void SerializeObjectImpl(Handle<HeapObject> o, SlotType slot_type) override;
   bool ShouldBeInTheStartupObjectCache(Tagged<HeapObject> o);

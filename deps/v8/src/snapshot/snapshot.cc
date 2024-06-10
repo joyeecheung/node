@@ -433,6 +433,9 @@ v8::StartupData Snapshot::Create(
   for (int i = 0; i < num_contexts; i++) {
     ContextSerializer context_serializer(isolate, flags, &startup_serializer,
                                          embedder_fields_serializers[i]);
+    if (i == 3) {
+      context_serializer.set_should_log(true);
+    }
     context_serializer.Serialize(&contexts->at(i), no_gc);
     can_be_rehashed = can_be_rehashed && context_serializer.can_be_rehashed();
     context_snapshots.push_back(new SnapshotData(&context_serializer));
@@ -569,7 +572,8 @@ v8::StartupData SnapshotImpl::CreateSnapshotBlob(
   if (v8_flags.serialization_statistics) {
     // These prints must match the regexp in test/memory/Memory.json
     PrintF("Snapshot blob consists of:\n");
-    PrintF("%10d bytes for startup\n", payload_length);
+    PrintF("[0x%x...0x%x] %10d bytes for headers\n", 0, startup_snapshot_offset, startup_snapshot_offset);
+    PrintF("[0x%x...0x%x] %10d bytes for startup\n", payload_offset, payload_offset + payload_length, payload_length);
   }
   payload_offset += payload_length;
 
@@ -588,7 +592,7 @@ v8::StartupData SnapshotImpl::CreateSnapshotBlob(
           payload_length)));
   if (v8_flags.serialization_statistics) {
     // These prints must match the regexp in test/memory/Memory.json
-    PrintF("%10d bytes for read-only\n", payload_length);
+    PrintF("[0x%x...0x%x] %10d bytes for read-only\n", payload_offset, payload_offset + payload_length, payload_length);
   }
   payload_offset += payload_length;
 
@@ -602,7 +606,7 @@ v8::StartupData SnapshotImpl::CreateSnapshotBlob(
       payload_length);
   if (v8_flags.serialization_statistics) {
     // These prints must match the regexp in test/memory/Memory.json
-    PrintF("%10d bytes for shared heap\n", payload_length);
+    PrintF("[0x%x...0x%x] %10d bytes for shared heap\n", payload_offset, payload_offset + payload_length, payload_length);
   }
   payload_offset += payload_length;
 
@@ -618,11 +622,14 @@ v8::StartupData SnapshotImpl::CreateSnapshotBlob(
         payload_length);
     if (v8_flags.serialization_statistics) {
       // These prints must match the regexp in test/memory/Memory.json
-      PrintF("%10d bytes for context #%d\n", payload_length, i);
+      PrintF("[0x%x...0x%x] %10d bytes for context #%d\n", payload_offset, payload_offset + payload_length, payload_length, i);
     }
     payload_offset += payload_length;
   }
-  if (v8_flags.serialization_statistics) PrintF("\n");
+  if (v8_flags.serialization_statistics) {
+    PrintF("Snapshot blob statistics ends\n");
+    PrintF("\n");
+  }
 
   DCHECK_EQ(total_length, payload_offset);
   v8::StartupData result = {data, static_cast<int>(total_length)};
