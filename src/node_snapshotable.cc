@@ -599,17 +599,17 @@ std::vector<char> SnapshotData::ToBlob() const {
   size_t written_total = 0;
 
   // Metadata
-  w.Debug("Write magic %" PRIx32 "\n", kMagic);
+  w.Debug("0x%x: Write magic %" PRIx32 "\n", w.sink.size(), kMagic);
   written_total += w.WriteArithmetic<uint32_t>(kMagic);
-  w.Debug("Write metadata\n");
+  w.Debug("0x%x: Write metadata\n", w.sink.size());
   written_total += w.Write<SnapshotMetadata>(metadata);
-  w.Debug("Write snapshot blob\n");
-  printf("snapshot blob start at %lx\n", w.sink.size());
+  w.Debug("0x%x: Write snapshot blob\n", w.sink.size());
   written_total += w.Write<v8::StartupData>(v8_snapshot_blob_data);
-  w.Debug("Write isolate_data_indices\n");
+  w.Debug("0x%x: Write IsolateDataSerializeInfo\n", w.sink.size());
   written_total += w.Write<IsolateDataSerializeInfo>(isolate_data_info);
+  w.Debug("0x%x: Write EnvSerializeInfo\n", w.sink.size());
   written_total += w.Write<EnvSerializeInfo>(env_info);
-  w.Debug("Write code_cache\n");
+  w.Debug("0x%x: Write CodeCacheInfo\n", w.sink.size());
   written_total += w.WriteVector<builtins::CodeCacheInfo>(code_cache);
   w.Debug("SnapshotData::ToBlob() Wrote %d bytes\n", written_total);
 
@@ -870,12 +870,18 @@ const SnapshotData* SnapshotBuilder::GetEmbeddedSnapshotData() {
 
 // Reset context settings that need to be initialized again after
 // deserialization.
-static void ResetContextSettingsBeforeSnapshot(Local<Context> context) {
+static void ResetContextSettingsBeforeSnapshot(Local<Context> context, bool reset_pointers = false) {
   // Reset the AllowCodeGenerationFromStrings flag to true (default value) so
   // that it can be re-initialized with v8 flag
   // --disallow-code-generation-from-strings and recognized in
   // node::InitializeContextRuntime.
   context->AllowCodeGenerationFromStrings(true);
+  if (reset_pointers) {
+    context->SetAlignedPointerInEmbedderData(ContextEmbedderIndex::kEnvironment, nullptr);
+    context->SetAlignedPointerInEmbedderData(ContextEmbedderIndex::kContextifyContext, nullptr);
+    context->SetAlignedPointerInEmbedderData(ContextEmbedderIndex::kRealm, nullptr);
+    context->SetAlignedPointerInEmbedderData(ContextEmbedderIndex::kContextTag, nullptr);
+  }
 }
 
 const std::vector<intptr_t>& SnapshotBuilder::CollectExternalReferences() {
@@ -1145,7 +1151,7 @@ ExitCode SnapshotBuilder::CreateSnapshot(SnapshotData* out,
       out->isolate_data_info = setup->isolate_data()->Serialize(creator);
       out->env_info = env->Serialize(creator);
 
-      ResetContextSettingsBeforeSnapshot(main_context);
+      ResetContextSettingsBeforeSnapshot(main_context, true);
     }
 
     // Global handles to the contexts can't be disposed before the

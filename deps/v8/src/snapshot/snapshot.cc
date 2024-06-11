@@ -627,7 +627,7 @@ v8::StartupData SnapshotImpl::CreateSnapshotBlob(
     payload_offset += payload_length;
   }
   if (v8_flags.serialization_statistics) {
-    PrintF("Snapshot blob statistics ends\n");
+    PrintF("Snapshot blob contain %d bytes\n", total_length);
     PrintF("\n");
   }
 

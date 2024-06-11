@@ -7,16 +7,11 @@ const fs = require('fs');
 const assert = require('assert');
 const fixtures = require('../common/fixtures');
 
-function log(line, name) {
-  fs.writeFileSync(name + '.txt', line + '\n', { flag: 'a' });
+function log(line) {
+  console.log(line);
 }
 
-let i = 0;
-function getName() {
-  return 'abcdefg'[i++];
-}
-
-function generateSnapshot(name = getName()) {
+function generateSnapshot() {
   tmpdir.refresh();
 
   spawnSyncAndAssert(
@@ -29,32 +24,42 @@ function generateSnapshot(name = getName()) {
       'node:generate_default_snapshot',
     ],
     {
+      // env: { ...process.env, NODE_DEBUG_NATIVE: 'SNAPSHOT_SERDES' },
       cwd: tmpdir.path
     },
     {
+      stderr(output) {
+        const lines = output.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('0x')) {
+            log(line);
+          }
+        }
+      },
       stdout(output) {
         const lines = output.split('\n');
         let blobStatStarted = false;
         let blobStatEnded = false;
         for (const line of lines) {
           if (/snapshot blob start at/.test(line)) {
-            console.log(line, name);
+            log(line);
             continue;
           }
           if (/SnapshotByteSink/.test(line)) {
-            log(line, name);
+            log(line);
             continue;
           }
           if (/Snapshot blob consists of/.test(line)) {
             blobStatStarted = true;
             continue;
           }
-          if (/Snapshot blob statistics end/.test(line)) {
+          if (/Snapshot blob contain/.test(line)) {
+            log(line);
             blobStatEnded = true;
             continue;
           }
           if (blobStatStarted && !blobStatEnded) {
-            log(line, name);
+            log(line);
           }
         }
         return true;
@@ -67,8 +72,6 @@ function generateSnapshot(name = getName()) {
 
 const buf1 = generateSnapshot();
 const buf2 = generateSnapshot();
-console.log(buf1.length.toString(16));
-console.log(buf2.length.toString(16));
 
 const diff = [];
 let offset = 0;
