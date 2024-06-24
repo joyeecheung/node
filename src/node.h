@@ -732,6 +732,8 @@ struct StartExecutionCallbackInfo {
   v8::Local<v8::Object> process_object;
   v8::Local<v8::Function> native_require;
   v8::Local<v8::Function> run_cjs;
+  v8::Local<v8::Function> run_esm;
+  void* data;
 };
 
 using StartExecutionCallback =
@@ -758,11 +760,20 @@ using EmbedderPreloadCallback =
 NODE_EXTERN v8::MaybeLocal<v8::Value> LoadEnvironment(
     Environment* env,
     StartExecutionCallback cb,
-    EmbedderPreloadCallback preload = nullptr);
+    EmbedderPreloadCallback preload = nullptr,
+    void* callback_data = nullptr);
+
+enum class ScriptKind : uint8_t {
+  kCommonJS,
+  kESM,
+};
+
 NODE_EXTERN v8::MaybeLocal<v8::Value> LoadEnvironment(
     Environment* env,
     std::string_view main_script_source_utf8,
-    EmbedderPreloadCallback preload = nullptr);
+    EmbedderPreloadCallback preload = nullptr,
+    ScriptKind kind = ScriptKind::kCommonJS);
+
 NODE_EXTERN void FreeEnvironment(Environment* env);
 
 // Set a callback that is called when process.exit() is called from JS,

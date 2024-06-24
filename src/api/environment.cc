@@ -513,7 +513,8 @@ NODE_EXTERN std::unique_ptr<InspectorParentHandle> GetInspectorParentHandle(
 
 MaybeLocal<Value> LoadEnvironment(Environment* env,
                                   StartExecutionCallback cb,
-                                  EmbedderPreloadCallback preload) {
+                                  EmbedderPreloadCallback preload,
+                                  void* callback_data) {
   env->InitializeLibuv();
   env->InitializeDiagnostics();
   if (preload) {
@@ -524,21 +525,34 @@ MaybeLocal<Value> LoadEnvironment(Environment* env,
   return StartExecution(env, cb);
 }
 
+struct LoadMainScriptData {
+  std::string_view main_script_source_utf8;
+  ScriptKind kind;
+  Environment* env;
+};
+
+MaybeLocal<Value> LoadMainScript(const StartExecutionCallbackInfo& info) {
+  LoadMainScriptData* data = static_cast<LoadMainScriptData*>(info.data);
+  Local<Context> context = data->env->context();
+  Isolate* isolate = data->env->isolate();
+  Local<Value> main_script =
+      ToV8Value(context, data->main_script_source_utf8).ToLocalChecked();
+  if (data->kind == ScriptKind::kCommonJS) {
+    return info.run_cjs->Call(context, Null(isolate), 1, &main_script);
+  } else {
+    return info.run_esm->Call(context, Null(isolate), 1, &main_script);
+  }
+}
+
 MaybeLocal<Value> LoadEnvironment(Environment* env,
                                   std::string_view main_script_source_utf8,
-                                  EmbedderPreloadCallback preload) {
+                                  EmbedderPreloadCallback preload,
+                                  ScriptKind kind) {
   // It could be empty when it's used by SEA to load an empty script.
   CHECK_IMPLIES(main_script_source_utf8.size() > 0,
                 main_script_source_utf8.data());
-  return LoadEnvironment(
-      env,
-      [&](const StartExecutionCallbackInfo& info) -> MaybeLocal<Value> {
-        Local<Value> main_script =
-            ToV8Value(env->context(), main_script_source_utf8).ToLocalChecked();
-        return info.run_cjs->Call(
-            env->context(), Null(env->isolate()), 1, &main_script);
-      },
-      std::move(preload));
+  LoadMainScriptData data{main_script_source_utf8, kind, env};
+  return LoadEnvironment(env, LoadMainScript, std::move(preload), &data);
 }
 
 Environment* GetCurrentEnvironment(Local<Context> context) {
