@@ -132,7 +132,7 @@ class SnapshotByteSink {
 
   ~SnapshotByteSink() = default;
 
-  void Put(uint8_t b, const char* description) { data_.push_back(b); }
+  void Put(uint8_t b, const char* description);
 
   void PutN(int number_of_bytes, const uint8_t v, const char* description);
   // Append a uint30 with run-length encoding. Must be decoded with GetUint30.
@@ -148,7 +148,11 @@ class SnapshotByteSink {
 
   const std::vector<uint8_t>* data() const { return &data_; }
 
+  void set_should_log(bool value) {
+    should_log_ = value;
+  }
  private:
+  bool should_log_ = false;
   std::vector<uint8_t> data_;
 };
 

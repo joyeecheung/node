@@ -77,6 +77,10 @@ ContextSerializer::~ContextSerializer() {
   OutputStatistics("ContextSerializer");
 }
 
+void ContextSerializer::set_should_log(bool value) {
+  sink_.set_should_log(value);
+}
+
 void ContextSerializer::Serialize(Tagged<Context>* o,
                                   const DisallowGarbageCollection& no_gc) {
   context_ = *o;
