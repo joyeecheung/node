@@ -363,12 +363,21 @@ describe('Module syntax detection', { concurrency: !process.env.TEST_PARALLEL },
       strictEqual(signal, null);
     });
 
+    it('does not warn when the module is in node_modules', async () => {
+      const { stdout, stderr, code, signal } = await spawnPromisified(process.execPath, [
+        fixtures.path('es-modules/package-type-module/imports-esm-without-type.js'),
+      ]);
+
+      strictEqual(stderr, '');
+      strictEqual(stdout, 'executed\n');
+      strictEqual(code, 0);
+      strictEqual(signal, null);
+    });
 
     it('warns only once for a package.json that affects multiple files', async () => {
       const { stdout, stderr, code, signal } = await spawnPromisified(process.execPath, [
         fixtures.path('es-modules/package-without-type/detected-as-esm.js'),
       ]);
-
       match(stderr, /MODULE_TYPELESS_PACKAGE_JSON/);
       strictEqual(stderr.match(/MODULE_TYPELESS_PACKAGE_JSON/g).length, 1);
       strictEqual(stdout, 'executed\nexecuted\n');
