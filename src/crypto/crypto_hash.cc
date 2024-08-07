@@ -37,9 +37,10 @@ Hash::Hash(Environment* env, Local<Object> wrap) {
   InitializeCppgc(this, env, wrap);
 }
 
-void Hash::MemoryInfo(MemoryTracker* tracker) const {
-  tracker->TrackFieldWithSize("mdctx", mdctx_ ? kSizeOf_EVP_MD_CTX : 0);
-  tracker->TrackFieldWithSize("md", digest_ ? md_len_ : 0);
+void Hash::Trace(cppgc::Visitor* visitor) const {
+  CppgcMixin::Trace(visitor);
+  visitor->TraceExternal(&mdctx_);
+  visitor->TraceExternal(&digest_);
 }
 
 #if OPENSSL_VERSION_MAJOR >= 3

@@ -9,24 +9,35 @@
 #include "env.h"
 #include "memory_tracker.h"
 #include "v8.h"
+#include "cppgc/external.h"
 
 namespace node {
 namespace crypto {
+
+class ExternalEVPCtx final : public cppgc::External {
+ public:
+  virtual size_t GetSize() const override {
+    return ptr_ ? kSizeOf_EVP_MD_CTX : 0;
+  }
+  virtual const char* GetHumanReadableName() const override { return "EVP_CTX"; }
+  virtual void Trace(cppgc::Visitor* v) const override {}
+
+  EVP_MD_CTX* get() const { return ptr_.get(); }
+  void reset(EVP_MD_CTX* ptr = nullptr) { ptr_.reset(ptr); }
+  explicit operator bool() const { return !!ptr_; }
+
+ private:
+  EVPMDCtxPointer ptr_{};
+};
+
 class Hash final : public cppgc::GarbageCollected<Hash>,
-                   public MemoryRetainer,
                    public cppgc::NameProvider,
                    public CppgcMixin {
  public:
   static void Initialize(Environment* env, v8::Local<v8::Object> target);
   static void RegisterExternalReferences(ExternalReferenceRegistry* registry);
-
-  void MemoryInfo(MemoryTracker* tracker) const override;
-  SET_MEMORY_INFO_NAME(Hash)
-  SET_SELF_SIZE(Hash)
-  void Trace(cppgc::Visitor* visitor) const final {
-    CppgcMixin::Trace(visitor);
-  }
   const char* GetHumanReadableName() const final { return "Node / Hash"; }
+  void Trace(cppgc::Visitor* visitor) const final;
 
   bool HashInit(const EVP_MD* md, v8::Maybe<unsigned int> xof_md_len);
   bool HashUpdate(const char* data, size_t len);
@@ -43,7 +54,7 @@ class Hash final : public cppgc::GarbageCollected<Hash>,
   static void HashDigest(const v8::FunctionCallbackInfo<v8::Value>& args);
 
  private:
-  EVPMDCtxPointer mdctx_{};
+  ExternalEVPCtx mdctx_{};
   unsigned int md_len_ = 0;
   ByteSource digest_;
 };

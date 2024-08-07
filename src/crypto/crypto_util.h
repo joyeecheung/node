@@ -12,6 +12,7 @@
 #include "string_bytes.h"
 #include "util.h"
 #include "v8.h"
+#include "cppgc/external.h"
 
 #include "ncrypto.h"
 
@@ -198,7 +199,7 @@ T* MallocOpenSSL(size_t count) {
 
 // A helper class representing a read-only byte array. When deallocated, its
 // contents are zeroed.
-class ByteSource {
+class ByteSource : public cppgc::External {
  public:
   class Builder {
    public:
@@ -312,6 +313,12 @@ class ByteSource {
 
   static ByteSource FromSecretKeyBytes(
       Environment* env, v8::Local<v8::Value> value);
+
+  virtual size_t GetSize() const {
+    return size_;
+  }
+  virtual const char* GetHumanReadableName() const { return "Node / ByteSource"; }
+  virtual void Trace(cppgc::Visitor* v) const {}
 
  private:
   const void* data_ = nullptr;
