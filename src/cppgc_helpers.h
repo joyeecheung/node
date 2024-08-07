@@ -23,7 +23,7 @@ namespace node {
 // TODO(joyeecheung): make it a class template?
 class CppgcMixin : public cppgc::GarbageCollectedMixin {
  public:
-  enum { kEmbedderType, kSlot, kInternalFieldCount };
+  enum InternalFields { kEmbedderType = 0, kSlot, kInternalFieldCount };
 
   // This must not be a constructor but called in the child class constructor,
   // per cppgc::GarbageCollectedMixin rules.
@@ -32,6 +32,10 @@ class CppgcMixin : public cppgc::GarbageCollectedMixin {
     env_ = env;
     traced_reference_ = v8::TracedReference<v8::Object>(env->isolate(), obj);
     SetCppgcReference(env->isolate(), obj, ptr);
+    // We are adding this additional slot to that BaseObject and cppgc-managed
+    // objects share the same layout.
+    CHECK_GE(obj->InternalFieldCount(), T::kInternalFieldCount);
+    obj->SetAlignedPointerInInternalField(T::kSlot, ptr);
   }
 
   v8::Local<v8::Object> object() const {
@@ -42,6 +46,9 @@ class CppgcMixin : public cppgc::GarbageCollectedMixin {
 
   template <typename T>
   static T* Unwrap(v8::Local<v8::Object> obj) {
+    // We are not using v8::Object::Unwrap currently because that requires access
+    // to isolate which the ASSIGN_OR_RETURN_UNWRAP macro that we'll shim with
+    // cppgc-allocated types doesn't take.
     if (obj->InternalFieldCount() != T::kInternalFieldCount) {
       return nullptr;
     }
