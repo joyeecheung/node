@@ -1,6 +1,6 @@
 'use strict';
 const path = require('path');
-const { addHooks, removeHooks } = require('module');
+const { registerHooks, deregisterHooks } = require('module');
 const { fileURLToPath } = require('url');
 
 // Adapted from https://github.com/watson/module-details-from-path/blob/master/index.js
@@ -34,10 +34,10 @@ class Hook {
         exports: originalExports
       };
     }
-    this.id = addHooks({ exports });
+    this.id = registerHooks({ exports });
   }
   unhook() {
-    removeHooks(this.id);
+    deregisterHooks(this.id);
   }
 }
 
