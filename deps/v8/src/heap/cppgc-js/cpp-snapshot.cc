@@ -36,9 +36,9 @@ using cppgc::internal::HeapObjectHeader;
 // Node representing a C++ object on the heap.
 class EmbedderNode : public v8::EmbedderGraph::Node {
  public:
-  EmbedderNode(const HeapObjectHeader* header_address,
-               cppgc::internal::HeapObjectName name, size_t size)
-      : header_address_(header_address),
+  EmbedderNode(const void* address, cppgc::internal::HeapObjectName name,
+               size_t size)
+      : address_(address),
         name_(name.value),
         size_(name.name_was_hidden ? 0 : size) {}
   ~EmbedderNode() override = default;
@@ -75,10 +75,10 @@ class EmbedderNode : public v8::EmbedderGraph::Node {
     return named_edge_str;
   }
 
-  const void* GetAddress() override { return header_address_; }
+  const void* GetAddress() override { return address_; }
 
  private:
-  const void* header_address_;
+  const void* address_;
   const char* name_;
   size_t size_;
   Node* wrapper_node_ = nullptr;
@@ -328,6 +328,17 @@ class RootState final : public StateBase {
   ~RootState() final = default;
 };
 
+// External states are similar to regular states with the difference that they
+// are always visible.
+class ExternalState final : public StateBase {
+ public:
+  ExternalState(const cppgc::External* ref, EmbedderNode* node,
+                size_t state_count)
+      // External states are always visited, visible, and have a node attached.
+      : StateBase(ref, state_count, Visibility::kVisible, node, true) {}
+  ~ExternalState() final = default;
+};
+
 // Abstraction for storing states. Storage allows for creation and lookup of
 // different state objects.
 class StateStorage final {
@@ -353,6 +364,17 @@ class StateStorage final {
       USE(it);
     }
     return GetExistingState(header);
+  }
+
+  State& GetOrCreateExternalState(EmbedderNode* node,
+                                  const cppgc::External* ref) {
+    if (!StateExists(ref)) {
+      auto it = states_.insert(std::make_pair(
+          ref, std::make_unique<ExternalState>(ref, node, ++state_count_)));
+      DCHECK(it.second);
+      USE(it);
+    }
+    return static_cast<State&>(GetExistingState(ref));
   }
 
   RootState& CreateRootState(EmbedderRootNode* root_node) {
@@ -455,6 +477,8 @@ class CppGraphBuilderImpl final {
   void VisitWeakContainerForVisibility(const HeapObjectHeader&);
   void VisitRootForGraphBuilding(RootState&, const HeapObjectHeader&,
                                  const cppgc::SourceLocation&);
+  void VisitExternalForGraphBuilding(EmbedderNode* node,
+                                     const cppgc::External* ref);
   void ProcessPendingObjects();
 
   void RecordEphemeronKey(const HeapObjectHeader&, const HeapObjectHeader&);
@@ -469,6 +493,25 @@ class CppGraphBuilderImpl final {
     return static_cast<EmbedderNode*>(graph_.AddNode(
         std::unique_ptr<v8::EmbedderGraph::Node>{new EmbedderNode(
             &header, header.GetName(), header.AllocatedSize())}));
+  }
+
+  EmbedderNode* AddExternalEdge(State& parent, const cppgc::External* ref,
+                                const std::string& edge_name) {
+    DCHECK(parent.IsVisibleNotDependent());
+    if (!parent.get_node()) {
+      parent.set_node(AddNode(*parent.header()));
+    }
+    v8::EmbedderGraph::Node* child = graph_.AddNode(
+        std::unique_ptr<v8::EmbedderGraph::Node>(new EmbedderNode(
+            ref, {ref->GetHumanReadableName(), false}, ref->GetSize())));
+
+    if (!edge_name.empty()) {
+      graph_.AddEdge(parent.get_node(), child,
+                     parent.get_node()->InternalizeEdgeName(edge_name));
+    } else {
+      graph_.AddEdge(parent.get_node(), child);
+    }
+    return static_cast<EmbedderNode*>(child);
   }
 
   void AddEdge(State& parent, const HeapObjectHeader& header,
@@ -770,6 +813,13 @@ class GraphBuildingVisitor final : public JSVisitor {
                            edge_name_);
   }
 
+  // JS handling.
+  void VisitExternal(const cppgc::External* ref) final {
+    EmbedderNode* child = graph_builder_.AddExternalEdge(
+        parent_scope_.ParentAsRegularState(), ref, edge_name_);
+    graph_builder_.VisitExternalForGraphBuilding(child, ref);
+  }
+
   void set_edge_name(std::string edge_name) {
     edge_name_ = std::move(edge_name);
   }
@@ -840,6 +890,15 @@ class CppGraphBuilderImpl::VisitationItem final : public WorkstackItemBase {
     }
   }
 };
+
+void CppGraphBuilderImpl::VisitExternalForGraphBuilding(
+    EmbedderNode* node, const cppgc::External* ref) {
+  auto& current = states_.GetOrCreateExternalState(node, ref);
+  ParentScope parent_scope(current);
+  // TODO(joyee): or use a special ExternalVisitor?
+  GraphBuildingVisitor visitor(*this, parent_scope);
+  ref->Trace(&visitor);
+}
 
 void CppGraphBuilderImpl::VisitForVisibility(State* parent,
                                              const HeapObjectHeader& header) {

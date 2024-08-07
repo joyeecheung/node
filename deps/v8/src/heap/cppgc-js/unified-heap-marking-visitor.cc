@@ -89,6 +89,13 @@ void UnifiedHeapMarkingVisitorBase::VisitEphemeron(const void* key,
   marking_state_.ProcessEphemeron(key, value, value_desc, *this);
 }
 
+void UnifiedHeapMarkingVisitorBase::VisitExternal(const cppgc::External* ref) {
+  // TODO(joyee): invoke isolate->AdjustAmountOfExternalAllocatedMemory()
+  // at some time with the tracked bytes, or incoorporate it into the GC
+  // schedule at some later time.
+  marking_state_.AccountCppgcExternal(ref);
+}
+
 void UnifiedHeapMarkingVisitorBase::VisitWeakContainer(
     const void* self, TraceDescriptor strong_desc, TraceDescriptor weak_desc,
     WeakCallback callback, const void* data) {

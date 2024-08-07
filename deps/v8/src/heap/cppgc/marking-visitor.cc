@@ -67,6 +67,10 @@ void MarkingVisitorBase::VisitEphemeron(const void* key, const void* value,
   marking_state_.ProcessEphemeron(key, value, value_desc, *this);
 }
 
+// void MarkingVisitorBase::VisitExternal(const cppgc::External* ref) {
+//   marking_state_.AccountCppgcExternal(ref);
+// }
+
 void MarkingVisitorBase::VisitWeakContainer(const void* object,
                                             TraceDescriptor strong_desc,
                                             TraceDescriptor weak_desc,
