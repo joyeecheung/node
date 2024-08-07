@@ -1,8 +1,7 @@
 'use strict';
 
 const ts = require('../../snapshot/typescript');
-const { addHooks } = require('node:module');
-const path = require('path');
+const { registerHooks } = require('node:module');
 const extensions = {
   '.cts': 'typescript-commonjs',
   '.mts': 'typescript-esm',
@@ -63,4 +62,4 @@ function load(url, context, nextLoad) {
   return result;
 }
 
-addHooks({ resolve, load });
+registerHooks({ resolve, load });

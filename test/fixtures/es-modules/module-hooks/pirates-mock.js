@@ -1,6 +1,6 @@
 'use strict';
 const { fileURLToPath } = require('url');
-const { addHooks, removeHooks } = require('module');
+const { registerHooks, deregisterHooks } = require('module');
 
 function addHook(hook, options) {
   function load(url, context, nextLoad) {
@@ -18,10 +18,10 @@ function addHook(hook, options) {
     return { source }
   }
 
-  const id = addHooks({ load });
+  const id = registerHooks({ load });
 
   return function revert() {
-    removeHooks(id);
+    deregisterHooks(id);
   };
 }
 
