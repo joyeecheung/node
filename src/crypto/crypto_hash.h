@@ -19,7 +19,7 @@ class ExternalEVPCtx final : public cppgc::External {
   virtual size_t GetSize() const override {
     return ptr_ ? kSizeOf_EVP_MD_CTX : 0;
   }
-  virtual const char* GetHumanReadableName() const override { return "EVP_CTX"; }
+  virtual const char* GetHumanReadableName() const override { return "EVP_MD_CTX"; }
   virtual void Trace(cppgc::Visitor* v) const override {}
 
   EVP_MD_CTX* get() const { return ptr_.get(); }
