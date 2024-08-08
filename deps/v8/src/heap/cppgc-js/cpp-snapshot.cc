@@ -30,6 +30,7 @@ namespace internal {
 class CppGraphBuilderImpl;
 class StateStorage;
 class State;
+class ExternalState;
 
 using cppgc::internal::HeapObjectHeader;
 
@@ -109,12 +110,19 @@ class StateBase {
     kVisible,
   };
 
+  enum class Type {
+    kRegular,
+    kExternal,
+    kRoot,
+  };
+
   StateBase(const void* key, size_t state_count, Visibility visibility,
-            EmbedderNode* node, bool visited)
+            EmbedderNode* node, bool visited, Type type)
       : key_(key),
         state_count_(state_count),
         visibility_(visibility),
         node_(node),
+        type_(type),
         visited_(visited) {
     DCHECK_NE(Visibility::kDependentVisibility, visibility);
   }
@@ -144,70 +152,7 @@ class StateBase {
     return node_;
   }
 
- protected:
-  const void* key_;
-  // State count keeps track of node processing order. It is used to create only
-  // dependencies on ancestors in the sub graph which ensures that there will be
-  // no cycles in dependencies.
-  const size_t state_count_;
-
-  Visibility visibility_;
-  StateBase* visibility_dependency_ = nullptr;
-  EmbedderNode* node_;
-  bool visited_;
-  bool pending_ = false;
-
-  Visibility GetVisibility() {
-    FollowDependencies();
-    return visibility_;
-  }
-
-  StateBase* FollowDependencies() {
-    if (visibility_ != Visibility::kDependentVisibility) {
-      CHECK_NULL(visibility_dependency_);
-      return this;
-    }
-    StateBase* current = this;
-    std::vector<StateBase*> dependencies;
-    while (current->visibility_dependency_ &&
-           current->visibility_dependency_ != current) {
-      DCHECK_EQ(Visibility::kDependentVisibility, current->visibility_);
-      dependencies.push_back(current);
-      current = current->visibility_dependency_;
-    }
-    auto new_visibility = Visibility::kDependentVisibility;
-    auto* new_visibility_dependency = current;
-    if (current->visibility_ == Visibility::kVisible) {
-      new_visibility = Visibility::kVisible;
-      new_visibility_dependency = nullptr;
-    } else if (!IsPending()) {
-      DCHECK(IsVisited());
-      // The object was not visible (above case). Having a dependency on itself
-      // or null means no visible object was found.
-      new_visibility = Visibility::kHidden;
-      new_visibility_dependency = nullptr;
-    }
-    current->visibility_ = new_visibility;
-    current->visibility_dependency_ = new_visibility_dependency;
-    for (auto* state : dependencies) {
-      state->visibility_ = new_visibility;
-      state->visibility_dependency_ = new_visibility_dependency;
-    }
-    return current;
-  }
-
-  friend class State;
-};
-
-class State final : public StateBase {
- public:
-  State(const HeapObjectHeader& header, size_t state_count)
-      : StateBase(&header, state_count, Visibility::kHidden, nullptr, false) {}
-  ~State() final = default;
-
-  const HeapObjectHeader* header() const {
-    return static_cast<const HeapObjectHeader*>(key_);
-  }
+  Type type() const { return type_; }
 
   void MarkVisited() { visited_ = true; }
 
@@ -262,6 +207,73 @@ class State final : public StateBase {
     }
   }
 
+ protected:
+  const void* key_;
+  // State count keeps track of node processing order. It is used to create only
+  // dependencies on ancestors in the sub graph which ensures that there will be
+  // no cycles in dependencies.
+  const size_t state_count_;
+
+  Visibility visibility_;
+  StateBase* visibility_dependency_ = nullptr;
+  EmbedderNode* node_;
+  Type type_;
+  bool visited_;
+  bool pending_ = false;
+
+  Visibility GetVisibility() {
+    FollowDependencies();
+    return visibility_;
+  }
+
+  StateBase* FollowDependencies() {
+    if (visibility_ != Visibility::kDependentVisibility) {
+      CHECK_NULL(visibility_dependency_);
+      return this;
+    }
+    StateBase* current = this;
+    std::vector<StateBase*> dependencies;
+    while (current->visibility_dependency_ &&
+           current->visibility_dependency_ != current) {
+      DCHECK_EQ(Visibility::kDependentVisibility, current->visibility_);
+      dependencies.push_back(current);
+      current = current->visibility_dependency_;
+    }
+    auto new_visibility = Visibility::kDependentVisibility;
+    auto* new_visibility_dependency = current;
+    if (current->visibility_ == Visibility::kVisible) {
+      new_visibility = Visibility::kVisible;
+      new_visibility_dependency = nullptr;
+    } else if (!IsPending()) {
+      DCHECK(IsVisited());
+      // The object was not visible (above case). Having a dependency on itself
+      // or null means no visible object was found.
+      new_visibility = Visibility::kHidden;
+      new_visibility_dependency = nullptr;
+    }
+    current->visibility_ = new_visibility;
+    current->visibility_dependency_ = new_visibility_dependency;
+    for (auto* state : dependencies) {
+      state->visibility_ = new_visibility;
+      state->visibility_dependency_ = new_visibility_dependency;
+    }
+    return current;
+  }
+
+  friend class State;
+  friend class ExternalState;
+};
+
+class State final : public StateBase {
+ public:
+  State(const HeapObjectHeader& header, size_t state_count)
+      : StateBase(&header, state_count, Visibility::kHidden, nullptr, false,
+                  Type::kRegular) {}
+  ~State() final = default;
+
+  const HeapObjectHeader* header() const {
+    return static_cast<const HeapObjectHeader*>(key_);
+  }
   void MarkAsWeakContainer() { is_weak_container_ = true; }
   bool IsWeakContainer() const { return is_weak_container_; }
 
@@ -324,19 +336,21 @@ class RootState final : public StateBase {
  public:
   RootState(EmbedderRootNode* node, size_t state_count)
       // Root states are always visited, visible, and have a node attached.
-      : StateBase(node, state_count, Visibility::kVisible, node, true) {}
+      : StateBase(node, state_count, Visibility::kVisible, node, true,
+                  Type::kRoot) {}
   ~RootState() final = default;
 };
 
-// External states are similar to regular states with the difference that they
-// are always visible.
 class ExternalState final : public StateBase {
  public:
-  ExternalState(const cppgc::External* ref, EmbedderNode* node,
-                size_t state_count)
-      // External states are always visited, visible, and have a node attached.
-      : StateBase(ref, state_count, Visibility::kVisible, node, true) {}
+  ExternalState(const cppgc::External* external, size_t state_count)
+      : StateBase(external, state_count, Visibility::kVisible, nullptr, false,
+                  Type::kExternal) {}
   ~ExternalState() final = default;
+
+  const cppgc::External* external() const {
+    return static_cast<const cppgc::External*>(key_);
+  }
 };
 
 // Abstraction for storing states. Storage allows for creation and lookup of
@@ -366,15 +380,14 @@ class StateStorage final {
     return GetExistingState(header);
   }
 
-  State& GetOrCreateExternalState(EmbedderNode* node,
-                                  const cppgc::External* ref) {
+  ExternalState& GetOrCreateExternalState(const cppgc::External* ref) {
     if (!StateExists(ref)) {
       auto it = states_.insert(std::make_pair(
-          ref, std::make_unique<ExternalState>(ref, node, ++state_count_)));
+          ref, std::make_unique<ExternalState>(ref, ++state_count_)));
       DCHECK(it.second);
       USE(it);
     }
-    return static_cast<State&>(GetExistingState(ref));
+    return static_cast<ExternalState&>(GetExistingState(ref));
   }
 
   RootState& CreateRootState(EmbedderRootNode* root_node) {
@@ -467,18 +480,17 @@ class CppGraphBuilderImpl final {
 
   void Run();
 
-  void VisitForVisibility(State* parent, const HeapObjectHeader&);
-  void VisitForVisibility(State& parent, const TracedReferenceBase&);
+  void VisitForVisibility(StateBase* parent, const HeapObjectHeader&);
+  void VisitForVisibility(StateBase& parent, const TracedReferenceBase&);
   void VisitEphemeronForVisibility(const HeapObjectHeader& key,
                                    const HeapObjectHeader& value);
+  void VisitExternalForVisibility(const cppgc::External* ref);
   void VisitEphemeronWithNonGarbageCollectedValueForVisibility(
       const HeapObjectHeader& key, const void* value,
       cppgc::TraceDescriptor value_desc);
   void VisitWeakContainerForVisibility(const HeapObjectHeader&);
   void VisitRootForGraphBuilding(RootState&, const HeapObjectHeader&,
                                  const cppgc::SourceLocation&);
-  void VisitExternalForGraphBuilding(EmbedderNode* node,
-                                     const cppgc::External* ref);
   void ProcessPendingObjects();
 
   void RecordEphemeronKey(const HeapObjectHeader&, const HeapObjectHeader&);
@@ -495,15 +507,41 @@ class CppGraphBuilderImpl final {
             &header, header.GetName(), header.AllocatedSize())}));
   }
 
-  EmbedderNode* AddExternalEdge(State& parent, const cppgc::External* ref,
-                                const std::string& edge_name) {
-    DCHECK(parent.IsVisibleNotDependent());
-    if (!parent.get_node()) {
-      parent.set_node(AddNode(*parent.header()));
-    }
-    v8::EmbedderGraph::Node* child = graph_.AddNode(
+  EmbedderNode* AddNode(const cppgc::External* external) {
+    return static_cast<EmbedderNode*>(graph_.AddNode(
         std::unique_ptr<v8::EmbedderGraph::Node>(new EmbedderNode(
-            ref, {ref->GetHumanReadableName(), false}, ref->GetSize())));
+            external, {external->GetHumanReadableName(), false},
+            external->GetSize()))));
+  }
+
+  EmbedderNode* GetOrCreateNode(StateBase& state) {
+    EmbedderNode* node = state.get_node();
+    if (node) {
+      return node;
+    }
+    switch (state.type()) {
+      case StateBase::Type::kRegular: {
+        node = AddNode(*static_cast<State&>(state).header());
+        break;
+      }
+      case StateBase::Type::kExternal: {
+        node = AddNode(static_cast<ExternalState&>(state).external());
+        break;
+      }
+      case StateBase::Type::kRoot: {
+        UNREACHABLE();  // Root nodes should always have node already creaetd.
+      }
+    }
+    state.set_node(node);
+    return node;
+  }
+
+  void AddEdge(StateBase& parent, const cppgc::External* ref,
+               const std::string& edge_name) {
+    DCHECK(parent.IsVisibleNotDependent());
+    GetOrCreateNode(parent);
+    auto& current = states_.GetOrCreateExternalState(ref);
+    EmbedderNode* child = GetOrCreateNode(current);
 
     if (!edge_name.empty()) {
       graph_.AddEdge(parent.get_node(), child,
@@ -511,10 +549,10 @@ class CppGraphBuilderImpl final {
     } else {
       graph_.AddEdge(parent.get_node(), child);
     }
-    return static_cast<EmbedderNode*>(child);
   }
 
-  void AddEdge(State& parent, const HeapObjectHeader& header,
+  // TODO(joyee): accept StateBase to handle external parent?
+  void AddEdge(StateBase& parent, const HeapObjectHeader& header,
                const std::string& edge_name) {
     DCHECK(parent.IsVisibleNotDependent());
     auto& current = states_.GetExistingState(header);
@@ -522,12 +560,8 @@ class CppGraphBuilderImpl final {
 
     // Both states are visible. Create nodes in case this is the first edge
     // created for any of them.
-    if (!parent.get_node()) {
-      parent.set_node(AddNode(*parent.header()));
-    }
-    if (!current.get_node()) {
-      current.set_node(AddNode(header));
-    }
+    GetOrCreateNode(parent);
+    GetOrCreateNode(current);
 
     if (!edge_name.empty()) {
       graph_.AddEdge(parent.get_node(), current.get_node(),
@@ -537,16 +571,15 @@ class CppGraphBuilderImpl final {
     }
   }
 
-  void AddEdge(State& parent, const TracedReferenceBase& ref,
+  // TODO(joyee): this shouldn't accept ExternalState as parent?
+  void AddEdge(StateBase& parent, const TracedReferenceBase& ref,
                const std::string& edge_name) {
     DCHECK(parent.IsVisibleNotDependent());
     v8::Local<v8::Data> v8_data =
         ref.Get(reinterpret_cast<v8::Isolate*>(cpp_heap_.isolate()));
     if (v8_data.IsEmpty()) return;
 
-    if (!parent.get_node()) {
-      parent.set_node(AddNode(*parent.header()));
-    }
+    GetOrCreateNode(parent);
     auto* v8_node = graph_.V8Node(v8_data);
     if (!edge_name.empty()) {
       graph_.AddEdge(parent.get_node(), v8_node,
@@ -572,7 +605,9 @@ class CppGraphBuilderImpl final {
 
     // If the back reference doesn't point to the same header, just return. In
     // such a case we have stand-alone references to a wrapper.
-    if (parent.header() != back_state.header()) return;
+    if (parent.type() == StateBase::Type::kRegular) {
+      if (static_cast<State&>(parent).header() != back_state.header()) return;
+    }
 
     // Back reference points to parents header. In this case, the nodes should
     // be merged and query the detachedness state of the embedder.
@@ -648,9 +683,20 @@ class ParentScope final {
   explicit ParentScope(StateBase& parent) : parent_(parent) {}
 
   RootState& ParentAsRootState() const {
+    DCHECK_EQ(parent_.type(), StateBase::Type::kRoot);
     return static_cast<RootState&>(parent_);
   }
-  State& ParentAsRegularState() const { return static_cast<State&>(parent_); }
+  State& ParentAsRegularState() const {
+    DCHECK_EQ(parent_.type(), StateBase::Type::kRegular);
+    return static_cast<State&>(parent_);
+  }
+
+  ExternalState& ParentAExternalState() const {
+    DCHECK_EQ(parent_.type(), StateBase::Type::kExternal);
+    return static_cast<ExternalState&>(parent_);
+  }
+
+  StateBase& parent() const { return parent_; }
 
  private:
   StateBase& parent_;
@@ -716,6 +762,10 @@ class WeakVisitor : public JSVisitor {
         key_header, HeapObjectHeader::FromObject(value));
   }
 
+  void VisitExternal(const cppgc::External* external) final {
+    graph_builder_.VisitExternalForVisibility(external);
+  }
+
  protected:
   class WeakContainerScope {
    public:
@@ -749,14 +799,13 @@ class VisiblityVisitor final : public WeakVisitor {
   // C++ handling.
   void Visit(const void*, cppgc::TraceDescriptor desc) final {
     graph_builder_.VisitForVisibility(
-        &parent_scope_.ParentAsRegularState(),
+        &parent_scope_.parent(),
         HeapObjectHeader::FromObject(desc.base_object_payload));
   }
 
   // JS handling.
   void Visit(const TracedReferenceBase& ref) final {
-    graph_builder_.VisitForVisibility(parent_scope_.ParentAsRegularState(),
-                                      ref);
+    graph_builder_.VisitForVisibility(parent_scope_.parent(), ref);
   }
 
  private:
@@ -792,7 +841,7 @@ class GraphBuildingVisitor final : public JSVisitor {
   // C++ handling.
   void Visit(const void*, cppgc::TraceDescriptor desc) final {
     graph_builder_.AddEdge(
-        parent_scope_.ParentAsRegularState(),
+        parent_scope_.parent(),
         HeapObjectHeader::FromObject(desc.base_object_payload), edge_name_);
   }
   void VisitWeakContainer(const void* object,
@@ -802,22 +851,19 @@ class GraphBuildingVisitor final : public JSVisitor {
     // Add an edge from the object holding the weak container to the weak
     // container itself.
     graph_builder_.AddEdge(
-        parent_scope_.ParentAsRegularState(),
+        parent_scope_.parent(),
         HeapObjectHeader::FromObject(strong_desc.base_object_payload),
         edge_name_);
   }
 
   // JS handling.
   void Visit(const TracedReferenceBase& ref) final {
-    graph_builder_.AddEdge(parent_scope_.ParentAsRegularState(), ref,
-                           edge_name_);
+    graph_builder_.AddEdge(parent_scope_.parent(), ref, edge_name_);
   }
 
-  // JS handling.
+  // External handling.
   void VisitExternal(const cppgc::External* ref) final {
-    EmbedderNode* child = graph_builder_.AddExternalEdge(
-        parent_scope_.ParentAsRegularState(), ref, edge_name_);
-    graph_builder_.VisitExternalForGraphBuilding(child, ref);
+    graph_builder_.AddEdge(parent_scope_.parent(), ref, edge_name_);
   }
 
   void set_edge_name(std::string edge_name) {
@@ -834,15 +880,15 @@ class GraphBuildingVisitor final : public JSVisitor {
 // in stack fashion.
 class CppGraphBuilderImpl::WorkstackItemBase {
  public:
-  WorkstackItemBase(State* parent, State& current)
+  WorkstackItemBase(StateBase* parent, StateBase& current)
       : parent_(parent), current_(current) {}
 
   virtual ~WorkstackItemBase() = default;
   virtual void Process(CppGraphBuilderImpl&) = 0;
 
  protected:
-  State* parent_;
-  State& current_;
+  StateBase* parent_;
+  StateBase& current_;
 };
 
 void CppGraphBuilderImpl::ProcessPendingObjects() {
@@ -857,7 +903,7 @@ void CppGraphBuilderImpl::ProcessPendingObjects() {
 // been processed first.
 class CppGraphBuilderImpl::VisitationDoneItem final : public WorkstackItemBase {
  public:
-  VisitationDoneItem(State* parent, State& current)
+  VisitationDoneItem(StateBase* parent, StateBase& current)
       : WorkstackItemBase(parent, current) {}
 
   void Process(CppGraphBuilderImpl& graph_builder) final {
@@ -869,7 +915,7 @@ class CppGraphBuilderImpl::VisitationDoneItem final : public WorkstackItemBase {
 
 class CppGraphBuilderImpl::VisitationItem final : public WorkstackItemBase {
  public:
-  VisitationItem(State* parent, State& current)
+  VisitationItem(StateBase* parent, StateBase& current)
       : WorkstackItemBase(parent, current) {}
 
   void Process(CppGraphBuilderImpl& graph_builder) final {
@@ -881,9 +927,16 @@ class CppGraphBuilderImpl::VisitationItem final : public WorkstackItemBase {
     }
     ParentScope parent_scope(current_);
     VisiblityVisitor object_visitor(graph_builder, parent_scope);
-    if (!current_.header()->IsInConstruction()) {
-      // TODO(mlippautz): Handle in construction objects.
-      current_.header()->Trace(&object_visitor);
+    if (current_.type() == StateBase::Type::kRegular) {
+      auto& current = static_cast<State&>(current_);
+      if (!current.header()->IsInConstruction()) {
+        // TODO(mlippautz): Handle in construction objects.
+        current.header()->Trace(&object_visitor);
+      }
+    } else {
+      DCHECK_EQ(current_.type(), StateBase::Type::kExternal);
+      auto& current = static_cast<ExternalState&>(current_);
+      current.external()->Trace(&object_visitor);
     }
     if (!parent_) {
       current_.UnmarkPending();
@@ -891,16 +944,20 @@ class CppGraphBuilderImpl::VisitationItem final : public WorkstackItemBase {
   }
 };
 
-void CppGraphBuilderImpl::VisitExternalForGraphBuilding(
-    EmbedderNode* node, const cppgc::External* ref) {
-  auto& current = states_.GetOrCreateExternalState(node, ref);
-  ParentScope parent_scope(current);
-  // TODO(joyee): or use a special ExternalVisitor?
-  GraphBuildingVisitor visitor(*this, parent_scope);
-  ref->Trace(&visitor);
+void CppGraphBuilderImpl::VisitExternalForVisibility(
+    const cppgc::External* ref) {
+  auto& current = states_.GetOrCreateExternalState(ref);
+  if (current.IsVisited()) {
+    return;
+  }
+  current.MarkVisited();
+  // If we reach here, parent is visible.
+  current.MarkVisible();
+  WeakVisitor weak_visitor(*this);
+  ref->Trace(&weak_visitor);
 }
 
-void CppGraphBuilderImpl::VisitForVisibility(State* parent,
+void CppGraphBuilderImpl::VisitForVisibility(StateBase* parent,
                                              const HeapObjectHeader& header) {
   auto& current = states_.GetOrCreateState(header);
 
@@ -979,7 +1036,7 @@ void CppGraphBuilderImpl::AddConservativeEphemeronKeyEdgesIfNeeded(
   });
 }
 
-void CppGraphBuilderImpl::VisitForVisibility(State& parent,
+void CppGraphBuilderImpl::VisitForVisibility(StateBase& parent,
                                              const TracedReferenceBase& ref) {
   v8::Local<v8::Data> v8_value =
       ref.Get(reinterpret_cast<v8::Isolate*>(cpp_heap_.isolate()));
@@ -1054,29 +1111,44 @@ void CppGraphBuilderImpl::Run() {
   visitor.Traverse(cpp_heap_.raw_heap());
   // Second pass: Add graph nodes for objects that must be shown.
   states_.ForAllVisibleStates([this](StateBase* state_base) {
-    // No roots have been created so far, so all StateBase objects are State.
-    State& state = *static_cast<State*>(state_base);
+    StateBase::Type type = state_base->type();
+    // No roots have been created so far.
+    CHECK_NE(type, StateBase::Type::kRoot);
+    if (type == StateBase::Type::kRegular) {
+      State& state = *static_cast<State*>(state_base);
 
-    // Emit no edges for the contents of the weak containers. For both, fully
-    // weak and ephemeron containers, the contents should be retained from
-    // somewhere else.
-    if (state.IsWeakContainer()) return;
-
-    ParentScope parent_scope(state);
-    GraphBuildingVisitor object_visitor(*this, parent_scope);
-    if (!state.header()->IsInConstruction()) {
-      // TODO(mlippautz): Handle in-construction objects.
-      state.header()->Trace(&object_visitor);
+      // Emit no edges for the contents of the weak containers. For both, fully
+      // weak and ephemeron containers, the contents should be retained from
+      // somewhere else.
+      if (state.IsWeakContainer()) return;
     }
-    state.ForAllEphemeronEdges([this, &state](const HeapObjectHeader& value) {
-      AddEdge(state, value, "part of key -> value pair in ephemeron table");
-    });
-    object_visitor.set_edge_name(
-        "part of key -> value pair in ephemeron table");
-    state.ForAllEagerEphemeronEdges(
-        [&object_visitor](const void* value, cppgc::TraceCallback callback) {
-          callback(&object_visitor, value);
-        });
+
+    ParentScope parent_scope(*state_base);
+    GraphBuildingVisitor object_visitor(*this, parent_scope);
+
+    if (type == StateBase::Type::kRegular) {
+      State& state = *static_cast<State*>(state_base);
+      if (!state.header()->IsInConstruction()) {
+        // TODO(mlippautz): Handle in-construction objects.
+        state.header()->Trace(&object_visitor);
+      }
+      state.ForAllEphemeronEdges([this, &state](const HeapObjectHeader& value) {
+        AddEdge(state, value, "part of key -> value pair in ephemeron table");
+      });
+      object_visitor.set_edge_name(
+          "part of key -> value pair in ephemeron table");
+      state.ForAllEagerEphemeronEdges(
+          [&object_visitor](const void* value, cppgc::TraceCallback callback) {
+            callback(&object_visitor, value);
+          });
+    } else {
+      DCHECK_EQ(type, StateBase::Type::kExternal);
+      // TODO(joyeecheung): the visitor for externals may be limited in what
+      // it can trace.
+      static_cast<ExternalState*>(state_base)
+          ->external()
+          ->Trace(&object_visitor);
+    }
   });
   // Add roots.
   {
