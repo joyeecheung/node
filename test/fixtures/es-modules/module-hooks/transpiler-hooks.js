@@ -3,17 +3,17 @@
 const ts = require('../../snapshot/typescript');
 const { registerHooks } = require('node:module');
 const extensions = {
-  '.cts': 'typescript-commonjs',
-  '.mts': 'typescript-esm',
+  '.cts': 'commonjs-typescript',
+  '.mts': 'module-typescript',
   '.ts': 'typescript',
 };
 
 const output = {
-  'typescript-commonjs': {
+  'commonjs-typescript': {
     options: { module: ts.ModuleKind.CommonJS },
     format: 'commonjs',
   },
-  'typescript-esm': {
+  'module-typescript': {
     options: { module: ts.ModuleKind.ESNext },
     format: 'module',
   },
@@ -45,7 +45,7 @@ function load(url, context, nextLoad) {
   const loadResult = nextLoad(url, context);
   const { source: rawSource, format } = loadResult;
 
-  if (!format || !format.startsWith('typescript')) {
+  if (!format || !format.includes('typescript')) {
     return { format, source: rawSource };
   }
 

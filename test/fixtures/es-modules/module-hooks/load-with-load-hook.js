@@ -1,6 +1,6 @@
 'use strict';
 
-const { addHook } = require('./pirates-mock');
+const { addHook } = require('./add-hook');
 
 const matcherArgs = [];
 function matcher(filename) {
@@ -10,16 +10,22 @@ function matcher(filename) {
 
 function hook(code, filename) {
   hookArgs.push({ code, filename });
-  return code.replace('world', 'earth');
+  return code.replace('$key', 'hello');
 }
+
 const hookArgs = [];
-const revert = addHook(hook, { exts: ['.js'], matcher });
+function register() {
+  return addHook(hook, { exts: ['.js'], matcher });
+}
 
 module.exports = {
-  load(id) {
+  localRequire(id) {
     return require(id);
   },
-  revert,
+  localImport(id) {
+    return import(id);
+  },
+  register,
   matcherArgs,
   hookArgs,
 };
