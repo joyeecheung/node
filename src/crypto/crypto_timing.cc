@@ -59,13 +59,13 @@ bool FastTimingSafeEqual(Local<Value> receiver,
   uint8_t* data_b;
   if (a.length() != b.length() || !a.getStorageIfAligned(&data_a) ||
       !b.getStorageIfAligned(&data_b)) {
-    TRACK_V8_FAST_API_CALL("crypto.timingSafeEqual.error");
+    TRACK_V8_FAST_API_CALL(crypto_timingSafeEqual_error);
     HandleScope scope(options.isolate);
     THROW_ERR_CRYPTO_TIMING_SAFE_EQUAL_LENGTH(options.isolate);
     return false;
   }
 
-  TRACK_V8_FAST_API_CALL("crypto.timingSafeEqual.ok");
+  TRACK_V8_FAST_API_CALL(crypto_timingSafeEqual_ok);
   return CRYPTO_memcmp(data_a, data_b, a.length()) == 0;
 }
 

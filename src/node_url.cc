@@ -174,14 +174,14 @@ void BindingData::CanParse(const FunctionCallbackInfo<Value>& args) {
 
 bool BindingData::FastCanParse(Local<Value> receiver,
                                const FastOneByteString& input) {
-  TRACK_V8_FAST_API_CALL("url.canParse");
+  TRACK_V8_FAST_API_CALL(url_canParse);
   return ada::can_parse(std::string_view(input.data, input.length));
 }
 
 bool BindingData::FastCanParseWithBase(Local<Value> receiver,
                                        const FastOneByteString& input,
                                        const FastOneByteString& base) {
-  TRACK_V8_FAST_API_CALL("url.canParse.withBase");
+  TRACK_V8_FAST_API_CALL(url_canParse_withBase);
   auto base_view = std::string_view(base.data, base.length);
   return ada::can_parse(std::string_view(input.data, input.length), &base_view);
 }

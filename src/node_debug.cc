@@ -1,6 +1,5 @@
 #include "node_debug.h"
 
-#ifdef DEBUG
 #include "node_binding.h"
 
 #include "env-inl.h"
@@ -15,7 +14,6 @@
 namespace node {
 namespace debug {
 
-#ifdef DEBUG
 using v8::Context;
 using v8::FastApiCallbackOptions;
 using v8::FunctionCallbackInfo;
@@ -44,6 +42,7 @@ void GetV8FastApiCallCount(const FunctionCallbackInfo<Value>& args) {
   args.GetReturnValue().Set(GetV8FastApiCallCount(utf8_key.ToString()));
 }
 
+#ifdef DEBUG
 void SlowIsEven(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
   if (!args[0]->IsNumber()) {
@@ -82,20 +81,20 @@ bool FastIsOdd(Local<Value> receiver,
 
 static v8::CFunction fast_is_even(v8::CFunction::Make(FastIsEven));
 static v8::CFunction fast_is_odd(v8::CFunction::Make(FastIsOdd));
+#endif /// DEBUG
 
 void Initialize(Local<Object> target,
                 Local<Value> unused,
                 Local<Context> context,
                 void* priv) {
   SetMethod(context, target, "getV8FastApiCallCount", GetV8FastApiCallCount);
+#ifdef DEBUG
   SetFastMethod(context, target, "isEven", SlowIsEven, &fast_is_even);
   SetFastMethod(context, target, "isOdd", SlowIsOdd, &fast_is_odd);
-}
 #endif  // DEBUG
+}
 
 }  // namespace debug
 }  // namespace node
 
-#ifdef DEBUG
 NODE_BINDING_CONTEXT_AWARE_INTERNAL(debug, node::debug::Initialize)
-#endif  // DEBUG

@@ -13,7 +13,7 @@ namespace debug {
 void TrackV8FastApiCall(std::string_view key);
 int GetV8FastApiCallCount(std::string_view key);
 
-#define TRACK_V8_FAST_API_CALL(key) node::debug::TrackV8FastApiCall(key)
+#define TRACK_V8_FAST_API_CALL(key) node::debug::TrackV8FastApiCall(#key)
 #else  // !DEBUG
 #define TRACK_V8_FAST_API_CALL(key)
 #endif  // DEBUG
