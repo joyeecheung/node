@@ -51,6 +51,7 @@ class V8_EXPORT_PRIVATE UnifiedHeapMarkingVisitorBase : public JSVisitor {
 #endif  // defined(CPPGC_POINTER_COMPRESSION)
   void VisitWeak(const void*, TraceDescriptor, WeakCallback, const void*) final;
   void VisitEphemeron(const void*, const void*, TraceDescriptor) final;
+  void VisitExternal(const cppgc::External* ref) final;
   void VisitWeakContainer(const void* self, TraceDescriptor strong_desc,
                           TraceDescriptor weak_desc, WeakCallback callback,
                           const void* data) final;

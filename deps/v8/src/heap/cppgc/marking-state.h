@@ -7,6 +7,7 @@
 
 #include <algorithm>
 
+#include "include/cppgc/external.h"
 #include "include/cppgc/trace-trait.h"
 #include "include/cppgc/visitor.h"
 #include "src/base/logging.h"
@@ -147,6 +148,11 @@ class BasicMarkingState : public MarkingStateBase {
   inline void AccountMarkedBytes(BasePage*, size_t);
   size_t marked_bytes() const { return marked_bytes_; }
 
+  inline void AccountCppgcExternal(const cppgc::External* ref);
+  size_t externally_managed_bytes_from_cppgc() {
+    return externally_managed_bytes_from_cppgc_;
+  }
+
   V8_EXPORT_PRIVATE void Publish() override;
 
   MarkingWorklists::PreviouslyNotFullyConstructedWorklist::Local&
@@ -224,6 +230,7 @@ class BasicMarkingState : public MarkingStateBase {
       movable_slots_worklist_;
 
   size_t marked_bytes_ = 0;
+  size_t externally_managed_bytes_from_cppgc_ = 0;
   bool in_ephemeron_processing_ = false;
   bool discovered_new_ephemeron_pairs_ = false;
   bool in_atomic_pause_ = false;
@@ -340,6 +347,12 @@ void BasicMarkingState::AccountMarkedBytes(const HeapObjectHeader& header) {
   auto* base_page =
       BasePage::FromPayload(&const_cast<HeapObjectHeader&>(header));
   AccountMarkedBytes(base_page, marked_bytes);
+}
+
+void BasicMarkingState::AccountCppgcExternal(const cppgc::External* ref) {
+  // TODO(joyee): maybe track the last reported size in cppgc::External so
+  // that we can compute the delta on the go?
+  externally_managed_bytes_from_cppgc_ += ref->GetSize();
 }
 
 void BasicMarkingState::AccountMarkedBytes(BasePage* base_page,

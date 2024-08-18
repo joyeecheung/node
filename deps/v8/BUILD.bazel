@@ -567,6 +567,7 @@ filegroup(
         "include/cppgc/default-platform.h",
         "include/cppgc/ephemeron-pair.h",
         "include/cppgc/explicit-management.h",
+        "include/cppgc/external.h",
         "include/cppgc/garbage-collected.h",
         "include/cppgc/heap.h",
         "include/cppgc/heap-consistency.h",

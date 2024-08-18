@@ -823,5 +823,78 @@ TEST_F(UnifiedHeapSnapshotTest, DynamicName) {
       ContainsRetainingPath(*snapshot, {kExpectedCppRootsName, "static name"}));
 }
 
+namespace {
+
+struct ExternalBytes : public cppgc::External {
+  explicit ExternalBytes(size_t size) : data(new char[size]), data_size(size) {}
+  ~ExternalBytes() { delete[] data; }
+
+  virtual size_t GetSize() const { return data_size; }
+  virtual const char* GetHumanReadableName() const { return "ExternalBytes"; }
+  virtual void Trace(cppgc::Visitor* v) const {}
+
+  char* data = nullptr;
+  size_t data_size = 0;
+};
+
+struct GCedWithExternal : public cppgc::GarbageCollected<GCedWithExternal>,
+                          public cppgc::NameProvider {
+ public:
+  explicit GCedWithExternal(size_t size) : bytes_(size) {}
+
+  virtual void Trace(cppgc::Visitor* v) const { v->TraceExternal(&bytes_); }
+
+  const char* GetHumanReadableName() const final { return "GCedWithExternal"; }
+
+  ExternalBytes bytes_;
+};
+
+std::vector<HeapGraphEdge*> FindEdges(HeapEntry* parent,
+                                      const char* child_type_name) {
+  std::vector<HeapGraphEdge*> results;
+  for (int i = 0; i < parent->children_count(); i++) {
+    HeapGraphEdge* edge = parent->child(i);
+    if (0 == strcmp(edge->to()->name(), child_type_name)) {
+      results.push_back(edge);
+    }
+  }
+  return results;
+}
+}  // namespace
+
+TEST_F(UnifiedHeapSnapshotTest, ExternalMember) {
+  v8::Isolate* isolate = v8_isolate();
+  JsTestingScope testing_scope(isolate);
+
+  cppgc::Persistent<GCedWithExternal> ref =
+      cppgc::MakeGarbageCollected<GCedWithExternal>(
+          isolate->GetCppHeap()->GetAllocationHandle(), 10);
+
+  const v8::HeapSnapshot* snapshot = TakeHeapSnapshot();
+  EXPECT_TRUE(IsValidSnapshot(snapshot));
+
+  const HeapSnapshot* i_snapshot =
+      reinterpret_cast<const HeapSnapshot*>(snapshot);
+  auto cpp_roots = FindEdges(i_snapshot->root(), kExpectedCppRootsName);
+  CHECK(!cpp_roots.empty());
+
+  std::vector<HeapGraphEdge*> ref_edges;
+  for (auto edge : cpp_roots) {
+    std::vector<HeapGraphEdge*> results =
+        FindEdges(edge->to(), ref->GetHumanReadableName());
+    ref_edges.insert(ref_edges.end(), results.begin(), results.end());
+  }
+
+  CHECK_EQ(1, ref_edges.size());
+  HeapEntry* wrap_entry = ref_edges[0]->to();
+
+  std::vector<HeapGraphEdge*> external_edges =
+      FindEdges(wrap_entry, "ExternalBytes");
+  CHECK_EQ(1, external_edges.size());
+  HeapGraphEdge* edge = external_edges[0];
+  HeapEntry* external_entry = edge->to();
+  CHECK_EQ(10, external_entry->self_size());
+}
+
 }  // namespace internal
 }  // namespace v8

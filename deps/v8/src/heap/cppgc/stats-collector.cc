@@ -126,6 +126,9 @@ void StatsCollector::NotifyMarkingStarted(CollectionType collection_type,
 }
 
 void StatsCollector::NotifyMarkingCompleted(size_t marked_bytes) {
+  // TODO(joyee): track externally managed bytes by cppgc here?
+  // It's not clear whether keeping a total per marking cycle is
+  // accurate enough for adding it into ExternalMemoryAccounting.
   DCHECK_EQ(GarbageCollectionState::kMarking, gc_state_);
   gc_state_ = GarbageCollectionState::kSweeping;
   current_.marked_bytes = marked_bytes;

@@ -24,7 +24,7 @@ class UnifiedHeapTest : public TestWithHeapInternalsAndContext {
   UnifiedHeapTest();
   explicit UnifiedHeapTest(
       std::vector<std::unique_ptr<cppgc::CustomSpaceBase>>);
-  ~UnifiedHeapTest() override = default;
+  ~UnifiedHeapTest() override;
 
   void CollectGarbageWithEmbedderStack(cppgc::Heap::SweepingType sweeping_type =
                                            cppgc::Heap::SweepingType::kAtomic);

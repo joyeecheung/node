@@ -31,6 +31,11 @@ UnifiedHeapTest::UnifiedHeapTest(
   isolate()->heap()->AttachCppHeap(cpp_heap_.get());
 }
 
+UnifiedHeapTest::~UnifiedHeapTest() {
+  isolate()->heap()->DetachCppHeap();
+  cpp_heap_->Terminate();
+}
+
 void UnifiedHeapTest::CollectGarbageWithEmbedderStack(
     cppgc::Heap::SweepingType sweeping_type) {
   EmbedderStackStateScope stack_scope(
