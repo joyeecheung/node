@@ -17,7 +17,7 @@ function addHook(hook, options) {
     if (!options.matcher(filename)) {
       return result;
     }
-    return { source: hook(result.source.toString(), filename) }
+    return { ...result, source: hook(result.source.toString(), filename) }
   }
 
   const registered = registerHooks({ load });
