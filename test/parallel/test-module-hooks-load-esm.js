@@ -27,25 +27,25 @@ function hook(code, filename) {
 
   {
     const foo = await loader.import('foo-esm');
-    const filename = fixtures.path('es-modules', 'module-hooks', 'node_modules', 'foo-esm', 'foo-esm.js')
+    const filename = fixtures.path('es-modules', 'module-hooks', 'node_modules', 'foo-esm', 'foo-esm.js');
     assert.deepStrictEqual(matcherArgs, [filename]);
     const code = readFileSync(filename, 'utf-8');
     assert.deepStrictEqual(hookArgs, [{ code, filename }]);
-    assert.deepStrictEqual(foo, { hello: 'foo-esm' });
+    assert.deepStrictEqual({ ...foo }, { hello: 'foo-esm' });
   }
-  
+
   matcherArgs.splice(0, 1);
   hookArgs.splice(0, 1);
-  
+
   revert();
-  
+
   // Later loads are unaffected.
-  
+
   {
     const bar = await loader.import('bar-esm');
     assert.deepStrictEqual(matcherArgs, []);
     assert.deepStrictEqual(hookArgs, []);
-    assert.deepStrictEqual(bar, { $key: 'bar-esm' });
+    assert.deepStrictEqual({ ...bar }, { $key: 'bar-esm' });
   }
-  
+
 })().catch(common.mustNotCall());
