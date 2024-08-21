@@ -1,6 +1,6 @@
 'use strict';
 
-const { registerHooks, deregisterHooks } = require('module');
+const { registerHooks } = require('module');
 const { fileURLToPath } = require('url');
 const { getStats } = require('./get-stats');
 class Hook {
@@ -17,10 +17,10 @@ class Hook {
         exports: originalExports
       };
     }
-    this.id = registerHooks({ exports });
+    this.hook = registerHooks({ exports });
   }
   unhook() {
-    deregisterHooks(this.id);
+    this.hook.deregister();
   }
 }
 

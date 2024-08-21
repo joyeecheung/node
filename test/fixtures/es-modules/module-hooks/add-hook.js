@@ -1,6 +1,6 @@
 'use strict';
 const { fileURLToPath } = require('url');
-const { registerHooks, deregisterHooks } = require('module');
+const { registerHooks } = require('module');
 
 // This is a simplified version of the pirates package API to
 // check that a similar API can be built on top of the public
@@ -20,10 +20,10 @@ function addHook(hook, options) {
     return { source: hook(result.source.toString(), filename) }
   }
 
-  const id = registerHooks({ load });
+  const registered = registerHooks({ load });
 
   return function revert() {
-    deregisterHooks(id);
+    registered.deregister();
   };
 }
 

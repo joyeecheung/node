@@ -5,7 +5,7 @@ const assert = require('assert');
 const { load, hook } = require('../fixtures/es-modules/module-hooks/load-with-exports-hook');
 
 const foo = load('foo');
-assert.deepStrictEqual(foo, { '$key': 'foo', _version: '1.0.0' });
+assert.deepStrictEqual(foo, { '$key': 'foo', '_version': '1.0.0' });
 
 hook.unhook();
 
