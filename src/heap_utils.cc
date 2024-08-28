@@ -53,26 +53,9 @@ class JSGraphJSNode : public EmbedderGraph::Node {
   bool IsEmbedderNode() override { return false; }
   Local<Data> V8Value() { return PersistentToLocal::Strong(persistent_); }
 
-  int IdentityHash() {
-    Local<Data> d = V8Value();
-    // TODO(joyeecheung): return something better?
-    if (!d->IsValue()) return reinterpret_cast<std::uintptr_t>(this);
-    Local<Value> v = d.As<Value>();
-    if (v->IsObject()) return v.As<Object>()->GetIdentityHash();
-    if (v->IsName()) return v.As<v8::Name>()->GetIdentityHash();
-    if (v->IsInt32()) return v.As<v8::Int32>()->Value();
-    return 0;
-  }
-
   JSGraphJSNode(Isolate* isolate, Local<Data> val) : persistent_(isolate, val) {
     CHECK(!val.IsEmpty());
   }
-
-  struct Hash {
-    inline size_t operator()(JSGraphJSNode* n) const {
-      return static_cast<size_t>(n->IdentityHash());
-    }
-  };
 
   struct Equal {
     inline bool operator()(JSGraphJSNode* a, JSGraphJSNode* b) const {
@@ -223,8 +206,7 @@ class JSGraph : public EmbedderGraph {
  private:
   Isolate* isolate_;
   std::unordered_set<std::unique_ptr<Node>> nodes_;
-  std::unordered_set<JSGraphJSNode*, JSGraphJSNode::Hash, JSGraphJSNode::Equal>
-      engine_nodes_;
+  std::set<JSGraphJSNode*, JSGraphJSNode::Equal> engine_nodes_;
   std::unordered_map<Node*, std::set<std::pair<const char*, Node*>>> edges_;
 };
 
