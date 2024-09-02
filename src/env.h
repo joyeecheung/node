@@ -42,6 +42,7 @@
 #include "node_main_instance.h"
 #include "node_options.h"
 #include "node_perf_common.h"
+#include "node_rc.h"
 #include "node_realm.h"
 #include "node_snapshotable.h"
 #include "permission/permission.h"
@@ -1128,6 +1129,7 @@ class Environment final : public MemoryRetainer {
 
   std::unique_ptr<CompileCacheHandler> compile_cache_handler_;
   std::shared_ptr<EnvironmentOptions> options_;
+  std::unique_ptr<RuntimeConfigs> configs_;
   // options_ contains debug options parsed from CLI arguments,
   // while inspector_host_port_ stores the actual inspector host
   // and port being used. For example the port is -1 by default

@@ -45,6 +45,7 @@
 #include "node_snapshot_builder.h"
 #include "node_v8_platform-inl.h"
 #include "node_version.h"
+#include "path.h"
 
 #if HAVE_OPENSSL
 #include "ncrypto.h"
@@ -1002,6 +1003,16 @@ InitializeOncePerProcessInternal(const std::vector<std::string>& args,
     if (result->exit_code_enum() != ExitCode::kNoFailure) {
       result->early_return_ = true;
       return result;
+    }
+  }
+
+  // This needs some heuristics to find out the entrypoint.
+  std::filesystem::path base = std::filesystem::current_path();
+  if (result->args_.size() > 0) {
+    if (result->args_[0] == "inspect") {
+      base = (base / result->args_[1]).parent_path();
+    } else {
+      base = (base / result->args_[0]).parent_path();
     }
   }
 
