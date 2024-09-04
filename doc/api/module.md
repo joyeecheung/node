@@ -1101,6 +1101,28 @@ added:
 `path` is the resolved path for the file for which a corresponding source map
 should be fetched.
 
+### `module.flushCompileCache([keepDeserializedCache])`
+
+<!-- YAML
+added:
+ - REPLACEME
+-->
+
+> Stability: 1.1 - Active Development
+
+* `keepDeserializedCache` {boolean} Whether the cache read from disk and already deserialized to
+                                    compile the corresponding modules should be kept after flushing.
+                                    Defaults to `false`.
+
+Flush the [module compile cache][] accumulated from loaded modules to disk.
+
+In most cases, it's not necessary to set the `keepDeserializedCache` option. After a module
+is compiled, there is another tier of module cache in Node.js, so keeping the code cache that
+is already deserialized into a live module usually just increases memory usage for no
+additional benefit. It's only useful if users intentionally purge the live cache e.g.
+by deleting from `require.cache` while expecting most source code to still remain unchanged
+and can be recompiled using the cache already read from disk.
+
 ### Class: `module.SourceMap`
 
 <!-- YAML
