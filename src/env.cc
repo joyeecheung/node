@@ -1143,7 +1143,7 @@ CompileCacheEnableResult Environment::EnableCompileCache(
       compile_cache_handler_ = std::move(handler);
       AtExit(
           [](void* env) {
-            static_cast<Environment*>(env)->compile_cache_handler()->Persist();
+            static_cast<Environment*>(env)->FlushCompileCache(true);
           },
           this);
     }
@@ -1158,6 +1158,13 @@ CompileCacheEnableResult Environment::EnableCompileCache(
     result.cache_directory = compile_cache_handler_->cache_dir();
   }
   return result;
+}
+
+void Environment::FlushCompileCache(bool keep_deserialized_cache) {
+  if (!compile_cache_handler_ || compile_cache_handler_->cache_dir().empty()) {
+    return;
+  }
+  compile_cache_handler_->Persist(keep_deserialized_cache);
 }
 
 void Environment::ExitEnv(StopFlags::Flags flags) {

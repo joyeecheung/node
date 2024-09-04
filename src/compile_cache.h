@@ -30,6 +30,8 @@ struct CompileCacheEntry {
   std::string source_filename;
   CachedCodeType type;
   bool refreshed = false;
+  bool persisted = false;
+
   // Copy the cache into a new store for V8 to consume. Caller takes
   // ownership.
   v8::ScriptCompiler::CachedData* CopyCache() const;
@@ -58,7 +60,7 @@ class CompileCacheHandler {
   explicit CompileCacheHandler(Environment* env);
   CompileCacheEnableResult Enable(Environment* env, const std::string& dir);
 
-  void Persist();
+  void Persist(bool keep_deserialized_cache);
 
   CompileCacheEntry* GetOrInsert(v8::Local<v8::String> code,
                                  v8::Local<v8::String> filename,
