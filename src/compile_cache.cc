@@ -52,11 +52,16 @@ uint32_t GetCacheKey(std::string_view filename, CachedCodeType type) {
 }
 
 template <typename... Args>
-inline void CompileCacheHandler::Debug(const char* format,
-                                       Args&&... args) const {
-  if (UNLIKELY(is_debug_)) {
+void Debug(bool is_debug, const char* format, Args&&... args) {
+  if (UNLIKELY(is_debug)) {
     FPrintF(stderr, format, std::forward<Args>(args)...);
   }
+}
+
+template <typename... Args>
+inline void CompileCacheHandler::Debug(const char* format,
+                                       Args&&... args) const {
+  Debug(is_debug_, format, std::forward<Args>(args)...);
 }
 
 v8::ScriptCompiler::CachedData* CompileCacheEntry::CopyCache() const {
@@ -293,62 +298,166 @@ void CompileCacheHandler::MaybeSave(CompileCacheEntry* entry,
 void CompileCacheHandler::Persist() {
   DCHECK(!compile_cache_dir_.empty());
 
-  // NOTE(joyeecheung): in most circumstances the code caching reading
-  // writing logic is lenient enough that it's fine even if someone
-  // overwrites the cache (that leads to either size or hash mismatch
-  // in subsequent loads and the overwritten cache will be ignored).
-  // Also in most use cases users should not change the files on disk
-  // too rapidly. Therefore locking is not currently implemented to
-  // avoid the cost.
+  uv_loop_t loop;
+  if (uv_loop_init(&loop)) {
+    Debug("[compile cache] Failed to initialize loop for persisting the cache\n");
+    return;
+  }
+
+  // TODO(joyeecheung): start the writes right after the cache is generated.
+  // Either on the main thread or use a new thread, depending on which one has
+  // a bigger overhead.
+  std::vector<CacheRequest> requests;
   for (auto& pair : compiler_cache_store_) {
     auto* entry = pair.second.get();
     if (entry->cache == nullptr) {
       Debug("[compile cache] skip %s because the cache was not initialized\n",
             entry->source_filename);
-      continue;
+      return;
     }
     if (entry->refreshed == false) {
       Debug("[compile cache] skip %s because cache was the same\n",
             entry->source_filename);
-      continue;
+      return;
     }
-
-    DCHECK_EQ(entry->cache->buffer_policy,
-              v8::ScriptCompiler::CachedData::BufferOwned);
-    char* cache_ptr =
-        reinterpret_cast<char*>(const_cast<uint8_t*>(entry->cache->data));
-    uint32_t cache_size = static_cast<uint32_t>(entry->cache->length);
-    uint32_t cache_hash = GetHash(cache_ptr, cache_size);
-
-    // Generating headers.
-    std::vector<uint32_t> headers(kHeaderCount);
-    headers[kMagicNumberOffset] = kCacheMagicNumber;
-    headers[kCodeSizeOffset] = entry->code_size;
-    headers[kCacheSizeOffset] = cache_size;
-    headers[kCodeHashOffset] = entry->code_hash;
-    headers[kCacheHashOffset] = cache_hash;
-
-    Debug("[compile cache] writing cache for %s in %s [%d %d %d %d %d]...",
-          entry->source_filename,
-          entry->cache_filename,
-          headers[kMagicNumberOffset],
-          headers[kCodeSizeOffset],
-          headers[kCacheSizeOffset],
-          headers[kCodeHashOffset],
-          headers[kCacheHashOffset]);
-
-    uv_buf_t headers_buf = uv_buf_init(reinterpret_cast<char*>(headers.data()),
-                                       headers.size() * sizeof(uint32_t));
-    uv_buf_t data_buf = uv_buf_init(cache_ptr, entry->cache->length);
-    uv_buf_t bufs[] = {headers_buf, data_buf};
-
-    int err = WriteFileSync(entry->cache_filename.c_str(), bufs, 2);
-    if (err < 0) {
-      Debug("failed: %s\n", uv_strerror(err));
-    } else {
-      Debug("success\n");
-    }
+    requests.emplace_back(CacheRequest{is_debug_, entry});
+    requests[requests.size() - 1].Start(&loop);
   }
+
+  // Do all the writes using the new event loop, which will be dispatched using the
+  // libuv thread pool.
+  uv_run(&loop, UV_RUN_DEFAULT);
+}
+
+struct CacheRequest {
+  CacheRequest(bool debug, const CompileCacheEntry *entry);
+
+  ~CacheRequest() {
+    Clean();
+  }
+
+  void Clean() {
+    uv_fs_req_cleanup(&mkstemp_req);
+    uv_fs_req_cleanup(&open_req);
+    uv_fs_req_cleanup(&write_req);
+    uv_fs_req_cleanup(&close_req);
+    uv_fs_req_cleanup(&rename_req);
+  }
+
+  template <typename... Args>
+  void Debug(const char* format, Args&&... args) const {
+    Debug(is_debug, format, std::forward<Args>(args)...);
+  }
+
+  void Start(uv_loop_t* loop);
+  static void AfterMkstemp(uv_fs_t* req);
+  static void AfterOpen(uv_fs_t* req);
+  static void AfterWrite(uv_fs_t* req);
+  static void AfterClose(uv_fs_t* req);
+  static void AfterRename(uv_fs_t* req);
+
+  uv_fs_t mkstemp_req;
+  uv_fs_t open_req;
+  uv_fs_t write_req;
+  uv_fs_t close_req;
+  uv_fs_t rename_req;
+
+  uv_file tmpfile_fd;
+  bool is_debug;
+  std::string tmpfile;
+  std::array<uint32_t, CompileCacheHandler::kHeaderCount> headers;
+  std::array<uv_buf_t, 2> bufs;
+  const CompileCacheEntry *cache_entry;
+};
+
+CacheRequest::CacheRequest(bool debug, const CompileCacheEntry *entry)
+  : is_debug(debug), tmpfile(entry->cache_filename + "XXXXXX"), cache_entry(entry) {
+  DCHECK_EQ(entry->cache->buffer_policy,
+            v8::ScriptCompiler::CachedData::BufferOwned);
+}
+
+void CacheRequest::Start(uv_loop_t* loop) {
+  uv_fs_mkstemp(loop, &mkstemp_req, tmpfile.c_str(), AfterMkstemp);
+}
+
+void CacheRequest::AfterMkstemp(uv_fs_t* mkstemp_req) {
+  CacheRequest* cache_req = ContainerOf(&CacheRequest::mkstemp_req, mkstemp_req);
+  if (mkstemp_req->result) {
+    cache_req->Debug("[compile cache] Failed to create %s\n", cache_req->tmpfile);
+    cache_req->Clean();
+    return;
+  }
+  uv_fs_open(mkstemp_req->loop, &(cache_req->open_req), mkstemp_req->path, O_WRONLY | O_CREAT | O_TRUNC, S_IWUSR | S_IRUSR, AfterOpen);
+}
+
+void CacheRequest::AfterOpen(uv_fs_t* open_req) {
+  CacheRequest* cache_req = ContainerOf(&CacheRequest::open_req, open_req);
+  if (open_req->result < 0) {
+    cache_req->Debug("[compile cache] Failed to open %s: %s\n", cache_req->tmpfile, uv_strerror(open_req->result));
+    cache_req->Clean();
+    return;
+  }
+
+  cache_req->tmpfile_fd = open_req->result;
+  const CompileCacheEntry* entry = cache_req->cache_entry;
+  char* cache_ptr =
+      reinterpret_cast<char*>(const_cast<uint8_t*>(entry->cache->data));
+  uint32_t cache_size = static_cast<uint32_t>(entry->cache->length);
+  uint32_t cache_hash = GetHash(cache_ptr, cache_size);
+
+  auto& headers = cache_req->headers;
+  // Generating headers.
+  headers[CompileCacheHandler::kMagicNumberOffset] = kCacheMagicNumber;
+  headers[CompileCacheHandler::kCodeSizeOffset] = entry->code_size;
+  headers[CompileCacheHandler::kCacheSizeOffset] = cache_size;
+  headers[CompileCacheHandler::kCodeHashOffset] = entry->code_hash;
+  headers[CompileCacheHandler::kCacheHashOffset] = cache_hash;
+
+  cache_req->Debug("[compile cache] writing cache for %s in %s [%d %d %d %d %d]...\n",
+        entry->source_filename,
+        cache_req->tmpfile,
+        headers[CompileCacheHandler::kMagicNumberOffset],
+        headers[CompileCacheHandler::kCodeSizeOffset],
+        headers[CompileCacheHandler::kCacheSizeOffset],
+        headers[CompileCacheHandler::kCodeHashOffset],
+        headers[CompileCacheHandler::kCacheHashOffset]);
+  cache_req->bufs[0] = uv_buf_init(reinterpret_cast<char*>(headers.data()),
+                                      headers.size() * sizeof(uint32_t));
+  cache_req->bufs[1] = uv_buf_init(cache_ptr, entry->cache->length);
+
+  uv_fs_write(open_req->loop, &(cache_req->write_req), cache_req->tmpfile_fd, cache_req->bufs.data(), cache_req->bufs.size(), 0, AfterWrite);
+}
+
+void CacheRequest::AfterWrite(uv_fs_t* write_req) {
+  CacheRequest* cache_req = ContainerOf(&CacheRequest::write_req, write_req);
+  if (write_req->result < 0) {
+    cache_req->Debug("[compile cache] Failed to write %s: %s\n", cache_req->tmpfile, uv_strerror(write_req->result));
+    cache_req->Clean();
+    return;
+  }
+
+  cache_req->Debug("[compile cache] Wrote cache for %s in %s\n", cache_req->tmpfile, uv_strerror(write_req->result));
+  uv_fs_close(write_req->loop, &(cache_req->close_req), cache_req->tmpfile_fd, AfterClose);
+}
+
+void CacheRequest::AfterClose(uv_fs_t* close_req) {
+  CacheRequest* cache_req = ContainerOf(&CacheRequest::close_req, close_req);
+  if (close_req->result < 0) {
+    cache_req->Debug("[compile cache] Failed to close %s: %s\n", cache_req->tmpfile, uv_strerror(close_req->result));
+    cache_req->Clean();
+    return;
+  }
+  uv_fs_rename(close_req->loop, &(cache_req->rename_req), cache_req->tmpfile.c_str(), cache_req->cache_entry->cache_filename.c_str(), AfterRename);
+}
+
+void CacheRequest::AfterRename(uv_fs_t* rename_req) {
+  CacheRequest* cache_req = ContainerOf(&CacheRequest::rename_req, rename_req);
+  if (rename_req->result < 0) {
+    cache_req->Debug("[compile cache] Failed to rename %s -> %s: %s\n", cache_req->tmpfile, cache_req->cache_entry->cache_filename, uv_strerror(rename_req->result));
+  } else {
+    cache_req->Debug("[compile cache] Renamed %s -> %s\n", cache_req->tmpfile, cache_req->cache_entry->cache_filename);
+  }
+  cache_req->Clean();
 }
 
 CompileCacheHandler::CompileCacheHandler(Environment* env)

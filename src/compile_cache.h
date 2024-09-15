@@ -71,6 +71,15 @@ class CompileCacheHandler {
                  bool rejected);
   std::string_view cache_dir() { return compile_cache_dir_str_; }
 
+  static void WriteCache(bool is_debug, uv_loop_t* loop, const CompileCacheEntry *entry);
+
+  static constexpr size_t kMagicNumberOffset = 0;
+  static constexpr size_t kCodeSizeOffset = 1;
+  static constexpr size_t kCacheSizeOffset = 2;
+  static constexpr size_t kCodeHashOffset = 3;
+  static constexpr size_t kCacheHashOffset = 4;
+  static constexpr size_t kHeaderCount = 5;
+
  private:
   void ReadCacheFile(CompileCacheEntry* entry);
 
@@ -81,13 +90,6 @@ class CompileCacheHandler {
 
   template <typename... Args>
   inline void Debug(const char* format, Args&&... args) const;
-
-  static constexpr size_t kMagicNumberOffset = 0;
-  static constexpr size_t kCodeSizeOffset = 1;
-  static constexpr size_t kCacheSizeOffset = 2;
-  static constexpr size_t kCodeHashOffset = 3;
-  static constexpr size_t kCacheHashOffset = 4;
-  static constexpr size_t kHeaderCount = 5;
 
   v8::Isolate* isolate_ = nullptr;
   bool is_debug_ = false;
