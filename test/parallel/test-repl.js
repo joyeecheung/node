@@ -601,7 +601,7 @@ const errorTests = [
       /^ {4}at .*/, // at Module._resolveFilename
       /^ {4}at .*/, // at defaultResolve
       /^ {4}at .*/, // at resolveWithHooks
-      /^ {4}at .*/, // at resolveForCJSWithHooks
+      /^ {4}at .*/, // At resolveForCJSWithHooks
       /^ {4}at .*/, // at Function._load
       /^ {4}at .*/, // at TracingChannel.traceSync
       /^ {4}at .*/, // at wrapModuleLoad

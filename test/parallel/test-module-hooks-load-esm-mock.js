@@ -7,8 +7,8 @@ const assert = require('assert');
 const fixtures = require('../common/fixtures');
 const { readFileSync } = require('fs');
 
-const loader = require('../fixtures/es-modules/module-hooks/load-from-this-dir');
-const { addHook } = require('../fixtures/es-modules/module-hooks/add-hook');
+const loader = require('../fixtures/module-hooks/load-from-this-dir');
+const { addHook } = require('../fixtures/module-hooks/add-hook');
 
 const matcherArgs = [];
 function matcher(filename) {
@@ -27,7 +27,7 @@ function hook(code, filename) {
 
   {
     const foo = await loader.import('foo-esm');
-    const filename = fixtures.path('es-modules', 'module-hooks', 'node_modules', 'foo-esm', 'foo-esm.js');
+    const filename = fixtures.path('module-hooks', 'node_modules', 'foo-esm', 'foo-esm.js');
     assert.deepStrictEqual(matcherArgs, [filename]);
     const code = readFileSync(filename, 'utf-8');
     assert.deepStrictEqual(hookArgs, [{ code, filename }]);

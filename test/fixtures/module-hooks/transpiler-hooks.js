@@ -1,6 +1,6 @@
 'use strict';
 
-const ts = require('../../snapshot/typescript');
+const ts = require('../snapshot/typescript');
 const { registerHooks } = require('node:module');
 const extensions = {
   '.cts': 'commonjs-typescript',
