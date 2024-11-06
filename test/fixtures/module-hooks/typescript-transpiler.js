@@ -1,7 +1,6 @@
 'use strict';
 
 const ts = require('../snapshot/typescript');
-const { registerHooks } = require('node:module');
 const extensions = {
   '.cts': 'commonjs-typescript',
   '.mts': 'module-typescript',
@@ -41,25 +40,32 @@ function resolve(specifier, context, nextResolve) {
   return result;
 }
 
+let decoder;
 function load(url, context, nextLoad) {
   const loadResult = nextLoad(url, context);
-  const { source: rawSource, format } = loadResult;
+  const { source, format } = loadResult;
 
   if (!format || !format.includes('typescript')) {
-    return { format, source: rawSource };
+    return { format, source };
   }
 
-  const transpiled = ts.transpileModule(rawSource, {
+  let str = source;
+  if (typeof str !== 'string') {
+    decoder ??= new TextDecoder();
+    str = decoder.decode(source);
+  }
+  const transpiled = ts.transpileModule(str, {
     compilerOptions: output[format].options
   });
-
 
   const result = {
     ...loadResult,
     format: output[format].format,
     source: transpiled.outputText,
   };
+
   return result;
 }
 
-registerHooks({ resolve, load });
+exports.load = load;
+exports.resolve = resolve;

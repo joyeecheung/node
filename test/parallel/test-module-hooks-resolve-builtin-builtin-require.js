@@ -20,7 +20,7 @@ const hook = registerHooks({
 });
 
 // Check assert, which is already loaded.
-// zlib.createSecureServer is a function.
+// zlib.createGzip is a function.
 assert.strictEqual(typeof require('assert').createGzip, 'function');
 
 hook.deregister();
