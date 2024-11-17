@@ -14,13 +14,12 @@ spawnSyncAndAssert(process.execPath,
                      stdout: 'UserAccount { name: \'john\', id: 100 }'
                    });
 
-// FIXME(joyeecheung): builtin gets null as source?
-// spawnSyncAndAssert(process.execPath,
-//                    [
-//                      '--import',
-//                      fixtures.path('module-hooks', 'register-typescript-hooks.js'),
-//                      fixtures.path('module-hooks', 'log-user.ts'),
-//                    ], {
-//                      trim: true,
-//                      stdout: 'UserAccount { name: \'john\', id: 100 }'
-//                    });
+spawnSyncAndAssert(process.execPath,
+                   [
+                     '--import',
+                     fixtures.path('module-hooks', 'register-typescript-hooks.js'),
+                     fixtures.path('module-hooks', 'log-user.ts'),
+                   ], {
+                     trim: true,
+                     stdout: 'UserAccount { name: \'john\', id: 100 }'
+                   });
