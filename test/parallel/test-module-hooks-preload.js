@@ -8,18 +8,42 @@ spawnSyncAndAssert(process.execPath,
                    [
                      '--require',
                      fixtures.path('module-hooks', 'register-typescript-hooks.js'),
-                     fixtures.path('module-hooks', 'log-user.ts'),
+                     fixtures.path('module-hooks', 'log-user.cts'),
                    ], {
                      trim: true,
-                     stdout: 'UserAccount { name: \'john\', id: 100 }'
+                     stdout: 'UserAccount { name: \'john\', id: 100, type: 1 }'
+                   });
+
+spawnSyncAndAssert(process.execPath,
+                   [
+                     '--experimental-strip-types',
+                     '--no-experimental-transform-types',
+                     '--require',
+                     fixtures.path('module-hooks', 'register-typescript-hooks.js'),
+                     fixtures.path('module-hooks', 'log-user.cts'),
+                   ], {
+                     trim: true,
+                     stdout: 'UserAccount { name: \'john\', id: 100, type: 1 }'
                    });
 
 spawnSyncAndAssert(process.execPath,
                    [
                      '--import',
                      fixtures.path('module-hooks', 'register-typescript-hooks.js'),
-                     fixtures.path('module-hooks', 'log-user.ts'),
+                     fixtures.path('module-hooks', 'log-user.mts'),
                    ], {
                      trim: true,
-                     stdout: 'UserAccount { name: \'john\', id: 100 }'
+                     stdout: 'UserAccount { name: \'john\', id: 100, type: 1 }'
+                   });
+
+spawnSyncAndAssert(process.execPath,
+                   [
+                     '--experimental-strip-types',
+                     '--no-experimental-transform-types',
+                     '--import',
+                     fixtures.path('module-hooks', 'register-typescript-hooks.js'),
+                     fixtures.path('module-hooks', 'log-user.mts'),
+                   ], {
+                     trim: true,
+                     stdout: 'UserAccount { name: \'john\', id: 100, type: 1 }'
                    });

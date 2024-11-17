@@ -1,5 +1,3 @@
-'use strict';
-
 import { mustCall } from '../common/index.mjs';
 import assert from 'node:assert';
 import { registerHooks } from 'node:module';
