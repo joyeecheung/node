@@ -599,8 +599,7 @@ const errorTests = [
       /^Require stack:/,
       /^- <repl>/,
       /^ {4}at .*/, // at Module._resolveFilename
-      /^ {4}at .*/, // at defaultResolve
-      /^ {4}at .*/, // at resolveWithHooks
+      /^ {4}at .*/, // at defaultResolveImpl
       /^ {4}at .*/, // At resolveForCJSWithHooks
       /^ {4}at .*/, // at Function._load
       /^ {4}at .*/, // at TracingChannel.traceSync

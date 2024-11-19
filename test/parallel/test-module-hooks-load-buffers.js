@@ -36,7 +36,7 @@ const hook2 = registerHooks({
     } else if (url === 'test://array_buffer_view') {
       return {
         shortCircuit: true,
-        source: encoder.encode(arrayBufferViewSource)
+        source: encoder.encode(arrayBufferViewSource),
       };
     }
     assert.fail('unreachable');
