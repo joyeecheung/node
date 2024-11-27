@@ -743,7 +743,8 @@ export async function load(url, context, nextLoad) {
 Asynchronous hooks are run in a separate thread, isolated from the main thread where
 application code runs. That means it is a different [realm][]. The hooks thread
 may be terminated by the main thread at any time, so do not depend on
-asynchronous operations (like `console.log`) to complete.
+asynchronous operations (like `console.log`) to complete. They are inherited into
+child workers by default.
 
 #### Synchronous hooks accepted by `module.registerHooks()`
 
@@ -763,9 +764,13 @@ function load(url, context, nextLoad) {
 ```
 
 Synchronous hooks are run in the same thread and the same [realm][] where the modules
-are loaded.
-Users can expect `console.log()` to complete in the same way that they
-expect `console.log()` in module code to complete.
+are loaded. Unlike the asynchronous hooks they are not inherited into child worker
+threads by default, though if the hooks are registered using a file preloaded by
+[`--import`][] or [`--require`][], child worker threads can inherit the preloaded scripts
+via `process.execArgv` inheritance. See [the documentation of `Worker`][] for detail.
+
+In synchronous hooks, users can expect `console.log()` to complete in the same way that
+they expect `console.log()` in module code to complete.
 
 #### Conventions of hooks
 
