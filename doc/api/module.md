@@ -352,6 +352,21 @@ changes:
 Register a module that exports [hooks][] that customize Node.js module
 resolution and loading behavior. See [Customization hooks][].
 
+### `module.registerHooks(options)`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+> Stability: 1.1 - Active development
+
+* `options` {Object}
+  * `load` {Function|undefined} See [load hook][]. **Default:** `undefined`.
+  * `resolve` {Function|undefined} See [resolve hook][]. **Default:** `undefined`.
+
+Register [hooks][] that customize Node.js module resolution and loading behavior.
+See [Customization hooks][].
+
 ## `module.stripTypeScriptTypes(code[, options])`
 
 <!-- YAML
@@ -494,19 +509,12 @@ import('node:fs').then((esmFS) => {
 
 ## Customization Hooks
 
-There are two types of module customization hooks that are currently supported:
-
-1. `module.register(specifier[, parentURL][, options])` which takes a module that
-   exports asynchronous hook functions. The functions are run on a separate loader
-   thread.
-2. `module.registerHooks(options)` which takes synchronous hook functions that are
-   run directly on the thread where the module is loaded.
-
-### Off-thread Asynchronous Hooks
-
 <!-- YAML
 added: v8.8.0
 changes:
+  - version: REPLACEME
+    pr-url: https://github.com/nodejs/node/pull/55698
+    description: Add support for synchronous and in-thread hooks.
   - version:
     - v20.6.0
     - v18.19.0
@@ -525,25 +533,41 @@ changes:
 
 <!-- type=misc -->
 
-> Stability: 1.2 - Release candidate
+> Stability: 1.2 - Release candidate (asynchronous version)
+> Stability: 1.1 - Active development (synchronous version)
+
+There are two types of module customization hooks that are currently supported:
+
+1. `module.register(specifier[, parentURL][, options])` which takes a module that
+   exports asynchronous hook functions. The functions are run on a separate loader
+   thread.
+2. `module.registerHooks(options)` which takes synchronous hook functions that are
+   run directly on the thread where the module is loaded.
 
 <i id="enabling_module_customization_hooks"></i>
 
-#### Enabling
+### Enabling
 
-Module resolution and loading can be customized by registering a file which
-exports a set of hooks. This can be done using the [`register`][] method
-from `node:module`, which you can run before your application code by
-using the `--import` flag:
+Module resolution and loading can be customized by:
+
+1. Registering a file which exports a set of asynchronous hook functions, using the
+   [`register`][] method from `node:module`,
+2. Registering a set of synchronous hook functions using the [`registerHooks`][] method
+   from `node:module`.
+
+The hooks can be registered before the application code is run by using the
+[`--import`][] or [`--require`][] flag:
 
 ```bash
 node --import ./register-hooks.js ./my-app.js
+node --require ./register-hooks.js ./my-app.js
 ```
 
 ```mjs
 // register-hooks.js
+// This file can only be require()-ed if it doesn't contain top-level await.
+// To register asynchronous, off-thread hooks, use module.register().
 import { register } from 'node:module';
-
 register('./hooks.mjs', import.meta.url);
 ```
 
@@ -551,24 +575,45 @@ register('./hooks.mjs', import.meta.url);
 // register-hooks.js
 const { register } = require('node:module');
 const { pathToFileURL } = require('node:url');
-
+// To register asynchronous, off-thread hooks, use module.register().
 register('./hooks.mjs', pathToFileURL(__filename));
 ```
 
-The file passed to `--import` can also be an export from a dependency:
+```mjs
+// To register synchronous, in-thread hooks, use module.registerHooks().
+import { registerHooks } from 'node:module';
+registerHooks({
+  resolve(specifier, context, nextResolve) { /* implementation */ },
+  load(url, context, nextLoad) { /* implementation */ },
+});
+```
+
+```cjs
+// To register synchronous, in-thread hooks, use module.registerHooks().
+const { registerHooks } = require('node:module');
+registerHooks({
+  resolve(specifier, context, nextResolve) { /* implementation */ },
+  load(url, context, nextLoad) { /* implementation */ },
+});
+```
+
+The file passed to `--import` or `--require` can also be an export from a dependency:
 
 ```bash
 node --import some-package/register ./my-app.js
+node --require some-package/register ./my-app.js
 ```
 
 Where `some-package` has an [`"exports"`][] field defining the `/register`
 export to map to a file that calls `register()`, like the following `register-hooks.js`
 example.
 
-Using `--import` ensures that the hooks are registered before any application
-files are imported, including the entry point of the application. Alternatively,
-`register` can be called from the entry point, but dynamic `import()` must be
-used for any code that should be run after the hooks are registered:
+Using `--import` or `--require` ensures that the hooks are registered before any
+application files are imported, including the entry point of the application.
+
+Alternatively, `register()` and `registerHooks()` can be called from the entry point,
+though dynamic `import()` must be used for any ESM code that should be run after the hooks
+are registered.
 
 ```mjs
 import { register } from 'node:module';
@@ -591,18 +636,52 @@ register('http-to-https', pathToFileURL(__filename));
 import('./my-app.js');
 ```
 
+Customization hooks will run for any modules loaded later than the registration
+and the modules they reference via `import` and the built-in `require`.
+`require` function created by users using `module.createRequire()` can only be
+customized by the synchronous hooks.
+
 In this example, we are registering the `http-to-https` hooks, but they will
-only be available for subsequently imported modules—in this case, `my-app.js`
-and anything it references via `import` (and optionally `require`). If the
-`import('./my-app.js')` had instead been a static `import './my-app.js'`, the
+only be available for subsequently imported modules — in this case, `my-app.js`
+and anything it references via `import` or built-in `require` in CommonJS dependencies.
+
+If the `import('./my-app.js')` had instead been a static `import './my-app.js'`, the
 app would have _already_ been loaded **before** the `http-to-https` hooks were
 registered. This due to the ES modules specification, where static imports are
 evaluated from the leaves of the tree first, then back to the trunk. There can
 be static imports _within_ `my-app.js`, which will not be evaluated until
 `my-app.js` is dynamically imported.
 
-`my-app.js` can also be CommonJS. Customization hooks will run for any
-modules that it references via `import` (and optionally `require`).
+If synchronous hooks are used, both `import`, `require` and user `require` created
+using `createRequire()` are supported.
+
+```mjs
+import { registerHooks, createRequire } from 'node:module';
+
+registerHooks({ /* implementation of synchronous hooks */ });
+
+const require = createRequire(import.meta.url);
+
+// The synchronous hooks affect import, require() and user require() function
+// created through createRequire().
+await import('./my-app.js');
+require('./my-app-2.js');
+```
+
+```cjs
+const { register, registerHooks } = require('node:module');
+const { pathToFileURL } = require('node:url');
+
+registerHooks({ /* implementation of synchronous hooks */ });
+
+const userRequire = createRequire(__filename);
+
+// The synchronous hooks affect import, require() and user require() function
+// created through createRequire().
+import('./my-app.js');
+require('./my-app-2.js');
+userRequire('./my-app-3.js');
+```
 
 Finally, if all you want to do is register hooks before your app runs and you
 don't want to create a separate file for that purpose, you can pass a `data:`
@@ -612,7 +691,7 @@ URL to `--import`:
 node --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("http-to-https", pathToFileURL("./"));' ./my-app.js
 ```
 
-#### Chaining
+### Chaining
 
 It's possible to call `register` more than once:
 
@@ -652,9 +731,36 @@ earlier registered hooks transpile into JavaScript.
 The `register` method cannot be called from within the module that defines the
 hooks.
 
-#### Communication with module customization hooks
+Chaining of `registerHooks` work similarly. If synchronous and asynchronous
+hooks are mixed, the synchronous hooks are always run first before the asynchronous
+hooks start running, that is, in the last synchronous hook being run, its next
+hook includes invocation of the asynchronous hooks.
 
-Module customization hooks run on a dedicated thread, separate from the main
+```mjs
+// entrypoint.mjs
+import { registerHooks } from 'node:module';
+
+const hook1 = { /* implementation of hooks */ };
+const hook2 = { /* implementation of hooks */ };
+// hook2 run before hook1.
+registerHooks(hook1);
+registerHooks(hook2);
+```
+
+```cjs
+// entrypoint.cjs
+const { registerHooks } = require('node:module');
+
+const hook1 = { /* implementation of hooks */ };
+const hook2 = { /* implementation of hooks */ };
+// hook2 run before hook1.
+registerHooks(hook1);
+registerHooks(hook2);
+```
+
+### Communication with module customization hooks
+
+Asynchronous hooks run on a dedicated thread, separate from the main
 thread that runs application code. This means mutating global variables won't
 affect the other thread(s), and message channels must be used to communicate
 between the threads.
@@ -703,19 +809,8 @@ register('./my-hooks.mjs', {
 });
 ```
 
-### In-thread Synchronous Customization Hooks
-
-<!-- YAML
-added: REPLACEME
--->
-
-> Stability: 1.1 - Active development
-
-`module.registerHooks()` is a lighter weight alternative to `module.register()`
-which takes hook functions directly and run them in the same thread where the
-modules are loaded. The hook functions are synchronous, which is necessary to
-customize `require()` directly in the same thread. The hooks are invoked for
-both `import` and `require()` requests.
+Synchronous module hooks are run on the same thread where the application code is
+run. They can directly mutate the globals of the context accessed by the main thread.
 
 ### Hooks
 
@@ -747,6 +842,12 @@ asynchronous operations (like `console.log`) to complete. They are inherited int
 child workers by default.
 
 #### Synchronous hooks accepted by `module.registerHooks()`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+> Stability: 1.1 - Active development
 
 The `module.registerHooks()` method accepts synchronous hook functions.
 `initialize()` is not supported nor necessary, as the hook implementer
@@ -872,6 +973,9 @@ register('./path-to-my-hooks.js', {
 
 <!-- YAML
 changes:
+  - version: REPLACEME
+    pr-url: https://github.com/nodejs/node/pull/55698
+    description: Add support for synchronous and in-thread hooks.
   - version:
     - v21.0.0
     - v20.10.0
@@ -892,10 +996,6 @@ changes:
     - v16.14.0
     pr-url: https://github.com/nodejs/node/pull/40250
     description: Add support for import assertions.
-  - version:
-    - REPLACEME
-    pr-url: REPLACEME
-    description: Add support for synchronous and in-thread version.
 -->
 
 > Stability: 1.2 - Release candidate (asynchronous version)
@@ -998,6 +1098,9 @@ function resolve(specifier, context, nextResolve) {
 
 <!-- YAML
 changes:
+  - version: REPLACEME
+    pr-url: https://github.com/nodejs/node/pull/55698
+    description: Add support for synchronous and in-thread version.
   - version: v20.6.0
     pr-url: https://github.com/nodejs/node/pull/47999
     description: Add support for `source` with format `commonjs`.
@@ -1008,10 +1111,6 @@ changes:
     description: Add support for chaining load hooks. Each hook must either
       call `nextLoad()` or include a `shortCircuit` property set to `true` in
       its return.
-  - version:
-    - REPLACEME
-    pr-url: REPLACEME
-    description: Add support for synchronous and in-thread version.
 -->
 
 > Stability: 1.2 - Release candidate (asynchronous version)
@@ -1599,6 +1698,8 @@ returned object contains the following keys:
 [V8 code cache]: https://v8.dev/blog/code-caching-for-devs
 [`"exports"`]: packages.md#exports
 [`--enable-source-maps`]: cli.md#--enable-source-maps
+[`--import`]: cli.md#--importmodule
+[`--require`]: cli.md#-r---require-module
 [`ArrayBuffer`]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer
 [`NODE_COMPILE_CACHE=dir`]: cli.md#node_compile_cachedir
 [`NODE_DISABLE_COMPILE_CACHE=1`]: cli.md#node_disable_compile_cache1
@@ -1614,6 +1715,7 @@ returned object contains the following keys:
 [`module.getCompileCacheDir()`]: #modulegetcompilecachedir
 [`module`]: #the-module-object
 [`os.tmpdir()`]: os.md#ostmpdir
+[`registerHooks`]: #moduleregisterhooksoptions
 [`register`]: #moduleregisterspecifier-parenturl-options
 [`string`]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String
 [`util.TextDecoder`]: util.md#class-utiltextdecoder
@@ -1624,7 +1726,9 @@ returned object contains the following keys:
 [module wrapper]: modules.md#the-module-wrapper
 [prefix-only modules]: modules.md#built-in-modules-with-mandatory-node-prefix
 [realm]: https://tc39.es/ecma262/#realm
+[resolve hook]: #resolvespecifier-context-nextresolve
 [source map include directives]: https://sourcemaps.info/spec.html#h.lmz475t4mvbx
+[the documentation of `Worker`]: worker_threads.md#new-workerfilename-options
 [transferable objects]: worker_threads.md#portpostmessagevalue-transferlist
 [transform TypeScript features]: typescript.md#typescript-features
 [type-stripping]: typescript.md#type-stripping
