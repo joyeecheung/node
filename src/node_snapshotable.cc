@@ -1512,6 +1512,17 @@ void SetDeserializeMainFunction(const FunctionCallbackInfo<Value>& args) {
   env->set_snapshot_deserialize_main(args[0].As<Function>());
 }
 
+void GetAccessedEnvironment(const FunctionCallbackInfo<Value>& args) {
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext();
+  Environment* env = Environment::GetCurrent(context);
+  Local<Value> result_set;
+  if (ToV8Value(context, env->env_vars()->accessed_keys())
+          .ToLocal(&result_set)) {
+    args.GetReturnValue().Set(result_set);
+  }
+}
+
 constexpr const char* kAnonymousMainPath = "__node_anonymous_main";
 
 std::string GetAnonymousMainPath() {
@@ -1602,6 +1613,7 @@ void CreatePerIsolateProperties(IsolateData* isolate_data,
             target,
             "setDeserializeMainFunction",
             SetDeserializeMainFunction);
+  SetMethod(isolate, target, "getAccessedEnvironment", GetAccessedEnvironment);
   target->Set(FIXED_ONE_BYTE_STRING(isolate, "anonymousMainPath"),
               OneByteString(isolate, kAnonymousMainPath));
 }

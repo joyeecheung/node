@@ -679,6 +679,9 @@ void Worker::New(const FunctionCallbackInfo<Value>& args) {
     per_isolate_opts->per_env->get_debug_options()
         ->DisableWaitOrBreakFirstLine();
   }
+  if (per_isolate_opts->per_env->trace_env_in_api) {
+    env_vars->set_should_record_access(true);
+  }
 
   const SnapshotData* snapshot_data = env->isolate_data()->snapshot_data();
 

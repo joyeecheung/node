@@ -39,26 +39,26 @@ using v8::Value;
 
 class RealEnvStore final : public KVStore {
  public:
-  MaybeLocal<String> Get(Isolate* isolate, Local<String> key) const override;
-  std::optional<std::string> Get(const char* key) const override;
+  MaybeLocal<String> Get(Isolate* isolate, Local<String> key) override;
+  std::optional<std::string> Get(const char* key) override;
   void Set(Isolate* isolate, Local<String> key, Local<String> value) override;
-  int32_t Query(Isolate* isolate, Local<String> key) const override;
-  int32_t Query(const char* key) const override;
+  int32_t Query(Isolate* isolate, Local<String> key) override;
+  int32_t Query(const char* key) override;
   void Delete(Isolate* isolate, Local<String> key) override;
-  Local<Array> Enumerate(Isolate* isolate) const override;
+  Local<Array> Enumerate(Isolate* isolate) override;
 };
 
 class MapKVStore final : public KVStore {
  public:
-  MaybeLocal<String> Get(Isolate* isolate, Local<String> key) const override;
-  std::optional<std::string> Get(const char* key) const override;
+  MaybeLocal<String> Get(Isolate* isolate, Local<String> key) override;
+  std::optional<std::string> Get(const char* key) override;
   void Set(Isolate* isolate, Local<String> key, Local<String> value) override;
-  int32_t Query(Isolate* isolate, Local<String> key) const override;
-  int32_t Query(const char* key) const override;
+  int32_t Query(Isolate* isolate, Local<String> key) override;
+  int32_t Query(const char* key) override;
   void Delete(Isolate* isolate, Local<String> key) override;
-  Local<Array> Enumerate(Isolate* isolate) const override;
+  Local<Array> Enumerate(Isolate* isolate) override;
 
-  std::shared_ptr<KVStore> Clone(Isolate* isolate) const override;
+  std::shared_ptr<KVStore> Clone(Isolate* isolate) override;
 
   MapKVStore() = default;
   MapKVStore(const MapKVStore& other) : KVStore(), map_(other.map_) {}
@@ -103,8 +103,9 @@ void DateTimeConfigurationChangeNotification(
   }
 }
 
-std::optional<std::string> RealEnvStore::Get(const char* key) const {
+std::optional<std::string> RealEnvStore::Get(const char* key) {
   Mutex::ScopedLock lock(per_process::env_var_mutex);
+  record_access(key);
 
   size_t init_sz = 256;
   MaybeStackBuffer<char, 256> val;
@@ -124,8 +125,7 @@ std::optional<std::string> RealEnvStore::Get(const char* key) const {
   return std::nullopt;
 }
 
-MaybeLocal<String> RealEnvStore::Get(Isolate* isolate,
-                                     Local<String> property) const {
+MaybeLocal<String> RealEnvStore::Get(Isolate* isolate, Local<String> property) {
   node::Utf8Value key(isolate, property);
   std::optional<std::string> value = Get(*key);
 
@@ -149,12 +149,15 @@ void RealEnvStore::Set(Isolate* isolate,
 #ifdef _WIN32
   if (key.length() > 0 && key[0] == '=') return;
 #endif
+
+  record_access(*key);
   uv_os_setenv(*key, *val);
   DateTimeConfigurationChangeNotification(isolate, key, *val);
 }
 
-int32_t RealEnvStore::Query(const char* key) const {
+int32_t RealEnvStore::Query(const char* key) {
   Mutex::ScopedLock lock(per_process::env_var_mutex);
+  record_access(*key);
 
   char val[2];
   size_t init_sz = sizeof(val);
@@ -175,7 +178,7 @@ int32_t RealEnvStore::Query(const char* key) const {
   return 0;
 }
 
-int32_t RealEnvStore::Query(Isolate* isolate, Local<String> property) const {
+int32_t RealEnvStore::Query(Isolate* isolate, Local<String> property) {
   node::Utf8Value key(isolate, property);
   return Query(*key);
 }
@@ -184,11 +187,12 @@ void RealEnvStore::Delete(Isolate* isolate, Local<String> property) {
   Mutex::ScopedLock lock(per_process::env_var_mutex);
 
   node::Utf8Value key(isolate, property);
+  record_access(*key);
   uv_os_unsetenv(*key);
   DateTimeConfigurationChangeNotification(isolate, key);
 }
 
-Local<Array> RealEnvStore::Enumerate(Isolate* isolate) const {
+Local<Array> RealEnvStore::Enumerate(Isolate* isolate) {
   Mutex::ScopedLock lock(per_process::env_var_mutex);
   uv_env_item_t* items;
   int count;
@@ -209,12 +213,13 @@ Local<Array> RealEnvStore::Enumerate(Isolate* isolate) const {
       return Local<Array>();
     }
     env_v[env_v_index++] = str.ToLocalChecked();
+    record_access(items[i].name);
   }
 
   return Array::New(isolate, env_v.out(), env_v_index);
 }
 
-std::shared_ptr<KVStore> KVStore::Clone(Isolate* isolate) const {
+std::shared_ptr<KVStore> KVStore::Clone(Isolate* isolate) {
   HandleScope handle_scope(isolate);
   Local<Context> context = isolate->GetCurrentContext();
 
@@ -231,13 +236,14 @@ std::shared_ptr<KVStore> KVStore::Clone(Isolate* isolate) const {
   return copy;
 }
 
-std::optional<std::string> MapKVStore::Get(const char* key) const {
+std::optional<std::string> MapKVStore::Get(const char* key) {
   Mutex::ScopedLock lock(mutex_);
+  record_access(key);
   auto it = map_.find(key);
   return it == map_.end() ? std::nullopt : std::make_optional(it->second);
 }
 
-MaybeLocal<String> MapKVStore::Get(Isolate* isolate, Local<String> key) const {
+MaybeLocal<String> MapKVStore::Get(Isolate* isolate, Local<String> key) {
   Utf8Value str(isolate, key);
   std::optional<std::string> value = Get(*str);
   if (!value.has_value()) return MaybeLocal<String>();
@@ -251,17 +257,19 @@ void MapKVStore::Set(Isolate* isolate, Local<String> key, Local<String> value) {
   Utf8Value key_str(isolate, key);
   Utf8Value value_str(isolate, value);
   if (*key_str != nullptr && key_str.length() > 0 && *value_str != nullptr) {
+    record_access(*key_str);
     map_[std::string(*key_str, key_str.length())] =
         std::string(*value_str, value_str.length());
   }
 }
 
-int32_t MapKVStore::Query(const char* key) const {
+int32_t MapKVStore::Query(const char* key) {
   Mutex::ScopedLock lock(mutex_);
+  record_access(key);
   return map_.find(key) == map_.end() ? -1 : 0;
 }
 
-int32_t MapKVStore::Query(Isolate* isolate, Local<String> key) const {
+int32_t MapKVStore::Query(Isolate* isolate, Local<String> key) {
   Utf8Value str(isolate, key);
   return Query(*str);
 }
@@ -269,10 +277,11 @@ int32_t MapKVStore::Query(Isolate* isolate, Local<String> key) const {
 void MapKVStore::Delete(Isolate* isolate, Local<String> key) {
   Mutex::ScopedLock lock(mutex_);
   Utf8Value str(isolate, key);
+  record_access(*str);
   map_.erase(std::string(*str, str.length()));
 }
 
-Local<Array> MapKVStore::Enumerate(Isolate* isolate) const {
+Local<Array> MapKVStore::Enumerate(Isolate* isolate) {
   Mutex::ScopedLock lock(mutex_);
   LocalVector<Value> values(isolate);
   values.reserve(map_.size());
@@ -285,7 +294,7 @@ Local<Array> MapKVStore::Enumerate(Isolate* isolate) const {
   return Array::New(isolate, values.data(), values.size());
 }
 
-std::shared_ptr<KVStore> MapKVStore::Clone(Isolate* isolate) const {
+std::shared_ptr<KVStore> MapKVStore::Clone(Isolate* isolate) {
   return std::make_shared<MapKVStore>(*this);
 }
 
