@@ -14,6 +14,7 @@ using v8::Boolean;
 using v8::Context;
 using v8::DontDelete;
 using v8::DontEnum;
+using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
 using v8::HandleScope;
 using v8::Integer;
@@ -64,12 +65,26 @@ class MapKVStore final : public KVStore {
   MapKVStore(const MapKVStore& other) : KVStore(), map_(other.map_) {}
 
  private:
-  mutable Mutex mutex_;
   std::unordered_map<std::string, std::string> map_;
 };
 
+void KVStore::StopRecordingAccess() {
+  Mutex::ScopedLock lock(mutex);
+  should_record_access_ = false;
+  accessed_keys_.clear();
+}
+
+std::set<std::string> KVStore::GetRecordedAccess() const {
+  Mutex::ScopedLock lock(mutex);
+  return accessed_keys_;
+}
+
+void KVStore::StartRecordingAccess() {
+  Mutex::ScopedLock lock(mutex);
+  should_record_access_ = true;
+}
+
 namespace per_process {
-Mutex env_var_mutex;
 std::shared_ptr<KVStore> system_environment = std::make_shared<RealEnvStore>();
 }  // namespace per_process
 
@@ -104,7 +119,7 @@ void DateTimeConfigurationChangeNotification(
 }
 
 std::optional<std::string> RealEnvStore::Get(const char* key) {
-  Mutex::ScopedLock lock(per_process::env_var_mutex);
+  Mutex::ScopedLock lock(mutex);
   record_access(key);
 
   size_t init_sz = 256;
@@ -141,7 +156,7 @@ MaybeLocal<String> RealEnvStore::Get(Isolate* isolate, Local<String> property) {
 void RealEnvStore::Set(Isolate* isolate,
                        Local<String> property,
                        Local<String> value) {
-  Mutex::ScopedLock lock(per_process::env_var_mutex);
+  Mutex::ScopedLock lock(mutex);
 
   node::Utf8Value key(isolate, property);
   node::Utf8Value val(isolate, value);
@@ -156,7 +171,7 @@ void RealEnvStore::Set(Isolate* isolate,
 }
 
 int32_t RealEnvStore::Query(const char* key) {
-  Mutex::ScopedLock lock(per_process::env_var_mutex);
+  Mutex::ScopedLock lock(mutex);
   record_access(*key);
 
   char val[2];
@@ -184,7 +199,7 @@ int32_t RealEnvStore::Query(Isolate* isolate, Local<String> property) {
 }
 
 void RealEnvStore::Delete(Isolate* isolate, Local<String> property) {
-  Mutex::ScopedLock lock(per_process::env_var_mutex);
+  Mutex::ScopedLock lock(mutex);
 
   node::Utf8Value key(isolate, property);
   record_access(*key);
@@ -193,7 +208,7 @@ void RealEnvStore::Delete(Isolate* isolate, Local<String> property) {
 }
 
 Local<Array> RealEnvStore::Enumerate(Isolate* isolate) {
-  Mutex::ScopedLock lock(per_process::env_var_mutex);
+  Mutex::ScopedLock lock(mutex);
   uv_env_item_t* items;
   int count;
 
@@ -237,7 +252,7 @@ std::shared_ptr<KVStore> KVStore::Clone(Isolate* isolate) {
 }
 
 std::optional<std::string> MapKVStore::Get(const char* key) {
-  Mutex::ScopedLock lock(mutex_);
+  Mutex::ScopedLock lock(mutex);
   record_access(key);
   auto it = map_.find(key);
   return it == map_.end() ? std::nullopt : std::make_optional(it->second);
@@ -253,7 +268,7 @@ MaybeLocal<String> MapKVStore::Get(Isolate* isolate, Local<String> key) {
 }
 
 void MapKVStore::Set(Isolate* isolate, Local<String> key, Local<String> value) {
-  Mutex::ScopedLock lock(mutex_);
+  Mutex::ScopedLock lock(mutex);
   Utf8Value key_str(isolate, key);
   Utf8Value value_str(isolate, value);
   if (*key_str != nullptr && key_str.length() > 0 && *value_str != nullptr) {
@@ -264,7 +279,7 @@ void MapKVStore::Set(Isolate* isolate, Local<String> key, Local<String> value) {
 }
 
 int32_t MapKVStore::Query(const char* key) {
-  Mutex::ScopedLock lock(mutex_);
+  Mutex::ScopedLock lock(mutex);
   record_access(key);
   return map_.find(key) == map_.end() ? -1 : 0;
 }
@@ -275,14 +290,14 @@ int32_t MapKVStore::Query(Isolate* isolate, Local<String> key) {
 }
 
 void MapKVStore::Delete(Isolate* isolate, Local<String> key) {
-  Mutex::ScopedLock lock(mutex_);
+  Mutex::ScopedLock lock(mutex);
   Utf8Value str(isolate, key);
   record_access(*str);
   map_.erase(std::string(*str, str.length()));
 }
 
 Local<Array> MapKVStore::Enumerate(Isolate* isolate) {
-  Mutex::ScopedLock lock(mutex_);
+  Mutex::ScopedLock lock(mutex);
   LocalVector<Value> values(isolate);
   values.reserve(map_.size());
   for (const auto& pair : map_) {
@@ -580,6 +595,39 @@ void CreateEnvProxyTemplate(IsolateData* isolate_data) {
   isolate_data->set_env_proxy_ctor_template(env_proxy_ctor_template);
 }
 
+static void StartTraceEnvGlobal(const FunctionCallbackInfo<Value>& args) {
+  Environment* env = Environment::GetCurrent(args);
+  env->env_vars()->StartRecordingAccess();
+}
+
+static void StopTraceEnvGlobal(const FunctionCallbackInfo<Value>& args) {
+  Environment* env = Environment::GetCurrent(args);
+  env->env_vars()->StopRecordingAccess();
+}
+
+static void GetTraceEnvGlobal(const FunctionCallbackInfo<Value>& args) {
+  Environment* env = Environment::GetCurrent(args);
+  auto result = env->env_vars()->GetRecordedAccess();
+  Local<Value> result;
+  if (ToV8Value(env->context(), result).ToLocal(&result)) {
+    args.GetReturnValue().Set(result);
+  }
+}
+
+void CreatePerIsolatePropertiesForTraceEnv(IsolateData* isolate_data,
+                                           Local<ObjectTemplate> target) {
+  SetMethod(isolate_data->isolate(),
+            target,
+            "startTraceEnvGloabl",
+            StartTraceEnvGlobal);
+  SetMethod(isolate_data->isolate(),
+            target,
+            "stopTraceEnvGloabl",
+            StopTraceEnvGlobal);
+  SetMethod(
+      isolate_data->isolate(), target, "getTraceEnvGloabl", GetTraceEnvGlobal);
+}
+
 void RegisterEnvVarExternalReferences(ExternalReferenceRegistry* registry) {
   registry->Register(EnvGetter);
   registry->Register(EnvSetter);
@@ -587,6 +635,9 @@ void RegisterEnvVarExternalReferences(ExternalReferenceRegistry* registry) {
   registry->Register(EnvDeleter);
   registry->Register(EnvEnumerator);
   registry->Register(EnvDefiner);
+  registry->Register(StartTraceEnvGlobal);
+  registry->Register(StopTraceEnvGlobal);
+  registry->Register(GetTraceEnvGlobal);
 }
 }  // namespace node
 

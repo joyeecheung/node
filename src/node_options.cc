@@ -795,11 +795,11 @@ EnvironmentOptionsParser::EnvironmentOptionsParser() {
       "Print accesses to the environment variables and the native stack trace",
       &EnvironmentOptions::trace_env_native_stack,
       kAllowedInEnvvar);
-  AddOption(
-      "--trace-env-in-api",
-      "Start tracing the environment variables in process.accessedEnv API",
-      &EnvironmentOptions::trace_env_in_api,
-      kAllowedInEnvvar);
+  AddOption("--trace-env-global-start",
+            "Start tracing access to environment variables in "
+            "process.traceEnv.global",
+            &EnvironmentOptions::trace_env_global_start,
+            kAllowedInEnvvar);
 
   AddOption(
       "--trace-require-module",

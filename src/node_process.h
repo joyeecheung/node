@@ -16,6 +16,8 @@ class ExternalReferenceRegistry;
 class Realm;
 
 void CreateEnvProxyTemplate(IsolateData* isolate_data);
+void CreatePerIsolatePropertiesForTraceEnv(
+    IsolateData* isolate_data, v8::Local<v8::ObjectTemplate> target);
 
 // Most of the time, it's best to use `console.error` to write
 // to the process.stderr stream.  However, in some cases, such as

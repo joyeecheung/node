@@ -530,6 +530,7 @@ void Worker::New(const FunctionCallbackInfo<Value>& args) {
     name.append(value.out(), value.length());
   }
 
+  bool is_shared_env_vars = false;
   if (args[1]->IsNull()) {
     // Means worker.env = { ...process.env }.
     env_vars = env->env_vars()->Clone(isolate);
@@ -544,6 +545,7 @@ void Worker::New(const FunctionCallbackInfo<Value>& args) {
     }
   } else {
     // Env is shared.
+    is_shared_env_vars = true;
     env_vars = env->env_vars();
   }
 
@@ -679,8 +681,13 @@ void Worker::New(const FunctionCallbackInfo<Value>& args) {
     per_isolate_opts->per_env->get_debug_options()
         ->DisableWaitOrBreakFirstLine();
   }
-  if (per_isolate_opts->per_env->trace_env_in_api) {
-    env_vars->set_should_record_access(true);
+
+  // If the environment variable store is a separate copy, and the parsed
+  // options indicate that recording is not necessary, stop the preemptive
+  // recording and clear the records.
+  if (!is_shared_env_vars &&
+      !per_isolate_opts->per_env->trace_env_global_start) {
+    env_vars->StopRecordingAccess();
   }
 
   const SnapshotData* snapshot_data = env->isolate_data()->snapshot_data();

@@ -732,6 +732,14 @@ static ExitCode ProcessGlobalArgsInternal(std::vector<std::string>* args,
 
   if (!errors->empty()) return ExitCode::kInvalidCommandLineArgument;
 
+  // The environment variable recording is not needed, stop the preemptive
+  // recording and clear the records. If --build-snapshot-config is set,
+  // defer the decision until the snapshot config is parsed.
+  if (!per_process::cli_options->per_isolate->per_env->trace_env_global_start &&
+      per_process::cli_options->per_isolate->build_snapshot_config.empty()) {
+    per_process::system_environment->StopRecordingAccess();
+  }
+
   std::string revert_error;
   for (const std::string& cve : per_process::cli_options->security_reverts) {
     Revert(cve.c_str(), &revert_error);
@@ -1287,6 +1295,11 @@ ExitCode GenerateAndWriteSnapshotData(const SnapshotData** snapshot_data_ptr,
       args_maybe_patched.insert(args_maybe_patched.end(),
                                 result->args().begin() + 1,
                                 result->args().end());
+    }
+    if (!TraceEnvGlobalStart(snapshot_config)) {
+      // The environment variable recording is not needed, stop the preemptive
+      // recording and clear the records.
+      per_process::system_environment->StopRecordingAccess();
     }
   } else {
     snapshot_config.builder_script_path = result->args()[1];

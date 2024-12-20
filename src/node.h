@@ -672,9 +672,9 @@ enum class SnapshotFlags : uint32_t {
   // in the snapshot at the expense of a bigger snapshot size and
   // potentially breaking portability of the snapshot.
   kWithoutCodeCache = 1 << 0,
-  // Whether environment varaibles should be traced in process.accessedEnv
+  // Whether environment varaibles should be traced in process.traceEnv.global
   // since program initialization.
-  kTraceEnvInAPI = 2 << 0,
+  kTraceEnvGlobalStart = 2 << 0,
 };
 
 struct SnapshotConfig {

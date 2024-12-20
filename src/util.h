@@ -296,51 +296,6 @@ template <typename Inner, typename Outer>
 constexpr ContainerOfHelper<Inner, Outer> ContainerOf(Inner Outer::*field,
                                                       Inner* pointer);
 
-class KVStore {
- public:
-  KVStore() = default;
-  virtual ~KVStore() = default;
-  KVStore(const KVStore&) = delete;
-  KVStore& operator=(const KVStore&) = delete;
-  KVStore(KVStore&&) = delete;
-  KVStore& operator=(KVStore&&) = delete;
-
-  virtual v8::MaybeLocal<v8::String> Get(v8::Isolate* isolate,
-                                         v8::Local<v8::String> key) = 0;
-  virtual std::optional<std::string> Get(const char* key) = 0;
-  virtual void Set(v8::Isolate* isolate,
-                   v8::Local<v8::String> key,
-                   v8::Local<v8::String> value) = 0;
-  virtual int32_t Query(v8::Isolate* isolate, v8::Local<v8::String> key) = 0;
-  virtual int32_t Query(const char* key) = 0;
-  virtual void Delete(v8::Isolate* isolate, v8::Local<v8::String> key) = 0;
-  virtual v8::Local<v8::Array> Enumerate(v8::Isolate* isolate) = 0;
-
-  virtual std::shared_ptr<KVStore> Clone(v8::Isolate* isolate);
-  virtual v8::Maybe<void> AssignFromObject(v8::Local<v8::Context> context,
-                                           v8::Local<v8::Object> entries);
-  v8::Maybe<void> AssignToObject(v8::Isolate* isolate,
-                                 v8::Local<v8::Context> context,
-                                 v8::Local<v8::Object> object);
-
-  static std::shared_ptr<KVStore> CreateMapKVStore();
-
-  void set_should_record_access(bool value) { should_record_access_ = value; }
-  const std::set<std::string>& accessed_keys() const { return accessed_keys_; }
-  void record_access(const char* key) {
-    if (should_record_access_) {
-      accessed_keys_.insert(key);
-    }
-  }
-
- private:
-  // Data structures used to optionally record all accesses. This is currently
-  // only needed for building snapshots for the main thread, which only uses
-  // RealEnvStore.
-  bool should_record_access_ = false;
-  std::set<std::string> accessed_keys_;
-};
-
 // Convenience wrapper around v8::String::NewFromOneByte().
 inline v8::Local<v8::String> OneByteString(v8::Isolate* isolate,
                                            const char* data,

@@ -710,7 +710,7 @@ static void PrintEnvironmentVariables(JSONWriter* writer) {
   writer->json_objectstart("environmentVariables");
 
   {
-    Mutex::ScopedLock lock(per_process::env_var_mutex);
+    Mutex::ScopedLock lock(per_process::system_environment->mutex);
     r = uv_os_environ(&envitems, &envcount);
   }
 

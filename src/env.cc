@@ -868,11 +868,6 @@ Environment::Environment(IsolateData* isolate_data,
       options_->debug_options().host_port);
 
   set_env_vars(per_process::system_environment);
-  env_vars_->set_should_record_access(options_->trace_env_in_api);
-  // This should be done after options is created, so that --trace-env can be
-  // checked when parsing NODE_DEBUG_NATIVE. It should also be done after
-  // env_vars() is set so that the parser uses values from env->env_vars()
-  // which may or may not be the system environment variable store.
   enabled_debug_list_.Parse(this);
 
   heap_snapshot_near_heap_limit_ =

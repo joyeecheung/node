@@ -885,6 +885,14 @@ SnapshotFlags operator|=(/* NOLINT (runtime/references) */ SnapshotFlags& x,
   return x = x | y;
 }
 
+bool TraceEnvGlobalStart(const SnapshotFlags& flags) {
+  return static_cast<bool>(flags & SnapshotFlags::kTraceEnvGlobalStart);
+}
+
+bool TraceEnvGlobalStart(const SnapshotConfig& config) {
+  return TraceEnvGlobalStart(config.flags);
+}
+
 bool WithoutCodeCache(const SnapshotFlags& flags) {
   return static_cast<bool>(flags & SnapshotFlags::kWithoutCodeCache);
 }
@@ -929,6 +937,18 @@ std::optional<SnapshotConfig> ReadSnapshotConfig(const char* config_path) {
   }
   if (WithoutCodeCache.value()) {
     result.flags |= SnapshotFlags::kWithoutCodeCache;
+  }
+
+  std::optional<bool> traceEnvGlobalStart =
+      parser.GetTopLevelBoolField("traceEnvGlobalStart");
+  if (!traceEnvGlobalStart.has_value()) {
+    FPrintF(stderr,
+            "\"traceEnvGlobalStart\" field of %s is not a boolean\n",
+            config_path);
+    return std::nullopt;
+  }
+  if (traceEnvGlobalStart.value()) {
+    result.flags |= SnapshotFlags::kTraceEnvGlobalStart;
   }
 
   return result;

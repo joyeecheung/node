@@ -668,6 +668,8 @@ static void CreatePerIsolateProperties(IsolateData* isolate_data,
   SetMethod(isolate, target, "loadEnvFile", LoadEnvFile);
 
   SetMethod(isolate, target, "setEmitWarningSync", SetEmitWarningSync);
+
+  CreatePerIsolatePropertiesForTraceEnv(isolate_data, target);
 }
 
 static void CreatePerContextProperties(Local<Object> target,

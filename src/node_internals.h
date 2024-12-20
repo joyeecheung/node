@@ -48,7 +48,6 @@ class BuiltinLoader;
 }
 
 namespace per_process {
-extern Mutex env_var_mutex;
 extern uint64_t node_start_time;
 }  // namespace per_process
 
@@ -329,6 +328,67 @@ void TraceEnvVar(Environment* env, const char* message, const char* key);
 void TraceEnvVar(Environment* env,
                  const char* message,
                  v8::Local<v8::String> key);
+
+// Currently this class is only subclassed for implementing environment variable
+// stores, and the access recording is implemented specifically for tracking
+// these access. If the needs come up to subclass it for other purposes, the
+// parts unrelated to access recording should be split into a separate base
+// class.
+class KVStore {
+ public:
+  KVStore() = default;
+  virtual ~KVStore() = default;
+  KVStore(const KVStore&) = delete;
+  KVStore& operator=(const KVStore&) = delete;
+  KVStore(KVStore&&) = delete;
+  KVStore& operator=(KVStore&&) = delete;
+
+  virtual v8::MaybeLocal<v8::String> Get(v8::Isolate* isolate,
+                                         v8::Local<v8::String> key) = 0;
+  virtual std::optional<std::string> Get(const char* key) = 0;
+  virtual void Set(v8::Isolate* isolate,
+                   v8::Local<v8::String> key,
+                   v8::Local<v8::String> value) = 0;
+  virtual int32_t Query(v8::Isolate* isolate, v8::Local<v8::String> key) = 0;
+  virtual int32_t Query(const char* key) = 0;
+  virtual void Delete(v8::Isolate* isolate, v8::Local<v8::String> key) = 0;
+  virtual v8::Local<v8::Array> Enumerate(v8::Isolate* isolate) = 0;
+
+  virtual std::shared_ptr<KVStore> Clone(v8::Isolate* isolate);
+  virtual v8::Maybe<void> AssignFromObject(v8::Local<v8::Context> context,
+                                           v8::Local<v8::Object> entries);
+  v8::Maybe<void> AssignToObject(v8::Isolate* isolate,
+                                 v8::Local<v8::Context> context,
+                                 v8::Local<v8::Object> object);
+
+  static std::shared_ptr<KVStore> CreateMapKVStore();
+
+  // Returns a copy of recorded access.
+  std::set<std::string> GetRecordedAccess() const;
+  void StartRecordingAccess();
+  void StopRecordingAccess();
+
+  void record_access(const char* key) {
+    // This is meant to be called by child classes, who must obtain the mutext
+    // first.
+    if (should_record_access_) {
+      accessed_keys_.insert(key);
+    }
+  }
+
+  mutable Mutex mutex;
+
+ private:
+  // Data structures used to optionally record all accesses. To capture as much
+  // environment variable access as possible and avoid a chicken-and-egg problem
+  // with recording NODE_OPTIONS, the default is true, until the parsed options
+  // indicate that recording is not necessary, in that case the recording is
+  // stopped with the records cleared. Considering that there are very few
+  // accesses done before option parsing and it's cheap to record into the set,
+  // the overhead of preemptive recording should be negligible.
+  bool should_record_access_ = true;
+  std::set<std::string> accessed_keys_;
+};
 
 void DefineZlibConstants(v8::Local<v8::Object> target);
 v8::Isolate* NewIsolate(v8::Isolate::CreateParams* params,
