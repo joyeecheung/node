@@ -73,6 +73,8 @@ class CppHeap;
 
 namespace node {
 
+class KVStore;
+
 namespace shadow_realm {
 class ShadowRealm;
 }
@@ -276,10 +278,6 @@ struct ContextInfo {
 };
 
 class EnabledDebugList;
-
-namespace per_process {
-extern std::shared_ptr<KVStore> system_environment;
-}
 
 struct EnvSerializeInfo;
 

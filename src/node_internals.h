@@ -390,6 +390,10 @@ class KVStore {
   std::set<std::string> accessed_keys_;
 };
 
+namespace per_process {
+extern std::shared_ptr<KVStore> system_environment;
+}
+
 void DefineZlibConstants(v8::Local<v8::Object> target);
 v8::Isolate* NewIsolate(v8::Isolate::CreateParams* params,
                         uv_loop_t* event_loop,
