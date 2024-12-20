@@ -195,15 +195,18 @@ class HeapVisitor : public ObjectVisitorWithCageBases {
   inline explicit HeapVisitor(Isolate* isolate);
   inline explicit HeapVisitor(Heap* heap);
 
-  V8_INLINE size_t Visit(Tagged<HeapObject> object)
-    requires(!ConcreteVisitor::UsePrecomputedObjectSize());
+  template <typename T = ConcreteVisitor,
+            typename = std::enable_if_t<!T::UsePrecomputedObjectSize()>>
+  V8_INLINE size_t Visit(Tagged<HeapObject> object);
 
-  V8_INLINE size_t Visit(Tagged<Map> map, Tagged<HeapObject> object)
-    requires(!ConcreteVisitor::UsePrecomputedObjectSize());
+  template <typename T = ConcreteVisitor,
+            typename = std::enable_if_t<!T::UsePrecomputedObjectSize()>>
+  V8_INLINE size_t Visit(Tagged<Map> map, Tagged<HeapObject> object);
 
+  template <typename T = ConcreteVisitor,
+            typename = std::enable_if_t<T::UsePrecomputedObjectSize()>>
   V8_INLINE size_t Visit(Tagged<Map> map, Tagged<HeapObject> object,
-                         int object_size)
-    requires(ConcreteVisitor::UsePrecomputedObjectSize());
+                         int object_size);
 
  protected:
   V8_INLINE size_t Visit(Tagged<Map> map, Tagged<HeapObject> object,

@@ -48,9 +48,9 @@ class V8_EXPORT_PRIVATE ExternalEntityTable
     : public SegmentedTable<Entry, size> {
  protected:
   using Base = SegmentedTable<Entry, size>;
-  using FreelistHead = Base::FreelistHead;
-  using Segment = Base::Segment;
-  using WriteIterator = Base::WriteIterator;
+  using FreelistHead = typename Base::FreelistHead;
+  using Segment = typename Base::Segment;
+  using WriteIterator = typename Base::WriteIterator;
   static constexpr size_t kSegmentSize = Base::kSegmentSize;
   static constexpr size_t kEntriesPerSegment = Base::kEntriesPerSegment;
   static constexpr size_t kEntrySize = Base::kEntrySize;

@@ -24,6 +24,29 @@ namespace internal {
 // Smi stands for small integer.
 class Smi : public AllStatic {
  public:
+  // Returns whether value can be represented in a Smi.
+  template <typename T>
+  static inline bool constexpr IsValid(T value)
+    requires(std::is_integral_v<T> && std::is_signed_v<T>)
+  {
+    DCHECK_EQ(Internals::IsValidSmi(value),
+              value >= kMinValue && value <= kMaxValue);
+    return Internals::IsValidSmi(value);
+  }
+  template <typename T>
+  static inline bool constexpr IsValid(T value)
+    requires(std::is_integral_v<T> && std::is_unsigned_v<T>)
+  {
+    DCHECK_EQ(Internals::IsValidSmi(value), value <= kMaxValue);
+    return Internals::IsValidSmi(value);
+  }
+
+  // Convert a value to a Smi object.
+  static inline constexpr Tagged<Smi> FromInt(int value) {
+    DCHECK(Smi::IsValid(value));
+    return Tagged<Smi>(Internals::IntegralToSmi(value));
+  }
+
   static inline constexpr Tagged<Smi> ToUint32Smi(Tagged<Smi> smi) {
     if (smi.value() <= 0) return Smi::FromInt(0);
     return Smi::FromInt(static_cast<uint32_t>(smi.value()));
@@ -32,12 +55,6 @@ class Smi : public AllStatic {
   // Convert a Smi object to an int.
   static inline constexpr int ToInt(const Tagged<Object> object) {
     return Tagged<Smi>(object.ptr()).value();
-  }
-
-  // Convert a value to a Smi object.
-  static inline constexpr Tagged<Smi> FromInt(int value) {
-    DCHECK(Smi::IsValid(value));
-    return Tagged<Smi>(Internals::IntegralToSmi(value));
   }
 
   static inline constexpr Tagged<Smi> FromIntptr(intptr_t value) {
@@ -60,23 +77,6 @@ class Smi : public AllStatic {
   {
     static_assert(sizeof(E) <= sizeof(int));
     return FromInt(static_cast<int>(value));
-  }
-
-  // Returns whether value can be represented in a Smi.
-  template <typename T>
-  static inline bool constexpr IsValid(T value)
-    requires(std::is_integral_v<T> && std::is_signed_v<T>)
-  {
-    DCHECK_EQ(Internals::IsValidSmi(value),
-              value >= kMinValue && value <= kMaxValue);
-    return Internals::IsValidSmi(value);
-  }
-  template <typename T>
-  static inline bool constexpr IsValid(T value)
-    requires(std::is_integral_v<T> && std::is_unsigned_v<T>)
-  {
-    DCHECK_EQ(Internals::IsValidSmi(value), value <= kMaxValue);
-    return Internals::IsValidSmi(value);
   }
 
   // Compare two Smis x, y as if they were converted to strings and then

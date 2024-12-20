@@ -2043,7 +2043,7 @@ template <typename Char>
 template <typename StringT>
 FastJsonStringifierResult FastJsonStringifier<Char>::SerializeObjectKey(
     Tagged<String> obj, bool comma, const DisallowGarbageCollection& no_gc) {
-  using StringChar = StringT::Char;
+  using StringChar = typename StringT::Char;
   if constexpr (is_one_byte && sizeof(StringChar) == 2) {
     return CHANGE_ENCODING;
   } else {
@@ -2069,7 +2069,7 @@ template <typename StringT, bool deferred_key>
 FastJsonStringifierResult FastJsonStringifier<Char>::SerializeString(
     Tagged<HeapObject> obj, bool comma, Tagged<String> key,
     const DisallowGarbageCollection& no_gc) {
-  using StringChar = StringT::Char;
+  using StringChar = typename StringT::Char;
   if constexpr (is_one_byte && sizeof(StringChar) == 2) {
     return CHANGE_ENCODING;
   } else {
@@ -2248,36 +2248,39 @@ FastJsonStringifierResult FastJsonStringifier<Char>::SerializeJSObject(
           break;
         case UNDEFINED:
           break;
-        case UNCHANGED:
-          stack_.emplace_back(ContinuationRecord::kObject, obj,
-                              i.as_uint32() + 1);
+        case UNCHANGED: {
+          ContinuationRecord rec1{ContinuationRecord::kObject, obj, i.as_uint32() + 1};
+          stack_.emplace_back(std::move(rec1));
           // property can be an object or array. We don't need to distinguish
           // as index is 0 anyways.
-          stack_.emplace_back(ContinuationRecord::kObject, property, 0);
+          ContinuationRecord rec2{ContinuationRecord::kObject, property, 0};
+          stack_.emplace_back(std::move(rec2));
           result = SerializeObjectKey(key_name, comma, no_gc);
           if constexpr (is_one_byte) {
             if (V8_UNLIKELY(result != SUCCESS)) {
               DCHECK_EQ(result, CHANGE_ENCODING);
-              stack_.emplace_back(ContinuationRecord::kObjectKey, key_name,
-                                  comma);
+              ContinuationRecord rec3{ContinuationRecord::kObjectKey, key_name, comma};
+              stack_.emplace_back(std::move(rec3));
               return result;
             }
           }
           return result;
-        case CHANGE_ENCODING:
+        }
+        case CHANGE_ENCODING: {
           DCHECK(is_one_byte);
-          stack_.emplace_back(ContinuationRecord::kObject, obj,
-                              i.as_uint32() + 1);
-          stack_.emplace_back(ContinuationRecord::kResumeFromOther, property,
-                              0);
+          ContinuationRecord rec1{ContinuationRecord::kObject, obj, i.as_uint32() + 1};
+          stack_.emplace_back(std::move(rec1));
+          ContinuationRecord rec2{ContinuationRecord::kResumeFromOther, property, 0};
+          stack_.emplace_back(std::move(rec2));
           result = SerializeObjectKey(key_name, comma, no_gc);
           if (V8_UNLIKELY(result != SUCCESS)) {
-            stack_.emplace_back(ContinuationRecord::kObjectKey, key_name,
-                                comma);
+            ContinuationRecord rec3{ContinuationRecord::kObjectKey, key_name, comma};
+            stack_.emplace_back(std::move(rec3));
             return result;
           }
           DCHECK(IsString(property));
           return result;
+        }
         case SLOW_PATH:
         case EXCEPTION:
           return result;
@@ -2420,15 +2423,21 @@ FastJsonStringifierResult FastJsonStringifier<Char>::SerializeFixedArrayElement(
       case UNDEFINED:
         AppendCStringLiteral("null");
         return SUCCESS;
-      case CHANGE_ENCODING:
+      case CHANGE_ENCODING: {
         DCHECK(IsString(obj));
-        stack_.emplace_back(ContinuationRecord::kArray, array, i + 1);
-        stack_.emplace_back(ContinuationRecord::kResumeFromOther, obj, 0);
+        ContinuationRecord rec1{ContinuationRecord::kArray, array, i + 1};
+        stack_.emplace_back(std::move(rec1));
+        ContinuationRecord rec2{ContinuationRecord::kResumeFromOther, obj, 0};
+        stack_.emplace_back(std::move(rec2));
         return result;
-      case UNCHANGED:
-        stack_.emplace_back(ContinuationRecord::kArray, array, i + 1);
-        stack_.emplace_back(ContinuationRecord::kResumeFromOther, obj, 0);
+      }
+      case UNCHANGED: {
+        ContinuationRecord rec1{ContinuationRecord::kArray, array, i + 1};
+        stack_.emplace_back(std::move(rec1));
+        ContinuationRecord rec2{ContinuationRecord::kResumeFromOther, obj, 0};
+        stack_.emplace_back(std::move(rec2));
         return result;
+      }
       default:
         return result;
     }
@@ -2505,7 +2514,8 @@ FastJsonStringifierResult FastJsonStringifier<Char>::SerializeObject(
   if constexpr (is_one_byte) {
     if (result == CHANGE_ENCODING) {
       DCHECK(IsString(object));
-      stack_.emplace_back(ContinuationRecord::kResumeFromOther, object, 0);
+      ContinuationRecord rec{ContinuationRecord::kResumeFromOther, object, 0};
+      stack_.emplace_back(std::move(rec));
       return result;
     }
   } else {

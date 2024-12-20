@@ -3862,7 +3862,7 @@ void MarkCompactCollector::ClearWeakCollections() {
 
 template <typename TObjectAndSlot, typename TMaybeSlot>
 void MarkCompactCollector::ClearWeakReferences(
-    WeakObjects::WeakObjectWorklist<TObjectAndSlot>::Local& worklist,
+    typename WeakObjects::WeakObjectWorklist<TObjectAndSlot>::Local& worklist,
     Tagged<HeapObjectReference> cleared_weak_ref) {
   TObjectAndSlot slot;
   while (worklist.Pop(&slot)) {

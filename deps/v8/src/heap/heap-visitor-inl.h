@@ -93,26 +93,23 @@ Tagged<T> HeapVisitor<ConcreteVisitor>::Cast(Tagged<HeapObject> object,
 }
 
 template <typename ConcreteVisitor>
-size_t HeapVisitor<ConcreteVisitor>::Visit(Tagged<HeapObject> object)
-  requires(!ConcreteVisitor::UsePrecomputedObjectSize())
-{
+template <typename T, typename>
+size_t HeapVisitor<ConcreteVisitor>::Visit(Tagged<HeapObject> object) {
   return Visit(object->map(cage_base()), object);
 }
 
 template <typename ConcreteVisitor>
+template <typename T, typename>
 size_t HeapVisitor<ConcreteVisitor>::Visit(Tagged<Map> map,
-                                           Tagged<HeapObject> object)
-  requires(!ConcreteVisitor::UsePrecomputedObjectSize())
-{
+                                           Tagged<HeapObject> object) {
   return Visit(map, object, MaybeObjectSize());
 }
 
 template <typename ConcreteVisitor>
+template <typename T, typename>
 size_t HeapVisitor<ConcreteVisitor>::Visit(Tagged<Map> map,
                                            Tagged<HeapObject> object,
-                                           int object_size)
-  requires(ConcreteVisitor::UsePrecomputedObjectSize())
-{
+                                           int object_size) {
   return Visit(map, object, MaybeObjectSize(object_size));
 }
 

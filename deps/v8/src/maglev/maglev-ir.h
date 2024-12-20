@@ -4025,7 +4025,7 @@ class CheckedNumberOrOddballToFloat64OrHoleyFloat64
 
  private:
   using TaggedToFloat64ConversionTypeOffset =
-      Base::template NextBitField<TaggedToFloat64ConversionType, 2>;
+      typename Base::template NextBitField<TaggedToFloat64ConversionType, 2>;
 };
 
 class CheckedNumberOrOddballToFloat64

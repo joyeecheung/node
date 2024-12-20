@@ -339,7 +339,7 @@ class MarkCompactCollector final {
   // Common implementation of the above two.
   template <typename TObjectAndSlot, typename TMaybeSlot>
   void ClearWeakReferences(
-      WeakObjects::WeakObjectWorklist<TObjectAndSlot>::Local& worklist,
+      typename WeakObjects::WeakObjectWorklist<TObjectAndSlot>::Local& worklist,
       Tagged<HeapObjectReference> cleared_weak_ref);
 
   // Goes through the list of encountered non-trivial weak references and
