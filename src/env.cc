@@ -230,9 +230,13 @@ void Environment::TrackContext(Local<Context> context) {
   contexts_[id].SetWeak();
 }
 
+void Environment::PurgeTrackedEmptyContexts() {
+  std::erase_if(contexts_, [&](auto&& el) { return el.IsEmpty(); });
+}
+
 void Environment::UntrackContext(Local<Context> context) {
   HandleScope handle_scope(isolate_);
-  std::erase_if(contexts_, [&](auto&& el) { return el.IsEmpty(); });
+  PurgeTrackedEmptyContexts();
   for (auto it = contexts_.begin(); it != contexts_.end(); it++) {
     if (Local<Context> saved_context = PersistentToLocal::Weak(isolate_, *it);
         saved_context == context) {

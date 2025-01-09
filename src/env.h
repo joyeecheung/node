@@ -709,6 +709,8 @@ class Environment final : public MemoryRetainer {
                        Realm* realm,
                        const ContextInfo& info);
   void UnassignFromContext(v8::Local<v8::Context> context);
+  void PurgeTrackedEmptyContexts();
+
   void TrackShadowRealm(shadow_realm::ShadowRealm* realm);
   void UntrackShadowRealm(shadow_realm::ShadowRealm* realm);
 
