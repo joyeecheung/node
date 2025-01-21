@@ -190,7 +190,7 @@
           '-Wno-unused-parameter',
           '-Wstrict-prototypes',
         ],
-        'OTHER_CFLAGS': [ '-g', '--std=gnu89' ],
+        'OTHER_CFLAGS': [ '-g', '--std=gnu89', '-gsplit-dwarf' ],
       },
       'conditions': [
         [ 'OS=="win"', {

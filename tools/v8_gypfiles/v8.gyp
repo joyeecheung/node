@@ -48,6 +48,9 @@
         # or run out of memory with -fvisibility=hidden on some machines in the CI.
         'xcode_settings': {
           'GCC_SYMBOLS_PRIVATE_EXTERN': 'YES',  # -fvisibility=hidden
+          'OTHER_CFLAGS': [
+            '-gsplit-dwarf',
+          ]
         },
         'defines': [
           'BUILDING_V8_SHARED',  # Make V8_EXPORT visible.

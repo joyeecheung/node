@@ -13,6 +13,17 @@
     ],
   },
   'includes': [ '../../icu_config.gypi' ],
+  'target_defaults': {
+    'conditions': [
+      ['OS=="mac"', {
+        'xcode_settings': {
+          'OTHER_CFLAGS': ['-gsplit-dwarf']
+        },
+      }, 'OS!="win" or clang==1', {
+        'cflags': ['-gsplit-dwarf']
+      }]
+    ],
+  },
   'targets': [
     {
       # a target for additional uconfig defines, target only

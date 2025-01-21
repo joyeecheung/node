@@ -473,7 +473,10 @@
     # Putting these explicitly here so not to depend on `common.gypi`.
     # `common.gypi` need to be more general because it is used to build userland native addons.
     # Refs: https://github.com/nodejs/node-gyp/issues/1118
-    'cflags': [ '-Wall', '-Wextra', '-Wno-unused-parameter', ],
+    'cflags': [
+      '-Wall', '-Wextra', '-Wno-unused-parameter',
+      '-gsplit-dwarf',
+    ],
     'xcode_settings': {
       'WARNING_CFLAGS': [
         '-Wall',
@@ -484,6 +487,9 @@
         '-Werror=extra-semi',
         '-Werror=ctad-maybe-unsupported',
       ],
+      'OTHER_CFLAGS': [
+        '-gsplit-dwarf',
+      ]
     },
 
     'conditions': [

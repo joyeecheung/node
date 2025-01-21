@@ -46,7 +46,8 @@
       },
     }, 'OS=="mac"', {
       'xcode_settings': {
-        'WARNING_CFLAGS': ['-Wno-missing-field-initializers']
+        'WARNING_CFLAGS': ['-Wno-missing-field-initializers'],
+        'OTHER_CFLAGS': [ '-gsplit-dwarf' ]
       },
       'defines': [
         'OPENSSLDIR="/System/Library/OpenSSL/"',
@@ -60,7 +61,7 @@
       ],
     }, {
       # linux and others
-      'cflags': ['-Wno-missing-field-initializers',],
+      'cflags': ['-Wno-missing-field-initializers', '-gsplit-dwarf'],
       'defines': [
         'OPENSSLDIR="/etc/ssl"',
         'ENGINESDIR="/dev/null"',

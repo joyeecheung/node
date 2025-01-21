@@ -162,6 +162,13 @@
           '__EXTENSIONS__',
           '_XOPEN_SOURCE=500'
         ]
+      }],
+      ['OS=="mac"', {
+        'xcode_settings': {
+          'OTHER_CFLAGS': ['-gsplit-dwarf']
+        },
+      }, 'OS!="win" or clang==1', {
+        'cflags': ['-gsplit-dwarf']
       }]
     ]
   },

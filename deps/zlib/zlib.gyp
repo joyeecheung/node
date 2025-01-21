@@ -8,6 +8,17 @@
     'use_system_zlib%': 0,
     'arm_fpu%': '',
   },
+  'target_defaults': {
+    'conditions': [
+      ['OS=="mac"', {
+        'xcode_settings': {
+          'OTHER_CFLAGS': ['-gsplit-dwarf']
+        },
+      }, 'OS!="win" or clang==1', {
+        'cflags': ['-gsplit-dwarf']
+      }]
+    ],
+  },
   'conditions': [
     ['use_system_zlib==0', {
       'targets': [

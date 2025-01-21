@@ -60,6 +60,13 @@
             'OS_MACOSX'
           ]
         }],
+        ['OS=="mac"', {
+          'xcode_settings': {
+            'OTHER_CFLAGS': ['-gsplit-dwarf']
+          },
+        }, 'OS!="win" or clang==1', {
+          'cflags': ['-gsplit-dwarf']
+        }]
       ],
       'direct_dependent_settings': {
         'include_dirs': [ 'c/include' ]

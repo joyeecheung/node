@@ -32,7 +32,16 @@
   'target_defaults': {
     'defines': [
       '_U_='
-    ]
+    ],
+    'conditions': [
+      ['OS=="mac"', {
+        'xcode_settings': {
+          'OTHER_CFLAGS': ['-gsplit-dwarf']
+        },
+      }, 'OS!="win" or clang==1', {
+        'cflags': ['-gsplit-dwarf']
+      }]
+    ],
   },
   'targets': [
     {
