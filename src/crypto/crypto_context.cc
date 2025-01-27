@@ -61,14 +61,16 @@ static const char* const root_certs[] = {
 #include "node_root_certs.h"  // NOLINT(build/include_order)
 };
 
-static const char system_cert_path[] = NODE_OPENSSL_SYSTEM_CERT_PATH;
-
-static std::string extra_root_certs_file;  // NOLINT(runtime/string)
+// Certificates provided via the tls.addGlobalCACert() API.
+thread_local std::vector<std::string> user_provided_ca_certs;
+thread_local std::vector<X509*> root_certs_vector;
+thread_local std::string extra_root_certs_file;  // NOLINT(runtime/string)
+thread_local X509_STORE* global_ca_cert_store = nullptr;
+thread_local const char system_cert_path[] = NODE_OPENSSL_SYSTEM_CERT_PATH;
 
 X509_STORE* GetOrCreateRootCertStore() {
-  // Guaranteed thread-safe by standard, just don't use -fno-threadsafe-statics.
-  static X509_STORE* store = NewRootCertStore();
-  return store;
+  global_ca_cert_store = NewRootCertStore();
+  return global_ca_cert_store;
 }
 
 // Takes a string or buffer and loads it into a BIO.
@@ -233,65 +235,90 @@ unsigned long LoadCertsFromFile(  // NOLINT(runtime/int)
 }
 
 X509_STORE* NewRootCertStore() {
-  static std::vector<X509*> root_certs_vector;
-  static bool root_certs_vector_loaded = false;
-  static Mutex root_certs_vector_mutex;
-  Mutex::ScopedLock lock(root_certs_vector_mutex);
-
-  if (!root_certs_vector_loaded) {
-    if (per_process::cli_options->ssl_openssl_cert_store == false) {
-      for (size_t i = 0; i < arraysize(root_certs); i++) {
-        X509* x509 = PEM_read_bio_X509(
-            NodeBIO::NewFixed(root_certs[i], strlen(root_certs[i])).get(),
-            nullptr,  // no re-use of X509 structure
-            NoPasswordCallback,
-            nullptr);  // no callback data
-
-        // Parse errors from the built-in roots are fatal.
-        CHECK_NOT_NULL(x509);
-
-        root_certs_vector.push_back(x509);
-      }
-    }
-
-    if (!extra_root_certs_file.empty()) {
-      unsigned long err = LoadCertsFromFile(  // NOLINT(runtime/int)
-          &root_certs_vector,
-          extra_root_certs_file.c_str());
-      if (err) {
-        char buf[256];
-        ERR_error_string_n(err, buf, sizeof(buf));
-        fprintf(stderr,
-                "Warning: Ignoring extra certs from `%s`, load failed: %s\n",
-                extra_root_certs_file.c_str(),
-                buf);
-      }
-    }
-
-    root_certs_vector_loaded = true;
+  if (global_ca_cert_store != nullptr) {
+    return global_ca_cert_store;
   }
 
-  X509_STORE* store = X509_STORE_new();
+  if (per_process::cli_options->ssl_openssl_cert_store == false) {
+    for (size_t i = 0; i < arraysize(root_certs); i++) {
+      X509* x509 = PEM_read_bio_X509(
+          NodeBIO::NewFixed(root_certs[i], strlen(root_certs[i])).get(),
+          nullptr,  // no re-use of X509 structure
+          NoPasswordCallback,
+          nullptr);  // no callback data
+
+      // Parse errors from the built-in roots are fatal.
+      CHECK_NOT_NULL(x509);
+
+      root_certs_vector.push_back(x509);
+    }
+  }
+
+  if (!extra_root_certs_file.empty()) {
+    unsigned long err = LoadCertsFromFile(  // NOLINT(runtime/int)
+        &root_certs_vector,
+        extra_root_certs_file.c_str());
+    if (err) {
+      char buf[256];
+      ERR_error_string_n(err, buf, sizeof(buf));
+      fprintf(stderr,
+              "Warning: Ignoring extra certs from `%s`, load failed: %s\n",
+              extra_root_certs_file.c_str(),
+              buf);
+    }
+  }
+
+  global_ca_cert_store = X509_STORE_new();
   if (*system_cert_path != '\0') {
     ERR_set_mark();
-    X509_STORE_load_locations(store, system_cert_path, nullptr);
+    X509_STORE_load_locations(global_ca_cert_store, system_cert_path, nullptr);
     ERR_pop_to_mark();
   }
 
   Mutex::ScopedLock cli_lock(node::per_process::cli_options_mutex);
   if (per_process::cli_options->ssl_openssl_cert_store) {
-    CHECK_EQ(1, X509_STORE_set_default_paths(store));
+    CHECK_EQ(1, X509_STORE_set_default_paths(global_ca_cert_store));
   }
 
   for (X509* cert : root_certs_vector) {
-    CHECK_EQ(1, X509_STORE_add_cert(store, cert));
+    CHECK_EQ(1, X509_STORE_add_cert(global_ca_cert_store, cert));
   }
 
-  return store;
+  return global_ca_cert_store;
+}
+
+void AddGlobalCACert(const FunctionCallbackInfo<Value>& args) {
+  Environment* env = Environment::GetCurrent(args);
+
+  CHECK_GE(args.Length(), 1);
+
+  BIOPointer bio(LoadBIO(env, args[0]));
+  if (!bio) {
+    return ThrowCryptoError(env, ERR_get_error(), "LoadBIO");
+  }
+
+  X509Pointer x509 = X509Pointer(PEM_read_bio_X509_AUX(bio.get(), nullptr, NoPasswordCallback, nullptr));
+  if (!x509) {
+    return ThrowCryptoError(env, ERR_get_error(), "PEM_read_bio_X509_AUX");
+  }
+
+  X509_STORE* cert_store = GetOrCreateRootCertStore();
+
+  if (!X509_STORE_add_cert(cert_store, x509)) {
+    return ThrowCryptoError(env, ERR_get_error(), "X509_STORE_add_cert");
+  }
+
+  char* pem_data = nullptr;
+  auto pem_size = BIO_get_mem_data(bio.get(), &pem_data);
+  CHECK_GE(pem_size, 0);
+  CHECK_NOT_NULL(pem_data);
+
+  user_provided_ca_certs.emplace_back(pem_data, pem_size);
 }
 
 void GetRootCertificates(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
+
   Local<Value> result[arraysize(root_certs)];
 
   for (size_t i = 0; i < arraysize(root_certs); i++) {
@@ -392,6 +419,9 @@ void SecureContext::Initialize(Environment* env, Local<Object> target) {
 
   SetMethodNoSideEffect(
       context, target, "getRootCertificates", GetRootCertificates);
+
+  SetMethodNoSideEffect(
+      context, target, "addGlobalCACert", AddGlobalCACert);
 }
 
 void SecureContext::RegisterExternalReferences(
@@ -401,6 +431,7 @@ void SecureContext::RegisterExternalReferences(
   registry->Register(SetKey);
   registry->Register(SetCert);
   registry->Register(AddCACert);
+  registry->Register(AddGlobalCACert);
   registry->Register(AddCRL);
   registry->Register(AddRootCerts);
   registry->Register(SetAllowPartialTrustChain);

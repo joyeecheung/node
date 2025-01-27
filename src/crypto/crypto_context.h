@@ -93,6 +93,7 @@ class SecureContext final : public BaseObject {
 #endif  // !OPENSSL_NO_ENGINE
   static void SetCert(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void AddCACert(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void AddGlobalCACert(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void SetAllowPartialTrustChain(
       const v8::FunctionCallbackInfo<v8::Value>& args);
   static void AddCRL(const v8::FunctionCallbackInfo<v8::Value>& args);
