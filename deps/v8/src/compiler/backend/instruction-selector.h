@@ -783,8 +783,8 @@ class InstructionSelectorT final : public Adapter {
 
   using StateObjectDeduplicator =
       std::conditional_t<std::is_same_v<Adapter, TurboshaftAdapter>,
-                         TurboshaftStateObjectDeduplicator,
-                         TurbofanStateObjectDeduplicator>;
+                         typename TurboshaftStateObjectDeduplicator,
+                         typename TurbofanStateObjectDeduplicator>;
   FrameStateDescriptor* GetFrameStateDescriptor(node_t node);
   size_t AddInputsToFrameStateDescriptor(FrameStateDescriptor* descriptor,
                                          node_t state, OperandGenerator* g,
