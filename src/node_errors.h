@@ -234,6 +234,29 @@ inline void THROW_ERR_SCRIPT_EXECUTION_TIMEOUT(Environment* env,
   THROW_ERR_SCRIPT_EXECUTION_TIMEOUT(env, message.str().c_str());
 }
 
+void EscapePercentsAndAppend(std::string& accumulator, const char* suffix, size_t size) {
+  size_t count = 0;
+  for (size_t i = 0; i < size; ++i) {
+    if (suffix[i] == '%') { ++count; }
+  }
+  if (count == 0) {
+    accumulator.append(suffix, size);
+    return;
+  }
+
+  accumulator.reserve(input.size() + count);
+
+  for (size_t i = 0; i < size; ++i) {
+    char c = suffix[i];
+    if (c == '%') {
+      accumulator += "%%";
+    } else {
+      accumulator.push_back(c);
+    }
+  }
+  *output = std::move(result);
+}
+
 inline void THROW_ERR_REQUIRE_ASYNC_MODULE(
     Environment* env,
     v8::Local<v8::Value> filename,
