@@ -88,10 +88,14 @@ InternalCallbackScope::InternalCallbackScope(Environment* env,
 
   pushed_ids_ = true;
 
-  if (asyncContext.async_id != 0 && !skip_hooks_) {
-    // No need to check a return value because the application will exit if
-    // an exception occurs.
-    AsyncWrap::EmitBefore(env, asyncContext.async_id);
+  if (asyncContext.async_id != 0) {
+    if (!skip_hooks_) {
+      // No need to check a return value because the application will exit if
+      // an exception occurs.
+      AsyncWrap::EmitBefore(env, asyncContext.async_id);
+    } else if (env->inspector_agent()) {
+      env->inspector_agent()->AsyncTaskStarted(asyncContext.async_id);
+    }
   }
 }
 
@@ -120,8 +124,12 @@ void InternalCallbackScope::Close() {
   Isolate* isolate = env_->isolate();
   auto idle = OnScopeLeave([&]() { isolate->SetIdle(true); });
 
-  if (!failed_ && async_context_.async_id != 0 && !skip_hooks_) {
-    AsyncWrap::EmitAfter(env_, async_context_.async_id);
+  if (!failed_ && async_context_.async_id != 0) {
+    if (!skip_hooks_) {
+      AsyncWrap::EmitAfter(env_, async_context_.async_id);
+    } else if (env_->inspector_agent()) {
+      env_->inspector_agent()->AsyncTaskFinished(async_context_.async_id);
+    }
   }
 
   if (pushed_ids_) {

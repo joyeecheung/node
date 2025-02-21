@@ -492,11 +492,14 @@ class NodeInspectorClient : public V8InspectorClient {
       return;
     }
     if (auto agent = env_->inspector_agent()) {
-      if (depth == 0) {
-        agent->DisableAsyncHook();
-      } else {
-        agent->EnableAsyncHook();
-      }
+      // if (depth == 0) {
+      //   agent->DisableAsyncHook();
+      // } else {
+      //   agent->EnableAsyncHook();
+      // }
+      printf("toggle_async_task_tracking(%d)\n", depth != 0);
+      agent->toggle_async_task_tracking(depth != 0);
+      printf("async_task_tracking_enabled %p %p %d\n", env_, agent, agent->async_task_tracking_enabled());
     }
   }
 
@@ -1068,19 +1071,58 @@ void Agent::ToggleAsyncHook(Isolate* isolate, Local<Function> fn) {
 
 void Agent::AsyncTaskScheduled(const StringView& task_name, void* task,
                                bool recurring) {
+  std::string name_str = protocol::StringUtil::StringViewToUtf8(task_name);
+  printf("AsyncTaskScheduled %p %s %p\n", this, name_str.c_str(), task);
   client_->AsyncTaskScheduled(task_name, task, recurring);
 }
 
+void* AsyncIdToPointer(double async_id) {
+  int64_t async_id_int = static_cast<int64_t>(async_id);
+  return reinterpret_cast<void*>(async_id_int << 1);
+}
+
+void Agent::AsyncTaskScheduled(Local<v8::String> task_name, double task,
+                               bool recurring) {
+  printf("AsyncTaskCanceled %p %p %d %p\n", parent_env_, this, async_task_tracking_enabled_, AsyncIdToPointer(task));
+  if (!async_task_tracking_enabled_) { return; }
+  v8::String::Value task_name_value(parent_env_->isolate(), task_name);
+  v8_inspector::StringView task_name_view(*task_name_value, task_name_value.length());
+  std::string name_str = protocol::StringUtil::StringViewToUtf8(task_name_view);
+  printf("AsyncTaskScheduled %s %p\n", name_str.c_str(), AsyncIdToPointer(task));
+  client_->AsyncTaskScheduled(task_name_view, AsyncIdToPointer(task), recurring);
+}
+
 void Agent::AsyncTaskCanceled(void* task) {
+  printf("AsyncTaskCanceled %p\n", task);
   client_->AsyncTaskCanceled(task);
 }
 
 void Agent::AsyncTaskStarted(void* task) {
+  printf("AsyncTaskStarted %p\n", task);
   client_->AsyncTaskStarted(task);
 }
 
 void Agent::AsyncTaskFinished(void* task) {
+  printf("AsyncTaskFinished %p\n", task);
   client_->AsyncTaskFinished(task);
+}
+
+void Agent::AsyncTaskCanceled(double task) {
+  printf("AsyncTaskCanceled %p %p %d %p\n", parent_env_, this, async_task_tracking_enabled_, AsyncIdToPointer(task));
+  if (!async_task_tracking_enabled_) { return; }
+  client_->AsyncTaskCanceled(AsyncIdToPointer(task));
+}
+
+void Agent::AsyncTaskStarted(double task) {
+  printf("AsyncTaskStarted %p %p %d %p\n", parent_env_, this, async_task_tracking_enabled_, AsyncIdToPointer(task));
+  if (!async_task_tracking_enabled_) { return; }
+  client_->AsyncTaskStarted(AsyncIdToPointer(task));
+}
+
+void Agent::AsyncTaskFinished(double task) {
+  printf("AsyncTaskFinished %p %p %d %p\n", parent_env_, this, async_task_tracking_enabled_, AsyncIdToPointer(task));
+  if (!async_task_tracking_enabled_) { return; }
+  client_->AsyncTaskFinished(AsyncIdToPointer(task));
 }
 
 void Agent::AllAsyncTasksCanceled() {

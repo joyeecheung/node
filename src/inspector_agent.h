@@ -80,9 +80,14 @@ class Agent {
   // Async stack traces instrumentation.
   void AsyncTaskScheduled(const v8_inspector::StringView& taskName, void* task,
                           bool recurring);
+  void AsyncTaskScheduled(v8::Local<v8::String> name, double task,
+                          bool recurring);
   void AsyncTaskCanceled(void* task);
   void AsyncTaskStarted(void* task);
   void AsyncTaskFinished(void* task);
+  void AsyncTaskCanceled(double task);
+  void AsyncTaskStarted(double task);
+  void AsyncTaskFinished(double task);
   void AllAsyncTasksCanceled();
 
   void RegisterAsyncHook(v8::Isolate* isolate,
@@ -90,6 +95,14 @@ class Agent {
     v8::Local<v8::Function> disable_function);
   void EnableAsyncHook();
   void DisableAsyncHook();
+
+  inline bool async_task_tracking_enabled() const {
+    return async_task_tracking_enabled_;
+  }
+
+  inline void toggle_async_task_tracking(bool value) {
+    async_task_tracking_enabled_ = value;
+  }
 
   void SetParentHandle(std::unique_ptr<ParentInspectorHandle> parent_handle);
   std::unique_ptr<ParentInspectorHandle> GetParentHandle(
@@ -146,6 +159,7 @@ class Agent {
   DebugOptions debug_options_;
   std::shared_ptr<ExclusiveAccess<HostPort>> host_port_;
 
+  bool async_task_tracking_enabled_ = false;
   bool pending_enable_async_hook_ = false;
   bool pending_disable_async_hook_ = false;
 

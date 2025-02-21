@@ -125,6 +125,10 @@ void AsyncWrap::EmitTraceEventBefore() {
 
 
 void AsyncWrap::EmitBefore(Environment* env, double async_id) {
+  printf("AsyncWrap::EmitBefore\n");
+  if (env->inspector_agent()) {
+    env->inspector_agent()->AsyncTaskStarted(async_id);
+  }
   Emit(env, async_id, AsyncHooks::kBefore,
        env->async_hooks_before_function());
 }
@@ -149,6 +153,10 @@ void AsyncWrap::EmitTraceEventAfter(ProviderType type, double async_id) {
 void AsyncWrap::EmitAfter(Environment* env, double async_id) {
   // If the user's callback failed then the after() hooks will be called at the
   // end of _fatalException().
+  printf("AsyncWrap::EmitAfter\n");
+  if (env->inspector_agent()) {
+    env->inspector_agent()->AsyncTaskFinished(async_id);
+  }
   Emit(env, async_id, AsyncHooks::kAfter,
        env->async_hooks_after_function());
 }
@@ -315,6 +323,10 @@ void AsyncWrap::GetProviderType(const FunctionCallbackInfo<Value>& args) {
 
 
 void AsyncWrap::EmitDestroy(bool from_gc) {
+  printf("AsyncWrap::EmitDestroy\n");
+  if (env()->inspector_agent()) {
+    env()->inspector_agent()->AsyncTaskFinished(async_id_);
+  }
   AsyncWrap::EmitDestroy(env(), async_id_);
   // Ensure no double destroy is emitted via AsyncReset().
   async_id_ = kInvalidAsyncId;
@@ -637,6 +649,11 @@ void AsyncWrap::EmitAsyncInit(Environment* env,
                               double trigger_async_id) {
   CHECK(!object.IsEmpty());
   CHECK(!type.IsEmpty());
+
+  printf("AsyncWrap::EmitAsyncInit\n");
+  if (env->inspector_agent()) {
+    env->inspector_agent()->AsyncTaskScheduled(type, async_id, true);
+  }
   AsyncHooks* async_hooks = env->async_hooks();
 
   // Nothing to execute, so can continue normally.
