@@ -3528,6 +3528,10 @@ If `value` equals `'0'`, certificate validation is disabled for TLS connections.
 This makes TLS, and HTTPS by extension, insecure. The use of this environment
 variable is strongly discouraged.
 
+### `NODE_USE_ENV_PROXY`
+
+
+
 ### `NODE_V8_COVERAGE=dir`
 
 When set, Node.js will begin outputting [V8 JavaScript code coverage][] and
