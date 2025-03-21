@@ -74,12 +74,37 @@ exports.createProxyServer = function() {
   return { proxy, logs };
 };
 
-exports.checkProxiedRequest = async function(envExtension, expectation) {
+exports.checkProxiedFetch = async function(envExtension, expectation) {
   const { spawnPromisified } = require('./');
   const fixtures = require('./fixtures');
   const { code, signal, stdout, stderr } = await spawnPromisified(
     process.execPath,
     [fixtures.path('fetch-and-log.mjs')], {
+      env: {
+        ...process.env,
+        ...envExtension,
+      },
+    });
+
+  assert.deepStrictEqual({
+    stderr: stderr.trim(),
+    stdout: stdout.trim(),
+    code,
+    signal,
+  }, {
+    stderr: '',
+    code: 0,
+    signal: null,
+    ...expectation,
+  });
+};
+
+exports.checkProxiedRequest = async function(envExtension, expectation) {
+  const { spawnPromisified } = require('./');
+  const fixtures = require('./fixtures');
+  const { code, signal, stdout, stderr } = await spawnPromisified(
+    process.execPath,
+    [fixtures.path('request-and-log.js')], {
       env: {
         ...process.env,
         ...envExtension,
