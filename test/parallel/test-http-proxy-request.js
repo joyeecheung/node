@@ -27,9 +27,9 @@ const { createProxyServer, checkProxiedFetch, checkProxiedRequest } = require('.
     url: requestUrl,
     headers: {
       // FIXME(undici:4086): this should be keep-alive.
-      connection: 'keep-alive',
+      'connection': 'keep-alive',
       'proxy-connection': 'keep-alive',
-      host: serverHost
+      'host': serverHost
     }
   }];
 
