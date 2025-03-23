@@ -4,7 +4,7 @@ const common = require('../common');
 const assert = require('assert');
 const { once } = require('events');
 const http = require('http');
-const { createProxyServer, checkProxiedFetch, checkProxiedRequest } = require('../common/proxy-server');
+const { createProxyServer, checkProxiedRequest } = require('../common/proxy-server');
 
 (async () => {
   // Start a server to process the final request.
@@ -27,9 +27,9 @@ const { createProxyServer, checkProxiedFetch, checkProxiedRequest } = require('.
     url: requestUrl,
     headers: {
       // FIXME(undici:4086): this should be keep-alive.
-      connection: 'keep-alive',
+      'connection': 'keep-alive',
       'proxy-connection': 'keep-alive',
-      host: serverHost
+      'host': serverHost
     }
   }];
 
