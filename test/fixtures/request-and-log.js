@@ -1,15 +1,15 @@
-const http = require('http');
+const url = process.env.REQUEST_URL;
 
-const req = http.request(process.env.REQUEST_URL, (res) => {
-  let body = '';
+let request;
+if (url.startsWith('https')) {
+  request = require('https').get;
+} else {
+  request = require('http').get;
+}
 
-  res.setEncoding('utf8');
+const req = request(url, (res) => {
   res.on('data', (chunk) => {
-    body += chunk;
-  });
-
-  res.on('end', () => {
-    console.log(body);
+    process.stdout.write(chunk);
   });
 });
 
