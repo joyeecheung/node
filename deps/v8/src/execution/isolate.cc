@@ -4132,7 +4132,7 @@ Isolate* Isolate::Allocate(IsolateGroup* group) {
 }
 
 // static
-void Isolate::Delete(Isolate* isolate) {
+void Isolate::Delete(Isolate* isolate, v8::Isolate::IsolateDisposeFlags flags) {
   DCHECK_NOT_NULL(isolate);
   // v8::V8::Dispose() must only be called after deleting all isolates.
   DCHECK_NOT_NULL(V8::GetCurrentPlatform());
@@ -4156,11 +4156,20 @@ void Isolate::Delete(Isolate* isolate) {
   isolate->~Isolate();
   // Only release the group once all other Isolate members have been destroyed.
   group->Release();
-  // Free the isolate itself.
-  base::AlignedFree(isolate);
+
+  if (flags != v8::Isolate::IsolateDisposeFlags::kDontFree) {
+    // Free the isolate itself.
+    Free(isolate);
+  }
 
   // Restore the previous current isolate.
   SetIsolateThreadLocals(saved_isolate, saved_data);
+}
+
+// static
+void Isolate::Free(Isolate* isolate) {
+  // Free the memory allocated for the Isolate.
+  base::AlignedFree(isolate);
 }
 
 void Isolate::SetUpFromReadOnlyArtifacts(ReadOnlyArtifacts* artifacts) {

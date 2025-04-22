@@ -871,11 +871,24 @@ class V8_EXPORT Isolate {
    */
   void Exit();
 
+  enum class IsolateDisposeFlags {
+    kDefault,
+    kDontFree,
+  };
   /**
    * Disposes the isolate.  The isolate must not be entered by any
    * thread to be disposable.
+   * \param flags If IsolateDisposeFlags::kDontFree is specified, the Isolate
+   * pointer is not freed. Embedders must call Isolate::Free() to free the
+   * pointer.
    */
-  void Dispose();
+  void Dispose(IsolateDisposeFlags flags = IsolateDisposeFlags::kDefault);
+
+  /**
+   * Frees the isolate. Must only be used if the Isolate has already been
+   * disposed with IsolateDisposeFlags::kDontFree.
+   */
+  static void Free(Isolate* isolate);
 
   /**
    * Dumps activated low-level V8 internal stats. This can be used instead
