@@ -607,9 +607,8 @@ std::unique_ptr<MultiIsolatePlatform> MultiIsolatePlatform::Create(
     int thread_pool_size,
     v8::TracingController* tracing_controller,
     v8::PageAllocator* page_allocator) {
-  return std::make_unique<NodePlatform>(thread_pool_size,
-                                        tracing_controller,
-                                        page_allocator);
+  return std::make_unique<NodePlatform>(
+      thread_pool_size, tracing_controller, page_allocator);
 }
 
 MaybeLocal<Object> GetPerContextExports(Local<Context> context,
