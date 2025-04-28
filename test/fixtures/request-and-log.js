@@ -14,7 +14,7 @@ const req = request(url, (res) => {
 });
 
 req.on('error', (e) => {
-  console.error(e.message);
+  console.trace(e);
 });
 
 req.end();
