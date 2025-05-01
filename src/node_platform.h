@@ -28,8 +28,8 @@ class TaskQueue {
     std::unique_ptr<T> Pop();
     std::unique_ptr<T> BlockingPop();
     void NotifyOfCompletion();
-    void BlockingDrain();
     void Stop();
+    void WakeUp();
     std::queue<std::unique_ptr<T>> PopAll();
 
    private:
@@ -39,7 +39,7 @@ class TaskQueue {
     TaskQueue* queue_;
     Mutex::ScopedLock lock_;
   };
-
+  void BlockingDrain(std::function<bool()> flush_foreground_tasks);
   TaskQueue();
   ~TaskQueue() = default;
 
@@ -61,13 +61,17 @@ struct DelayedTask {
   std::shared_ptr<PerIsolatePlatformData> platform_data;
 };
 
+class NodePlatform;
+
 // This acts as the foreground task runner for a given Isolate.
 class PerIsolatePlatformData
     : public IsolatePlatformDelegate,
       public v8::TaskRunner,
       public std::enable_shared_from_this<PerIsolatePlatformData> {
  public:
-  PerIsolatePlatformData(v8::Isolate* isolate, uv_loop_t* loop);
+  PerIsolatePlatformData(v8::Isolate* isolate,
+                         uv_loop_t* loop,
+                         NodePlatform* platform);
   ~PerIsolatePlatformData() override;
 
   std::shared_ptr<v8::TaskRunner> GetForegroundTaskRunner() override;
@@ -124,6 +128,7 @@ class PerIsolatePlatformData
 
   v8::Isolate* const isolate_;
   uv_loop_t* const loop_;
+  NodePlatform* platform_;
 
   // When acquiring locks for both task queues, lock foreground_tasks_
   // first then foreground_delayed_tasks_ to avoid deadlocks.
@@ -144,8 +149,9 @@ class WorkerThreadsTaskRunner {
   void PostTask(std::unique_ptr<v8::Task> task);
   void PostDelayedTask(std::unique_ptr<v8::Task> task, double delay_in_seconds);
 
-  void BlockingDrain();
+  void BlockingDrain(std::function<bool()> flush_foreground_tasks);
   void Shutdown();
+  void NotifyForegroundTaskPosted();
 
   int NumberOfWorkerThreads() const;
 
@@ -202,6 +208,8 @@ class NodePlatform : public MultiIsolatePlatform {
 
   Platform::StackTracePrinter GetStackTracePrinter() override;
   v8::PageAllocator* GetPageAllocator() override;
+
+  void NotifyForegroundTaskPosted();
 
  private:
   IsolatePlatformDelegate* ForIsolate(v8::Isolate* isolate);
