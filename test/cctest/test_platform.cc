@@ -74,8 +74,7 @@ TEST_F(NodeZeroIsolateTestFixture, IsolatePlatformDelegateTest) {
 
   // Register *first*, then initialize
   auto delegate = std::make_shared<node::PerIsolatePlatformData>(
-    isolate,
-    &current_loop);
+      isolate, &current_loop, platform.get());
   platform->RegisterIsolate(isolate, delegate.get());
   v8::Isolate::Initialize(isolate, create_params);
 
