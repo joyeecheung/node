@@ -221,8 +221,9 @@ void WorkerThreadsTaskRunner::PostDelayedTask(std::unique_ptr<Task> task,
   delayed_task_scheduler_->PostDelayedTask(std::move(task), delay_in_seconds);
 }
 
-void WorkerThreadsTaskRunner::BlockingDrain() {
-  pending_worker_tasks_.Lock().BlockingDrain();
+void WorkerThreadsTaskRunner::BlockingDrain(
+    std::function<bool()> flush_foreground_tasks) {
+  pending_worker_tasks_.BlockingDrain(flush_foreground_tasks);
 }
 
 void WorkerThreadsTaskRunner::Shutdown() {
@@ -237,9 +238,14 @@ int WorkerThreadsTaskRunner::NumberOfWorkerThreads() const {
   return threads_.size();
 }
 
-PerIsolatePlatformData::PerIsolatePlatformData(
-    Isolate* isolate, uv_loop_t* loop)
-  : isolate_(isolate), loop_(loop) {
+void WorkerThreadsTaskRunner::NotifyForegroundTaskPosted() {
+  pending_worker_tasks_.Lock().WakeUp();
+}
+
+PerIsolatePlatformData::PerIsolatePlatformData(Isolate* isolate,
+                                               uv_loop_t* loop,
+                                               NodePlatform* platform)
+    : isolate_(isolate), loop_(loop), platform_(platform) {
   flush_tasks_ = new uv_async_t();
   CHECK_EQ(0, uv_async_init(loop, flush_tasks_, FlushTasks));
   flush_tasks_->data = static_cast<void*>(this);
@@ -267,10 +273,13 @@ void PerIsolatePlatformData::PostTaskImpl(std::unique_ptr<Task> task,
   // the foreground task runner is being cleaned up by Shutdown(). In that
   // case, make sure we wait until the shutdown is completed (which leads
   // to flush_tasks_ == nullptr, and the task will be discarded).
-  auto locked = foreground_tasks_.Lock();
-  if (flush_tasks_ == nullptr) return;
-  locked.Push(std::move(task));
-  uv_async_send(flush_tasks_);
+  {
+    auto locked = foreground_tasks_.Lock();
+    if (flush_tasks_ == nullptr) return;
+    locked.Push(std::move(task));
+    uv_async_send(flush_tasks_);
+  }
+  platform_->NotifyForegroundTaskPosted();
 }
 
 void PerIsolatePlatformData::PostDelayedTaskImpl(
@@ -285,6 +294,7 @@ void PerIsolatePlatformData::PostDelayedTaskImpl(
   delayed->timeout = delay_in_seconds;
   locked.Push(std::move(delayed));
   uv_async_send(flush_tasks_);
+  platform_->NotifyForegroundTaskPosted();
 }
 
 void PerIsolatePlatformData::PostNonNestableTaskImpl(
@@ -372,7 +382,7 @@ NodePlatform::~NodePlatform() {
 
 void NodePlatform::RegisterIsolate(Isolate* isolate, uv_loop_t* loop) {
   Mutex::ScopedLock lock(per_isolate_mutex_);
-  auto delegate = std::make_shared<PerIsolatePlatformData>(isolate, loop);
+  auto delegate = std::make_shared<PerIsolatePlatformData>(isolate, loop, this);
   IsolatePlatformDelegate* ptr = delegate.get();
   auto insertion = per_isolate_.emplace(
     isolate,
@@ -427,6 +437,10 @@ int NodePlatform::NumberOfWorkerThreads() {
   return worker_thread_task_runner_->NumberOfWorkerThreads();
 }
 
+void NodePlatform::NotifyForegroundTaskPosted() {
+  worker_thread_task_runner_->NotifyForegroundTaskPosted();
+}
+
 void PerIsolatePlatformData::RunForegroundTask(std::unique_ptr<Task> task) {
   if (isolate_->IsExecutionTerminating()) return;
   DebugSealHandleScope scope(isolate_);
@@ -469,10 +483,10 @@ void NodePlatform::DrainTasks(Isolate* isolate) {
   std::shared_ptr<PerIsolatePlatformData> per_isolate = ForNodeIsolate(isolate);
   if (!per_isolate) return;
 
-  do {
-    // Worker tasks aren't associated with an Isolate.
-    worker_thread_task_runner_->BlockingDrain();
-  } while (per_isolate->FlushForegroundTasksInternal());
+  // Worker tasks aren't associated with an Isolate.
+  worker_thread_task_runner_->BlockingDrain([per_isolate]() -> bool {
+    return per_isolate->FlushForegroundTasksInternal();
+  });
 }
 
 bool PerIsolatePlatformData::FlushForegroundTasksInternal() {
@@ -650,10 +664,21 @@ void TaskQueue<T>::Locked::NotifyOfCompletion() {
 }
 
 template <class T>
-void TaskQueue<T>::Locked::BlockingDrain() {
-  while (queue_->outstanding_tasks_ > 0) {
-    queue_->tasks_drained_.Wait(lock_);
-  }
+void TaskQueue<T>::Locked::WakeUp() {
+  queue_->tasks_drained_.Signal(lock_);
+}
+
+template <class T>
+void TaskQueue<T>::BlockingDrain(std::function<bool()> flush_foreground_tasks) {
+  do {
+    while (Lock().queue_->outstanding_tasks_ > 0) {
+      {
+        auto locked = Lock();
+        locked.queue_->tasks_drained_.Wait(locked.lock_);
+      }
+      flush_foreground_tasks();
+    }
+  } while (flush_foreground_tasks());
 }
 
 template <class T>
