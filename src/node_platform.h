@@ -20,9 +20,32 @@ class NodePlatform;
 class IsolateData;
 class PerIsolatePlatformData;
 
+template <typename, typename = void>
+struct has_priority : std::false_type {};
+
+template <typename T>
+struct has_priority<T, std::void_t<decltype(std::declval<T>().priority)>>
+    : std::true_type {};
+
 template <class T>
 class TaskQueue {
  public:
+  struct EntryCompare {
+    bool operator()(const std::unique_ptr<T>& a,
+                    const std::unique_ptr<T>& b) const {
+      if constexpr (has_priority<T>::value) {
+        // Compare by priority (greater = higher priority)
+        return a->priority < b->priority;
+      } else {
+        // Maintain insertion order.
+        return false;
+      }
+    }
+  };
+
+  using PriorityQueue = std::priority_queue<std::unique_ptr<T>,
+                                            std::vector<std::unique_ptr<T>>,
+                                            EntryCompare>;
   class Locked {
    public:
     void Push(std::unique_ptr<T> task);
@@ -31,7 +54,7 @@ class TaskQueue {
     void NotifyOfCompletion();
     void BlockingDrain();
     void Stop();
-    std::queue<std::unique_ptr<T>> PopAll();
+    PriorityQueue PopAll();
 
    private:
     friend class TaskQueue;
@@ -52,7 +75,7 @@ class TaskQueue {
   ConditionVariable tasks_drained_;
   int outstanding_tasks_;
   bool stopped_;
-  std::queue<std::unique_ptr<T>> task_queue_;
+  PriorityQueue task_queue_;
 };
 
 struct TaskQueueEntry {

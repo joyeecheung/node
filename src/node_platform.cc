@@ -145,10 +145,12 @@ class WorkerThreadsTaskRunner::DelayedTaskScheduler {
     DelayedTaskScheduler* scheduler =
         ContainerOf(&DelayedTaskScheduler::loop_, flush_tasks->loop);
 
-    std::queue<std::unique_ptr<Task>> tasks_to_run =
-        scheduler->tasks_.Lock().PopAll();
+    auto tasks_to_run = scheduler->tasks_.Lock().PopAll();
     while (!tasks_to_run.empty()) {
-      std::unique_ptr<Task> task = std::move(tasks_to_run.front());
+      // We have to use const_cast because std::priority_queue::top() does not
+      // return a movable item.
+      std::unique_ptr<Task> task =
+          std::move(const_cast<std::unique_ptr<Task>&>(tasks_to_run.top()));
       tasks_to_run.pop();
       task->Run();
     }
@@ -568,11 +570,13 @@ void NodePlatform::DrainTasks(Isolate* isolate) {
 bool PerIsolatePlatformData::FlushForegroundTasksInternal() {
   bool did_work = false;
 
-  std::queue<std::unique_ptr<DelayedTask>> delayed_tasks_to_schedule =
-      foreground_delayed_tasks_.Lock().PopAll();
+  auto delayed_tasks_to_schedule = foreground_delayed_tasks_.Lock().PopAll();
   while (!delayed_tasks_to_schedule.empty()) {
+    // We have to use const_cast because std::priority_queue::top() does not
+    // return a movable item.
     std::unique_ptr<DelayedTask> delayed =
-        std::move(delayed_tasks_to_schedule.front());
+        std::move(const_cast<std::unique_ptr<DelayedTask>&>(
+            delayed_tasks_to_schedule.top()));
     delayed_tasks_to_schedule.pop();
 
     did_work = true;
@@ -597,14 +601,17 @@ bool PerIsolatePlatformData::FlushForegroundTasksInternal() {
         });
   }
 
-  std::queue<std::unique_ptr<TaskQueueEntry>> tasks;
+  TaskQueue<TaskQueueEntry>::PriorityQueue tasks;
   {
     auto locked = foreground_tasks_.Lock();
     tasks = locked.PopAll();
   }
 
   while (!tasks.empty()) {
-    std::unique_ptr<TaskQueueEntry> entry = std::move(tasks.front());
+    // We have to use const_cast because std::priority_queue::top() does not
+    // return a movable item.
+    std::unique_ptr<TaskQueueEntry> entry =
+        std::move(const_cast<std::unique_ptr<TaskQueueEntry>&>(tasks.top()));
     tasks.pop();
     did_work = true;
     RunForegroundTask(std::move(entry->task));
@@ -748,7 +755,8 @@ std::unique_ptr<T> TaskQueue<T>::Locked::Pop() {
   if (queue_->task_queue_.empty()) {
     return std::unique_ptr<T>(nullptr);
   }
-  std::unique_ptr<T> result = std::move(queue_->task_queue_.front());
+  std::unique_ptr<T> result = std::move(
+      std::move(const_cast<std::unique_ptr<T>&>(queue_->task_queue_.top())));
   queue_->task_queue_.pop();
   return result;
 }
@@ -761,7 +769,8 @@ std::unique_ptr<T> TaskQueue<T>::Locked::BlockingPop() {
   if (queue_->stopped_) {
     return std::unique_ptr<T>(nullptr);
   }
-  std::unique_ptr<T> result = std::move(queue_->task_queue_.front());
+  std::unique_ptr<T> result = std::move(
+      std::move(const_cast<std::unique_ptr<T>&>(queue_->task_queue_.top())));
   queue_->task_queue_.pop();
   return result;
 }
@@ -787,8 +796,8 @@ void TaskQueue<T>::Locked::Stop() {
 }
 
 template <class T>
-std::queue<std::unique_ptr<T>> TaskQueue<T>::Locked::PopAll() {
-  std::queue<std::unique_ptr<T>> result;
+TaskQueue<T>::PriorityQueue TaskQueue<T>::Locked::PopAll() {
+  TaskQueue<T>::PriorityQueue result;
   result.swap(queue_->task_queue_);
   return result;
 }
