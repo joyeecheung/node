@@ -78,7 +78,9 @@ static void PlatformWorkerThread(void* data) {
       fflush(stderr);
     }
     entry->task->Run();
-    pending_worker_tasks->Lock().NotifyOfCompletion();
+    if (entry->priority == TaskPriority::kUserBlocking) {
+      pending_worker_tasks->Lock().NotifyOfCompletion();
+    }
   }
 }
 
@@ -267,7 +269,8 @@ void WorkerThreadsTaskRunner::PostTask(v8::TaskPriority priority,
                                        std::unique_ptr<v8::Task> task,
                                        const v8::SourceLocation& location) {
   auto entry = std::make_unique<TaskQueueEntry>(std::move(task), priority);
-  pending_worker_tasks_.Lock().Push(std::move(entry));
+  pending_worker_tasks_.Lock().Push(std::move(entry),
+                                    priority == TaskPriority::kUserBlocking);
 }
 
 void WorkerThreadsTaskRunner::PostDelayedTask(
@@ -744,8 +747,10 @@ TaskQueue<T>::Locked::Locked(TaskQueue* queue)
     : queue_(queue), lock_(queue->lock_) {}
 
 template <class T>
-void TaskQueue<T>::Locked::Push(std::unique_ptr<T> task) {
-  queue_->outstanding_tasks_++;
+void TaskQueue<T>::Locked::Push(std::unique_ptr<T> task, bool outstanding) {
+  if (outstanding) {
+    queue_->outstanding_tasks_++;
+  }
   queue_->task_queue_.push(std::move(task));
   queue_->tasks_available_.Signal(lock_);
 }

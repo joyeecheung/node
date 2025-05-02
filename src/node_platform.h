@@ -48,7 +48,7 @@ class TaskQueue {
                                             EntryCompare>;
   class Locked {
    public:
-    void Push(std::unique_ptr<T> task);
+    void Push(std::unique_ptr<T> task, bool outstanding = false);
     std::unique_ptr<T> Pop();
     std::unique_ptr<T> BlockingPop();
     void NotifyOfCompletion();
