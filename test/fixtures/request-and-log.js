@@ -8,13 +8,14 @@ if (url.startsWith('https')) {
 }
 
 const req = request(url, (res) => {
-  res.on('data', (chunk) => {
-    process.stdout.write(chunk);
-  });
+  // Log the status code
+  console.log(`Status Code: ${res.statusCode}`);
+  console.log('Headers:', res.headers);
+  res.pipe(process.stdout);
 });
 
 req.on('error', (e) => {
-  console.trace(e);
+  console.error('Error', e);
 });
 
 req.end();

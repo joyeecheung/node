@@ -61,6 +61,7 @@ exports.createProxyServer = function() {
     });
 
     proxyReq.on('error', (err) => {
+      console.error('Error on CONNECT tunnel:', err.message);
       logs.push({ error: err, source: 'proxy request' });
       res.write('HTTP/1.1 500 Connection Error\r\n\r\n');
       res.end('Proxy error: ' + err.message);
@@ -99,10 +100,10 @@ exports.checkProxiedFetch = async function(envExtension, expectation) {
   });
 };
 
-exports.checkProxiedRequest = async function(envExtension, expectation) {
+exports.runProxiedRequest = async function(envExtension) {
   const { spawnPromisified } = require('./');
   const fixtures = require('./fixtures');
-  const { code, signal, stdout, stderr } = await spawnPromisified(
+  return spawnPromisified(
     process.execPath,
     [fixtures.path('request-and-log.js')], {
       env: {
@@ -110,6 +111,10 @@ exports.checkProxiedRequest = async function(envExtension, expectation) {
         ...envExtension,
       },
     });
+}
+
+exports.checkProxiedRequest = async function(envExtension, expectation) {
+  const { code, signal, stdout, stderr } = await exports.runProxiedRequest(envExtension);
 
   assert.deepStrictEqual({
     stderr: stderr.trim(),
