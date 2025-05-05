@@ -39,7 +39,7 @@ exports.createProxyServer = function() {
     proxyReq.on('error', (err) => {
       logs.push({ error: err, source: 'proxy request' });
       res.writeHead(500);
-      res.end('Proxy error: ' + err.message);
+      res.end(`Proxy error ${err.code}: ${err.message}`);
     });
 
     req.pipe(proxyReq, { end: true });
@@ -74,7 +74,7 @@ exports.createProxyServer = function() {
   return { proxy, logs };
 };
 
-exports.checkProxiedRequest = async function(envExtension, expectation) {
+exports.checkProxiedFetch = async function(envExtension, expectation) {
   const { spawnPromisified } = require('./');
   const fixtures = require('./fixtures');
   const { code, signal, stdout, stderr } = await spawnPromisified(
@@ -97,4 +97,17 @@ exports.checkProxiedRequest = async function(envExtension, expectation) {
     signal: null,
     ...expectation,
   });
+};
+
+exports.runProxiedRequest = async function(envExtension) {
+  const { spawnPromisified } = require('./');
+  const fixtures = require('./fixtures');
+  return spawnPromisified(
+    process.execPath,
+    [fixtures.path('request-and-log.js')], {
+      env: {
+        ...process.env,
+        ...envExtension,
+      },
+    });
 };
