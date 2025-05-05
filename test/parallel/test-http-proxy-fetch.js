@@ -4,7 +4,7 @@ const common = require('../common');
 const assert = require('assert');
 const { once } = require('events');
 const http = require('http');
-const { createProxyServer, checkProxiedRequest } = require('../common/proxy-server');
+const { createProxyServer, checkProxiedFetch } = require('../common/proxy-server');
 
 (async () => {
   // Start a server to process the final request.
@@ -36,7 +36,7 @@ const { createProxyServer, checkProxiedRequest } = require('../common/proxy-serv
   }];
 
   // Check upper-cased HTTPS_PROXY environment variable.
-  await checkProxiedRequest({
+  await checkProxiedFetch({
     NODE_USE_ENV_PROXY: 1,
     FETCH_URL: `http://${serverHost}/test`,
     HTTP_PROXY: `http://localhost:${proxy.address().port}`,
@@ -47,7 +47,7 @@ const { createProxyServer, checkProxiedRequest } = require('../common/proxy-serv
 
   // Check lower-cased https_proxy environment variable.
   logs.splice(0, logs.length);
-  await checkProxiedRequest({
+  await checkProxiedFetch({
     NODE_USE_ENV_PROXY: 1,
     FETCH_URL: `http://${serverHost}/test`,
     http_proxy: `http://localhost:${proxy.address().port}`,
