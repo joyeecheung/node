@@ -37,6 +37,8 @@ const { runProxiedRequest } = require('../common/proxy-server');
   const { code, signal, stderr, stdout } = await runProxiedRequest({
     NODE_USE_ENV_PROXY: 1,
     REQUEST_URL: requestUrl,
+    // FIXME(joyeecheung): support timeout in proxy tunnel request.
+    REQUEST_TIMEOUT: 1000,
     HTTPS_PROXY: `http://localhost:${proxy.address().port}`,
     NODE_EXTRA_CA_CERTS: fixtures.path('keys', 'fake-startcom-root-cert.pem'),
   });
