@@ -7,7 +7,9 @@ if (url.startsWith('https')) {
   request = require('http').get;
 }
 
-const req = request(url, (res) => {
+const req = request(url, {
+  timeout: process.env.REQUEST_TIMEOUT ? parseInt(process.env.REQUEST_TIMEOUT, 10) : undefined,
+}, (res) => {
   // Log the status code
   console.log(`Status Code: ${res.statusCode}`);
   console.log('Headers:', res.headers);
