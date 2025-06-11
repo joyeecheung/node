@@ -23,7 +23,8 @@ const http = require('http');
 
   // Start a proxy server that accepts CONNECT but never responds.
   const proxy = http.createServer();
-  proxy.on('connect', common.mustCall((req, res) => {
+  // eslint-disable-next-line no-restricted-syntax
+  proxy.on('connect', common.mustCall(() => {
     // Don't respond - just hang to simulate timeout
   }, 1));
   proxy.listen(0);
@@ -41,7 +42,6 @@ const http = require('http');
     timeout: 800, // 800ms timeout
   });
 
-  const startTime = Date.now();
   const req = https.get(requestUrl, {
     agent: agent,
     ca: fixtures.readKey('fake-startcom-root-cert.pem'),
@@ -49,9 +49,9 @@ const http = require('http');
 
   req.on('error', common.mustCall((err) => {
     // Should be a proxy error about timeout
-    assert.strictEqual(err.code, 'ERR_PROXY_ERROR');
+    assert.strictEqual(err.code, 'ERR_PROXY_TUNNEL');
     assert.match(err.message, /Connection to establish proxy tunnel timed out/);
-    
+
     proxy.close();
     server.close();
   }));

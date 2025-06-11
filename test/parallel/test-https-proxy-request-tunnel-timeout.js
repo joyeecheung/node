@@ -24,6 +24,7 @@ const { runProxiedRequest } = require('../common/proxy-server');
 
   // Start a proxy server that accepts CONNECT but never responds.
   const proxy = http.createServer();
+  // eslint-disable-next-line no-restricted-syntax
   proxy.on('connect', common.mustCall((req, res) => {
     // Don't respond - just hang to simulate timeout
   }, 1));

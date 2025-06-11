@@ -37,7 +37,7 @@ const { runProxiedRequest } = require('../common/proxy-server');
   const serverHost = `localhost:${server.address().port}`;
   const requestUrl = `https://${serverHost}/test`;
 
-  const { code, signal, stderr, stdout } = await runProxiedRequest({
+  const { code, signal, stderr } = await runProxiedRequest({
     NODE_USE_ENV_PROXY: 1,
     REQUEST_URL: requestUrl,
     HTTPS_PROXY: `http://baduser:badpass@localhost:${proxy.address().port}`,
