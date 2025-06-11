@@ -41,7 +41,7 @@ const { runProxiedRequest } = require('../common/proxy-server');
   });
 
   // The proxy client should get an error from failure in establishing the tunnel.
-  assert.match(stderr, /ERR_PROXY_ERROR.*Connection to establish proxy tunnel ended unexpectedly/);
+  assert.match(stderr, /ERR_PROXY_TUNNEL.*Connection to establish proxy tunnel ended unexpectedly/);
   assert.strictEqual(stdout.trim(), '');
   assert.strictEqual(code, 0);
   assert.strictEqual(signal, null);

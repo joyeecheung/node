@@ -42,7 +42,7 @@ const { runProxiedRequest } = require('../common/proxy-server');
   });
 
   // The proxy client should get an error from failure in establishing the tunnel.
-  assert.match(stderr, /ERR_PROXY_ERROR.*Failed to establish tunnel to .* NOT-HTTP MALFORMED RESPONSE/);
+  assert.match(stderr, /ERR_PROXY_TUNNEL.*Failed to establish tunnel to .* NOT-HTTP MALFORMED RESPONSE/);
   assert.strictEqual(stdout.trim(), '');
   assert.strictEqual(code, 0);
   assert.strictEqual(signal, null);
