@@ -74,8 +74,46 @@ exports.createProxyServer = function() {
   return { proxy, logs };
 };
 
+function spawnPromisified(...args) {
+  const { spawn } = require('child_process');
+  let stderr = '';
+  let stdout = '';
+
+  const child = spawn(...args);
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (data) => {
+    console.error('[STDERR]', data);
+    stderr += data;
+  });
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (data) => {
+    console.log('[STDOUT]', data);
+    stdout += data;
+  });
+
+  return new Promise((resolve, reject) => {
+    child.on('close', (code, signal) => {
+      console.log('[CLOSE]', code, signal);
+      resolve({
+        code,
+        signal,
+        stderr,
+        stdout,
+      });
+    });
+    child.on('error', (code, signal) => {
+      console.log('[ERROR]', code, signal);
+      reject({
+        code,
+        signal,
+        stderr,
+        stdout,
+      });
+    });
+  });
+}
+
 exports.checkProxiedFetch = async function(envExtension, expectation) {
-  const { spawnPromisified } = require('./');
   const fixtures = require('./fixtures');
   const { code, signal, stdout, stderr } = await spawnPromisified(
     process.execPath,
@@ -100,7 +138,6 @@ exports.checkProxiedFetch = async function(envExtension, expectation) {
 };
 
 exports.runProxiedRequest = async function(envExtension) {
-  const { spawnPromisified } = require('./');
   const fixtures = require('./fixtures');
   return spawnPromisified(
     process.execPath,

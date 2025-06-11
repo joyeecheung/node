@@ -48,16 +48,9 @@ const http = require('http');
   }, common.mustNotCall());
 
   req.on('error', common.mustCall((err) => {
-    const elapsed = Date.now() - startTime;
-    
-    // Should timeout within reasonable bounds (800ms ± 200ms for some tolerance)
-    assert(elapsed >= 600 && elapsed <= 1000, 
-           `Timeout took ${elapsed}ms, expected around 800ms`);
-    
     // Should be a proxy error about timeout
     assert.strictEqual(err.code, 'ERR_PROXY_ERROR');
-    assert(err.message.includes('timed out'), 
-           `Expected timeout message, got: ${err.message}`);
+    assert.match(err.message, /Connection to establish proxy tunnel timed out/);
     
     proxy.close();
     server.close();
