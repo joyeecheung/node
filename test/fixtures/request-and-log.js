@@ -17,7 +17,12 @@ const req = request(url, {
 });
 
 req.on('error', (e) => {
-  console.error('Error', e);
+  console.error('Request Error', e);
+});
+
+req.on('timeout', () => {
+  console.error('Request timed out');
+  req.destroy();
 });
 
 req.end();
