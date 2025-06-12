@@ -1,14 +1,28 @@
 const url = process.env.REQUEST_URL;
 
-let request;
+let lib;
 if (url.startsWith('https')) {
-  request = require('https').get;
+  lib = require('https');
 } else {
-  request = require('http').get;
+  lib = require('http');
 }
 
+const request = lib.get;
+
+let timeout;
+if (process.env.REQUEST_TIMEOUT) {
+  timeout = parseInt(process.env.REQUEST_TIMEOUT, 10);
+}
+let agent;
+if (process.env.AGENT_TIMEOUT) {
+  agent = new lib.Agent({
+    useEnvProxy: true,
+    timeout: parseInt(process.env.AGENT_TIMEOUT, 10)
+  });
+}
 const req = request(url, {
-  timeout: process.env.REQUEST_TIMEOUT ? parseInt(process.env.REQUEST_TIMEOUT, 10) : undefined,
+  timeout,
+  agent,
 }, (res) => {
   // Log the status code
   console.log(`Status Code: ${res.statusCode}`);
