@@ -11,12 +11,13 @@ const assert = require('assert');
 const { once } = require('events');
 const https = require('https');
 const http = require('http');
+const { runProxiedRequest } = require('../common/proxy-server');
 
 (async () => {
   const server = https.createServer({
     cert: fixtures.readKey('agent8-cert.pem'),
     key: fixtures.readKey('agent8-key.pem'),
-  }, common.mustNotCall());
+  }, common.mustNotCall(() => {}));
   server.on('error', common.mustNotCall((err) => { console.error('Server error', err); }));
   server.listen(0);
   await once(server, 'listening');
@@ -33,28 +34,20 @@ const http = require('http');
   const serverHost = `localhost:${server.address().port}`;
   const requestUrl = `https://${serverHost}/test`;
 
-  // Set NODE_USE_ENV_PROXY
-  process.env.NODE_USE_ENV_PROXY = '1';
-  process.env.HTTPS_PROXY = `http://localhost:${proxy.address().port}`;
-
-  // Create agent with timeout
-  const agent = new https.Agent({
-    timeout: 800, // 800ms timeout
+  const { code, signal, stderr, stdout } = await runProxiedRequest({
+    NODE_USE_ENV_PROXY: 1,
+    REQUEST_URL: requestUrl,
+    AGENT_TIMEOUT: 1000,
+    HTTPS_PROXY: `http://localhost:${proxy.address().port}`,
+    NODE_EXTRA_CA_CERTS: fixtures.path('keys', 'fake-startcom-root-cert.pem'),
   });
 
-  const req = https.get(requestUrl, {
-    agent: agent,
-    ca: fixtures.readKey('fake-startcom-root-cert.pem'),
-  }, common.mustNotCall());
+  // The proxy client should get a connection timeout.
+  assert.match(stderr, /Request timed out/);
+  assert.strictEqual(stdout.trim(), '');
+  assert.strictEqual(code, 0);
+  assert.strictEqual(signal, null);
 
-  req.on('error', common.mustCall((err) => {
-    // Should be a proxy error about timeout
-    assert.strictEqual(err.code, 'ERR_PROXY_TUNNEL');
-    assert.match(err.message, /Connection to establish proxy tunnel timed out/);
-
-    proxy.close();
-    server.close();
-  }));
-
-  req.end();
+  proxy.close();
+  server.close();
 })().then(common.mustCall());
