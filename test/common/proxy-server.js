@@ -160,39 +160,3 @@ exports.runProxiedPOST = async function(envExtension) {
       },
     });
 };
-
-exports.runProxiedPUT = async function(envExtension) {
-  const fixtures = require('./fixtures');
-  return spawnPromisified(
-    process.execPath,
-    [fixtures.path('put-resource-and-log.js')], {
-      env: {
-        ...process.env,
-        ...envExtension,
-      },
-    });
-};
-
-exports.runProxiedDELETE = async function(envExtension) {
-  const fixtures = require('./fixtures');
-  return spawnPromisified(
-    process.execPath,
-    [fixtures.path('delete-resource-and-log.js')], {
-      env: {
-        ...process.env,
-        ...envExtension,
-      },
-    });
-};
-
-exports.runProxiedPATCH = async function(envExtension) {
-  const fixtures = require('./fixtures');
-  return spawnPromisified(
-    process.execPath,
-    [fixtures.path('patch-resource-and-log.js')], {
-      env: {
-        ...process.env,
-        ...envExtension,
-      },
-    });
-};
