@@ -48,8 +48,8 @@ assert.deepStrictEqual(logs[0], {
     'proxy-connection': 'keep-alive',
     'host': serverHost,
     'content-type': 'application/json',
-    'content-length': Buffer.byteLength(resourceData).toString()
-  }
+    'content-length': Buffer.byteLength(resourceData).toString(),
+  },
 });
 
 // The proxy should receive a ECONNRESET from the target server.

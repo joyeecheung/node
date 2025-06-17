@@ -38,8 +38,16 @@ exports.createProxyServer = function() {
 
     proxyReq.on('error', (err) => {
       logs.push({ error: err, source: 'proxy request' });
-      res.writeHead(500);
-      res.end(`Proxy error ${err.code}: ${err.message}`);
+      if (!res.headersSent) {
+        res.writeHead(500);
+      }
+      if (!res.writableEnded) {
+        res.end(`Proxy error ${err.code}: ${err.message}`);
+      }
+    });
+
+    res.on('error', (err) => {
+      logs.push({ error: err, source: 'proxy response' });
     });
 
     req.pipe(proxyReq, { end: true });
@@ -49,6 +57,11 @@ exports.createProxyServer = function() {
     logRequest(logs, req);
 
     const [hostname, port] = req.url.split(':');
+
+    res.on('error', (err) => {
+      logs.push({ error: err, source: 'proxy response' });
+    });
+
     const proxyReq = net.connect(port, hostname, () => {
       res.write(
         'HTTP/1.1 200 Connection Established\r\n' +
