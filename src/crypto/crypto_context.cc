@@ -942,6 +942,13 @@ MaybeLocal<Array> X509sToArrayOfStrings(Environment* env,
 
 void UseSystemCA(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
+
+  // The system CA certificates should already have been added.
+  if (per_process::cli_options->use_system_ca ||
+      use_system_ca_in_root_cert_store) {
+    return;
+  }
+
   use_system_ca_in_root_cert_store = true;
   X509_STORE* store = GetOrCreateRootCertStore();
   for (X509* cert : GetSystemStoreCACertificates()) {
