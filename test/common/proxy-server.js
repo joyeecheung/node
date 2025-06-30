@@ -14,10 +14,22 @@ function logRequest(logs, req) {
 
 // This creates a minimal proxy server that logs the requests it gets
 // to an array before performing proxying.
-exports.createProxyServer = function() {
+exports.createProxyServer = function(options = {}) {
   const logs = [];
 
-  const proxy = http.createServer();
+  let proxy;
+  if (options.https) {
+    const common = require('../common');
+    if (!common.hasCrypto) {
+      common.skip('missing crypto');
+    }
+    proxy = require('https').createServer({
+      cert: require('./fixtures').readKey('agent9-cert.pem'),
+      key: require('./fixtures').readKey('agent9-key.pem'),
+    });
+  } else {
+    proxy = http.createServer();
+  }
   proxy.on('request', (req, res) => {
     logRequest(logs, req);
     const [hostname, port] = req.headers.host.split(':');
