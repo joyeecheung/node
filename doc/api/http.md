@@ -178,6 +178,13 @@ changes:
     **Default:** `'lifo'`.
   * `timeout` {number} Socket timeout in milliseconds.
     This will set the timeout when the socket is created.
+  * `useEnvProxy` {boolean} Whether to parse environment variables for proxy
+    configuration. When `true`, the agent will check for proxy settings in
+    environment variables `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`.
+    **Default:** `false`. See [Built-in Proxy Support][] for more details.
+  * `defaultPort` {number} Default port to use when the port is not specified
+    in requests. **Default:** `80`.
+  * `protocol` {string} The protocol to use for the agent. **Default:** `'http:'`.
 
 `options` in [`socket.connect()`][] are also supported.
 
@@ -4233,6 +4240,75 @@ added:
 
 Set the maximum number of idle HTTP parsers.
 
+## Built-in Proxy Support
+
+When Node.js creates the global agent, it checks the `NODE_USE_ENV_PROXY`
+environment variable. If it is set to `1`, the global agent will be constructed
+with `useEnvProxy: true`, enabling proxy support based on the environment variables.
+Custom agents can also be created with proxy support by passing the
+`useEnvProxy: true` option when constructing the agent.
+
+When using agents with `useEnvProxy: true`, Node.js will automatically use
+proxy servers configured through environment variables. The following
+environment variables are supported:
+
+* `HTTP_PROXY` or `http_proxy`: Proxy server URL for HTTP requests.
+* `HTTPS_PROXY` or `https_proxy`: Proxy server URL for HTTPS requests.
+* `NO_PROXY` or `no_proxy`: Comma-separated list of hosts to bypass the proxy.
+
+### Proxy URL Format
+
+Proxy URLs can use either HTTP or HTTPS protocols:
+
+```text
+http://proxy.example.com:8080
+https://proxy.example.com:8080
+username:password@proxy.example.com:8080
+```
+
+### NO\_PROXY Format
+
+The `NO_PROXY` environment variable supports several formats:
+
+* `*` - Bypass proxy for all hosts
+* `example.com` - Exact host name match
+* `.example.com` - Domain suffix match (matches `sub.example.com`)
+* `*.example.com` - Wildcard domain match
+* `192.168.1.100` - Exact IP address match
+* `192.168.1.0/24` - CIDR notation for IP ranges
+* `192.168.1.1-192.168.1.100` - IP address range
+* `example.com:8080` - Hostname with specific port
+
+Multiple entries should be separated by commas.
+
+### Example
+
+Starting a Node.js http client with proxy support enabled:
+
+```console
+NODE_USE_ENV_PROXY=1 HTTP_PROXY=http://proxy.example.com:8080 NO_PROXY=localhost,127.0.0.1 node client.js
+```
+
+To create a custom agent with built-in proxy support, you can do the following:
+
+```cjs
+const http = require('node:http');
+// Creating a custom agent with explicit proxy support
+
+const options = {
+  hostname: 'www.example.com',
+  port: 80,
+  path: '/',
+  agent: new http.Agent({ useEnvProxy: true }),
+};
+
+request(options, (res) => {
+  // This request will be proxied through proxy.example.com:8080
+  // if the application is started with HTTP_PROXY=http://proxy.example.com:8080
+  console.log(`STATUS: ${res.statusCode}`);
+});
+```
+
 ## `WebSocket`
 
 <!-- YAML
@@ -4242,6 +4318,7 @@ added:
 
 A browser-compatible implementation of [`WebSocket`][].
 
+[Built-in Proxy Support]: #built-in-proxy-support
 [RFC 8187]: https://www.rfc-editor.org/rfc/rfc8187.txt
 [`'ERR_HTTP_CONTENT_LENGTH_MISMATCH'`]: errors.md#err_http_content_length_mismatch
 [`'checkContinue'`]: #event-checkcontinue
