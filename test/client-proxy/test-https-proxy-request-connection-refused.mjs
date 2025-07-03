@@ -6,6 +6,7 @@ import assert from 'node:assert';
 import { once } from 'events';
 import https from 'node:https';
 import { runProxiedRequest } from '../common/proxy-server.js';
+import dgram from 'node:dgram';
 
 if (!common.hasCrypto)
   common.skip('missing crypto');
@@ -21,14 +22,16 @@ await once(server, 'listening');
 const serverHost = `localhost:${server.address().port}`;
 const requestUrl = `https://${serverHost}/test`;
 
-// Use a port that is very unlikely to be in use
-// TODO(joyeecheung): use common.PORT and move it to sequential.
-const unusedPort = 55556;
+// Make it fail on connection refused by connecting to a UDP port with TCP.
+const udp = dgram.createSocket('udp4');
+udp.bind(0, '127.0.0.1');
+await once(udp, 'listening');
+const port = udp.address().port;
 
 const { code, signal, stderr, stdout } = await runProxiedRequest({
   NODE_USE_ENV_PROXY: 1,
   REQUEST_URL: requestUrl,
-  HTTPS_PROXY: `http://localhost:${unusedPort}`,
+  HTTPS_PROXY: `http://localhost:${port}`,
   NODE_EXTRA_CA_CERTS: fixtures.path('keys', 'fake-startcom-root-cert.pem'),
 });
 
@@ -39,3 +42,5 @@ assert.strictEqual(code, 0);
 assert.strictEqual(signal, null);
 
 server.close();
+udp.close();
+
