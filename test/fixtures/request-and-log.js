@@ -20,9 +20,22 @@ if (process.env.AGENT_TIMEOUT) {
     timeout: parseInt(process.env.AGENT_TIMEOUT, 10)
   });
 }
+
+let lookup;
+if (process.env.RESOLVE_TO_LOCALHOST) {
+  lookup = (hostname, options, callback) => {
+    if (hostname === process.env.RESOLVE_TO_LOCALHOST) {
+      console.log(`Resolving lookup for ${hostname} to 127.0.0.1`);
+      return callback(null, [{ address: '127.0.0.1', family: 4 }]);
+    }
+    return require('dns').lookup(hostname, options, callback);
+  };
+}
+
 const req = request(url, {
   timeout,
   agent,
+  lookup,
 }, (res) => {
   // Log the status code
   console.log(`Status Code: ${res.statusCode}`);

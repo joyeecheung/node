@@ -4289,11 +4289,9 @@ If the request is made to a Unix domain socket, the proxy settings will be ignor
 
 Proxy URLs can use either HTTP or HTTPS protocols:
 
-```text
-http://proxy.example.com:8080
-https://proxy.example.com:8080
-username:password@proxy.example.com:8080
-```
+* HTTP proxy: `http://proxy.example.com:8080`
+* HTTPS proxy: `https://proxy.example.com:8080`
+* Proxy with authentication: `http://username:password@proxy.example.com:8080`
 
 ### `NO_PROXY` Format
 
