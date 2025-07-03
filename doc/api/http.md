@@ -4304,7 +4304,6 @@ The `NO_PROXY` environment variable supports several formats:
 * `.example.com` - Domain suffix match (matches `sub.example.com`)
 * `*.example.com` - Wildcard domain match
 * `192.168.1.100` - Exact IP address match
-* `192.168.1.0/24` - CIDR notation for IP ranges
 * `192.168.1.1-192.168.1.100` - IP address range
 * `example.com:8080` - Hostname with specific port
 
