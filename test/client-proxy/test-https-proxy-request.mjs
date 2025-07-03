@@ -5,6 +5,7 @@
 import * as common from '../common/index.mjs';
 import fixtures from '../common/fixtures.js';
 import assert from 'node:assert';
+import http from 'node:http';
 import https from 'node:https';
 import { once } from 'events';
 import { createProxyServer, runProxiedRequest } from '../common/proxy-server.js';
@@ -19,7 +20,7 @@ const server = https.createServer({
   key: fixtures.readKey('agent8-key.pem'),
 }, common.mustCall((req, res) => {
   res.end('Hello world');
-}, 2));
+}, 3));
 server.on('error', common.mustNotCall((err) => { console.error('Server error', err); }));
 server.listen(0);
 await once(server, 'listening');
@@ -69,6 +70,33 @@ const expectedLogs = [{
   assert.match(stdout, /Hello world/);
   assert.strictEqual(code, 0);
   assert.strictEqual(signal, null);
+}
+
+// Check that the lower-cased https_proxy environment variable takes precedence over the
+// upper-cased HTTPS_PROXY.
+{
+  const proxy2 = http.createServer(common.mustNotCall());
+  proxy2.on('connect', common.mustNotCall());
+  proxy2.listen(0);
+  await once(proxy2, 'listening');
+  
+  // Check lower-cased http_proxy environment variable takes precedence.
+  logs.splice(0, logs.length);
+  const { code, signal, stderr, stdout } = await runProxiedRequest({
+    NODE_USE_ENV_PROXY: 1,
+    REQUEST_URL: requestUrl,
+    https_proxy: `http://localhost:${proxy.address().port}`,
+    HTTPS_PROXY: `http://localhost:${proxy2.address().port}`,
+    NODE_EXTRA_CA_CERTS: fixtures.path('keys', 'fake-startcom-root-cert.pem'),
+  }, {
+    stdout: 'Hello world',
+  });
+  assert.deepStrictEqual(logs, expectedLogs);
+  assert.strictEqual(stderr.trim(), '');
+  assert.match(stdout, /Hello world/);
+  assert.strictEqual(code, 0);
+  assert.strictEqual(signal, null);
+  proxy2.close();
 }
 
 proxy.close();

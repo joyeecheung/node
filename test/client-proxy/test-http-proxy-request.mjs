@@ -11,7 +11,7 @@ import { createProxyServer, runProxiedRequest } from '../common/proxy-server.js'
 // Start a server to process the final request.
 const server = http.createServer(common.mustCall((req, res) => {
   res.end('Hello world');
-}, 2));
+}, 3));
 server.on('error', common.mustNotCall((err) => { console.error('Server error', err); }));
 server.listen(0);
 await once(server, 'listening');
@@ -60,6 +60,32 @@ const expectedLogs = [{
   assert.match(stdout, /Hello world/);
   assert.strictEqual(code, 0);
   assert.strictEqual(signal, null);
+}
+
+// Check that the lower-cased http_proxy environment variable takes precedence over the
+// upper-cased HTTP_PROXY.
+{
+  const proxy2 = http.createServer(common.mustNotCall());
+  proxy2.on('connect', common.mustNotCall());
+  proxy2.listen(0);
+  await once(proxy2, 'listening');
+  
+  // Check lower-cased http_proxy environment variable takes precedence.
+  logs.splice(0, logs.length);
+  const { code, signal, stderr, stdout } = await runProxiedRequest({
+    NODE_USE_ENV_PROXY: 1,
+    REQUEST_URL: requestUrl,
+    http_proxy: `http://localhost:${proxy.address().port}`,
+    HTTP_PROXY: `http://localhost:${proxy2.address().port}`,
+  }, {
+    stdout: 'Hello world',
+  });
+  assert.deepStrictEqual(logs, expectedLogs);
+  assert.strictEqual(stderr.trim(), '');
+  assert.match(stdout, /Hello world/);
+  assert.strictEqual(code, 0);
+  assert.strictEqual(signal, null);
+  proxy2.close();
 }
 
 proxy.close();
