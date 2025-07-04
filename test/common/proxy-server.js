@@ -41,7 +41,10 @@ exports.createProxyServer = function(options = {}) {
       port: targetPort,
       path: url.pathname + url.search,  // Convert back to relative URL.
       method: req.method,
-      headers: req.headers,
+      headers: {
+        ...req.headers,
+        'connection': req.headers['proxy-connection'] || 'close',
+      },
     };
 
     const proxyReq = http.request(options, (proxyRes) => {

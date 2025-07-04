@@ -5,15 +5,20 @@
 
 import * as common from '../common/index.mjs';
 import assert from 'node:assert';
-import http from 'node:http';
+import https from 'node:https';
 import { once } from 'events';
+import fixtures from '../common/fixtures.js';
 import { createProxyServer } from '../common/proxy-server.js';
 
 let resolve;
 const p = new Promise((r) => { resolve = r; });
 
 // Start a server that delays responses to test queuing behavior
-const server = http.createServer(common.mustCall((req, res) => {
+const server = https.createServer({
+  cert: fixtures.readKey('agent8-cert.pem'),
+  key: fixtures.readKey('agent8-key.pem'),
+}, common.mustCall((req, res) => {
+  console.log('headers received for', req.url, req.headers);
   if (req.url === '/first') {
     // Simulate a long response for the first request
     p.then(() => {
@@ -42,17 +47,18 @@ const serverHost = `localhost:${server.address().port}`;
 const proxyUrl = `http://localhost:${proxy.address().port}`;
 
 // Create an agent with maxSockets: 1 and proxy support
-const agent = new http.Agent({
+const agent = new https.Agent({
   maxSockets: 1,
   proxyEnv: {
-    HTTP_PROXY: proxyUrl,
+    HTTPS_PROXY: proxyUrl,
   },
+  ca: fixtures.readKey('fake-startcom-root-cert.pem'),
 });
 
 const requestTimes = [];
 
 // Make first request that takes longer
-const firstReq = http.request({
+const firstReq = https.request({
   hostname: 'localhost',
   port: server.address().port,
   path: '/first',
@@ -74,7 +80,7 @@ firstReq.on('socket', common.mustCall((socket) => {
   console.log('req1 socket acquired');
   // Start second request when first request gets its socket
   // so that it will be queued.
-  const secondReq = http.request({
+  const secondReq = https.request({
     hostname: 'localhost',
     port: server.address().port,
     path: '/second',
@@ -88,27 +94,12 @@ firstReq.on('socket', common.mustCall((socket) => {
       requestTimes[1] = { path: '/second', data, endTime: Date.now() };
       assert.strictEqual(data, 'Response for /second');
 
-      // Verify both requests went through the proxy
-      assert.deepStrictEqual(logs, [
-        {
-          method: 'GET',
-          url: `http://${serverHost}/first`,
-          headers: {
-            'host': serverHost,
-            'proxy-connection': 'keep-alive',
-            'connection': 'keep-alive',
-          },
-        },
-        {
-          method: 'GET',
-          url: `http://${serverHost}/second`,
-          headers: {
-            'host': serverHost,
-            'proxy-connection': 'keep-alive',
-            'connection': 'keep-alive',
-          },
-        },
-      ]);
+      // The two shares the same proxy connection.
+      assert.deepStrictEqual(logs, [{
+        method: 'CONNECT',
+        url: serverHost,
+        headers: { 'proxy-connection': 'keep-alive', 'host': serverHost },
+      }]);
       proxy.close();
       server.close();
     }));
