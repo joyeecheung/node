@@ -26,7 +26,7 @@ await once(proxy, 'listening');
     NODE_USE_ENV_PROXY: 1,
     REQUEST_URL: `http://localhost:${server.address().port}/test`,
     HTTP_PROXY: `http://localhost:${proxy.address().port}`,
-    NO_PROXY: `localhost:${server.address().port}`
+    NO_PROXY: `localhost:${server.address().port}`,
   });
 
   // The request should succeed and bypass proxy.
@@ -54,7 +54,7 @@ await once(proxy, 'listening');
     NODE_USE_ENV_PROXY: 1,
     REQUEST_URL: `http://${serverHost}/test`,
     HTTP_PROXY: `http://localhost:${proxy.address().port}`,
-    NO_PROXY: `localhost:${server.address().port}`
+    NO_PROXY: `localhost:${server.address().port}`,
   });
   // The request should succeed and bypass proxy.
   assert.match(stdout, /Status Code: 200/);

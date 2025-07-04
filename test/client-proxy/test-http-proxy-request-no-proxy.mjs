@@ -43,7 +43,7 @@ await once(proxy, 'listening');
 {
   const { code, signal, stderr, stdout } = await runProxiedRequest({
     NODE_USE_ENV_PROXY: 1,
-    REQUEST_URL:  `http://127.0.0.1:${server.address().port}/test`,
+    REQUEST_URL: `http://127.0.0.1:${server.address().port}/test`,
     HTTP_PROXY: `http://localhost:${proxy.address().port}`,
     NO_PROXY: 'localhost,127.0.0.1',
   });

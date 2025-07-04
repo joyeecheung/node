@@ -79,7 +79,7 @@ const expectedLogs = [{
   proxy2.on('connect', common.mustNotCall());
   proxy2.listen(0);
   await once(proxy2, 'listening');
-  
+
   // Check lower-cased http_proxy environment variable takes precedence.
   logs.splice(0, logs.length);
   const { code, signal, stderr, stdout } = await runProxiedRequest({

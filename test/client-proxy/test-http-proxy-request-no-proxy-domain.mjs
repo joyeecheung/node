@@ -30,11 +30,11 @@ await once(proxy, 'listening');
     RESOLVE_TO_LOCALHOST: 'test.example.com',
     NO_PROXY: 'test.example.com',
   });
-  
+
   // The request should succeed and bypass proxy.
   assert.match(stdout, /Status Code: 200/);
   assert.match(stdout, /Hello World/);
-  assert.match(stdout, /Resolving lookup for test.example.com/);
+  assert.match(stdout, /Resolving lookup for test\.example\.com/);
   assert.strictEqual(stderr.trim(), '');
   assert.strictEqual(code, 0);
   assert.strictEqual(signal, null);
@@ -49,11 +49,11 @@ await once(proxy, 'listening');
     RESOLVE_TO_LOCALHOST: 'test.example.com',
     NO_PROXY: '*.example.com',
   });
-  
+
   // The request should succeed and bypass proxy.
   assert.match(stdout, /Status Code: 200/);
   assert.match(stdout, /Hello World/);
-  assert.match(stdout, /Resolving lookup for test.example.com/);
+  assert.match(stdout, /Resolving lookup for test\.example\.com/);
   assert.strictEqual(stderr.trim(), '');
   assert.strictEqual(code, 0);
   assert.strictEqual(signal, null);
@@ -72,7 +72,7 @@ await once(proxy, 'listening');
   // The request should succeed and bypass proxy
   assert.match(stdout, /Status Code: 200/);
   assert.match(stdout, /Hello World/);
-  assert.match(stdout, /Resolving lookup for test.example.com/);
+  assert.match(stdout, /Resolving lookup for test\.example\.com/);
   assert.strictEqual(stderr.trim(), '');
   assert.strictEqual(code, 0);
   assert.strictEqual(signal, null);

@@ -43,4 +43,3 @@ assert.strictEqual(signal, null);
 
 server.close();
 udp.close();
-
