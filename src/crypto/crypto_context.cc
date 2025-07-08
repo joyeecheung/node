@@ -233,13 +233,10 @@ int SSL_CTX_use_certificate_chain(SSL_CTX* ctx,
                                        issuer);
 }
 
-static unsigned long LoadCertsFromFile(  // NOLINT(runtime/int)
+static unsigned long LoadCertsFromBIO(  // NOLINT(runtime/int)
     std::vector<X509*>* certs,
-    const char* file) {
+    BIOPointer bio) {
   MarkPopErrorOnReturn mark_pop_error_on_return;
-
-  auto bio = BIOPointer::NewFile(file, "r");
-  if (!bio) return ERR_get_error();
 
   while (X509* x509 = PEM_read_bio_X509(
              bio.get(), nullptr, NoPasswordCallback, nullptr)) {
@@ -254,6 +251,17 @@ static unsigned long LoadCertsFromFile(  // NOLINT(runtime/int)
   } else {
     return err;
   }
+}
+
+static unsigned long LoadCertsFromFile(  // NOLINT(runtime/int)
+    std::vector<X509*>* certs,
+    const char* file) {
+  MarkPopErrorOnReturn mark_pop_error_on_return;
+
+  auto bio = BIOPointer::NewFile(file, "r");
+  if (!bio) return ERR_get_error();
+
+  return LoadCertsFromBIO(certs, std::move(bio));
 }
 
 // Indicates the trust status of a certificate.
@@ -844,9 +852,9 @@ X509_STORE* NewRootCertStore() {
   X509_STORE* store = X509_STORE_new();
   CHECK_NOT_NULL(store);
 
+  // If the root cert store is already reset by users, just create
+  // a copy.
   if (root_certs_from_users != nullptr) {
-    // If the root cert store is already reset by users, just create
-    // a copy.
     for (X509* cert : *root_certs_from_users) {
       CHECK_EQ(1, X509_STORE_add_cert(store, cert));
     }
@@ -921,78 +929,42 @@ void GetBundledRootCertificates(const FunctionCallbackInfo<Value>& args) {
       Array::New(env->isolate(), result, arraysize(root_certs)));
 }
 
-Maybe<std::vector<X509*>> ArrayOfStringsToX509s(Environment* env,
-                                                 Local<Array> cert_array) {
+bool ArrayOfStringsToX509s(Local<Context> context, Local<Array> cert_array, 
+                           std::vector<X509*>* certs) {
   ClearErrorOnReturn clear_error_on_return;
+  Isolate* isolate = context->GetIsolate();
+  Environment* env = Environment::GetCurrent(context);
   uint32_t array_length = cert_array->Length();
-  std::vector<X509*> certs;
+
+  std::vector<v8::Global<Value>> cert_items;
+  if (FromV8Array(context, cert_array, &cert_items).IsNothing()) {
+    return false;
+  }
 
   for (uint32_t i = 0; i < array_length; i++) {
-    Local<Value> cert_val;
-    if (!cert_array->Get(env->context(), i).ToLocal(&cert_val)) {
-      // Clean up any certificates we've already parsed
-      for (X509* cert : certs) {
-        X509_free(cert);
-      }
-      return Nothing<std::vector<X509*>>();
-    }
-
-    if (!cert_val->IsString() && !cert_val->IsArrayBufferView()) {
-      // Clean up any certificates we've already parsed
-      for (X509* cert : certs) {
-        X509_free(cert);
-      }
-      THROW_ERR_INVALID_ARG_TYPE(env, 
-          "Each certificate must be a string or buffer");
-      return Nothing<std::vector<X509*>>();
-    }
-
+    Local<Value> cert_val = cert_items[i].Get(isolate);
     // Parse the PEM certificate
     BIOPointer bio(LoadBIO(env, cert_val));
     if (!bio) {
-      // Clean up any certificates we've already parsed
-      for (X509* cert : certs) {
-        X509_free(cert);
-      }
-      THROW_ERR_CRYPTO_OPERATION_FAILED(env, 
-          "Failed to load certificate data");
-      return Nothing<std::vector<X509*>>();
+      ThrowCryptoError(env, ERR_get_error(), "Failed to load certificate data");
+      return false;
     }
 
     // Read all certificates from this PEM string
-    bool found_cert = false;
-    while (X509* cert = PEM_read_bio_X509(bio.get(), nullptr, 
-                                          NoPasswordCallback, nullptr)) {
-      certs.push_back(cert);
-      found_cert = true;
-    }
-
-    // Check if we encountered an error other than EOF
-    unsigned long err = ERR_peek_last_error();  // NOLINT(runtime/int)
-    if (ERR_GET_LIB(err) == ERR_LIB_PEM &&
-        ERR_GET_REASON(err) == PEM_R_NO_START_LINE) {
-      ERR_clear_error();
-    } else if (err != 0) {
-      // Clean up any certificates we've already parsed
-      for (X509* cert : certs) {
-        X509_free(cert);
+    size_t start = certs->size();
+    auto err = LoadCertsFromBIO(certs, std::move(bio));
+    if (err != 0) {
+      size_t end = certs->size();
+      // Clean up any certificates we've already parse upon failure.
+      for (size_t j = start; j < end; ++j) {
+        X509_free((*certs)[j]);
       }
       ThrowCryptoError(env, err, "Failed to parse certificate");
-      return Nothing<std::vector<X509*>>();
-    }
-
-    if (!found_cert) {
-      // Clean up any certificates we've already parsed
-      for (X509* cert : certs) {
-        X509_free(cert);
-      }
-      THROW_ERR_CRYPTO_OPERATION_FAILED(env, 
-          "No valid certificate found in input");
-      return Nothing<std::vector<X509*>>();
+      return false;
     }
   }
 
-  return Just(std::move(certs));
+  return true;
 }
 
 MaybeLocal<Array> X509sToArrayOfStrings(Environment* env,
@@ -1027,39 +999,20 @@ MaybeLocal<Array> X509sToArrayOfStrings(Environment* env,
   return scope.Escape(Array::New(env->isolate(), result.data(), result.size()));
 }
 
-void UseSystemCA(const FunctionCallbackInfo<Value>& args) {
+void GetUserRootCertificates(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
-
-  // The system CA certificates should already have been added.
-  if (per_process::cli_options->use_system_ca ||
-      use_system_ca_in_root_cert_store) {
-    return;
-  }
-
-  use_system_ca_in_root_cert_store = true;
-  X509_STORE* store = GetOrCreateRootCertStore();
-  for (X509* cert : GetSystemStoreCACertificates()) {
-    if (!X509_STORE_add_cert(store, cert)) {
-      return ThrowCryptoError(env, ERR_get_error(), "X509_STORE_add_cert");
-    }
+  CHECK_NOT_NULL(root_certs_from_users);
+  Local<Array> results;
+  if (X509sToArrayOfStrings(env, *root_certs_from_users)
+          .ToLocal(&results)) {
+    args.GetReturnValue().Set(results);
   }
 }
 
 void ResetRootCertStore(const FunctionCallbackInfo<Value>& args) {
-  Environment* env = Environment::GetCurrent(args);
-
-  if (args.Length() < 1) {
-    return THROW_ERR_MISSING_ARGS(env, "Certificate array argument is mandatory");
-  }
-
-  if (!args[0]->IsArray()) {
-    return THROW_ERR_INVALID_ARG_TYPE(env, "The first argument must be an array");
-  }
-
+  Local<Context> context = args.GetIsolate()->GetCurrentContext();
+  CHECK(args[0]->IsArray());
   Local<Array> cert_array = args[0].As<Array>();
-
-  // Clear existing user certificates
-  root_certs_from_users.reset();
 
   if (cert_array->Length() == 0) {
     // If empty array, just clear the user certs and reset the store
@@ -1071,32 +1024,31 @@ void ResetRootCertStore(const FunctionCallbackInfo<Value>& args) {
   }
 
   // Parse certificates from the array
-  std::vector<X509*> certs;
-  if (!ArrayOfStringsToX509s(env, cert_array).To(&certs)) {
+  std::unique_ptr<std::vector<X509*>> certs = std::make_unique<std::vector<X509*>>();
+  if (!ArrayOfStringsToX509s(context, cert_array, certs.get())) {
     // Error already thrown by ArrayOfStringsToX509s
     return;
   }
 
-  if (certs.empty()) {
+  if (certs->empty()) {
+    Environment *env = Environment::GetCurrent(context);
     return THROW_ERR_CRYPTO_OPERATION_FAILED(env, 
         "No valid certificates found in the provided array");
   }
 
-  // Store the new certificates in a unique_ptr for automatic cleanup
-  root_certs_from_users = std::make_unique<std::vector<X509*>>(std::move(certs));
+  for (X509* cert : *root_certs_from_users) {
+    // Free any existing certificates in the user certs vector
+    X509_free(cert);
+  }
 
   // Reset the global root cert store and create a new one with the certificates
+  root_certs_from_users = std::move(certs);
   if (root_cert_store != nullptr) {
     X509_STORE_free(root_cert_store);
   }
-  
-  root_cert_store = X509_STORE_new();
-  CHECK_NOT_NULL(root_cert_store);
-
-  // Add all user certificates to the new store
-  for (X509* cert : *root_certs_from_users) {
-    CHECK_EQ(1, X509_STORE_add_cert(root_cert_store, cert));
-  }
+  // TODO(joyeecheung): we can probably just reset it to nullptr
+  // and let the next call to NewRootCertStore() create a new one.
+  root_cert_store = NewRootCertStore();
 }
 
 void GetSystemCACertificates(const FunctionCallbackInfo<Value>& args) {
@@ -1210,8 +1162,9 @@ void SecureContext::Initialize(Environment* env, Local<Object> target) {
       context, target, "getSystemCACertificates", GetSystemCACertificates);
   SetMethodNoSideEffect(
       context, target, "getExtraCACertificates", GetExtraCACertificates);
-  SetMethodNoSideEffect(context, target, "useSystemCA", UseSystemCA);
   SetMethod(context, target, "resetRootCertStore", ResetRootCertStore);
+  SetMethodNoSideEffect(
+      context, target, "getUserRootCertificates", GetUserRootCertificates);
 }
 
 void SecureContext::RegisterExternalReferences(
@@ -1254,8 +1207,8 @@ void SecureContext::RegisterExternalReferences(
   registry->Register(GetBundledRootCertificates);
   registry->Register(GetSystemCACertificates);
   registry->Register(GetExtraCACertificates);
-  registry->Register(UseSystemCA);
   registry->Register(ResetRootCertStore);
+  registry->Register(GetUserRootCertificates);
 }
 
 SecureContext* SecureContext::Create(Environment* env) {

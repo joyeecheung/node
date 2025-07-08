@@ -2,7 +2,7 @@
 
 // Flags: --no-use-system-ca
 
-// This tests that tls.useSystemCA() works correctly
+// This tests that tls.setDefaultCACertificates() works correctly
 // when the certificates from the README are installed on the system.
 // To run this test, install the certificates as described in README.md
 
@@ -37,7 +37,7 @@ const initialIntersection = initialDefaultSet.intersection(initialSystemSet);
 assert(initialIntersection.size < systemCerts.length, 'Default certs should not include all system certs initially');
 
 // Enable system CA certificates
-tls.useSystemCA();
+tls.setDefaultCACertificates(systemCerts);
 
 // Get certificates after enabling system CAs
 const newDefaultCerts = tls.getCACertificates('default');
@@ -48,17 +48,13 @@ assert.deepStrictEqual(systemCerts, newSystemCerts);
 
 // Default certificates should now include the system certificates
 assert.notStrictEqual(initialDefaultCerts, newDefaultCerts, 'Default certs should change after enabling system CAs');
-
-// The new default should be a superset of system certificates
-assert(newDefaultCerts.length >= systemCerts.length, 'New default should include all system certs');
-const newDefaultSet = new Set(newDefaultCerts);
-const newSystemSet = new Set(systemCerts);
-assert.deepStrictEqual(newDefaultSet.intersection(newSystemSet), newSystemSet);
+// The new default should be the same as the system certificates.
+assert.deepStrictEqual(newDefaultSet, systemCerts);
 
 // Verify that our test certificates are now in the default certs
 assert(newDefaultCerts.includes(startcomRootCert));
 
-// Calling useSystemCA again should be a no-op
-tls.useSystemCA();
+// Calling setDefaultCACertificates() again should still work.
+tls.setDefaultCACertificates(systemCerts);
 const sameDefaultCerts = tls.getCACertificates('default');
-assert.deepStrictEqual(newDefaultCerts, sameDefaultCerts);
+assert.deepStrictEqual(newDefaultCerts, sameDefaultCerts, 'Calling setDefaultCACertificates again should still work');

@@ -1,7 +1,8 @@
 'use strict';
 
 // Flags: --no-use-system-ca
-// This tests that tls.useSystemCA() works correctly.
+// This tests that tls.setDefaultCACertificates(tls.getCACertificates('system'))
+// works correctly.
 
 const common = require('../common');
 if (!common.hasCrypto) common.skip('missing crypto');
@@ -27,7 +28,7 @@ if (systemCerts.length > 0) {
 }
 
 // Enable system CA certificates.
-tls.useSystemCA();
+tls.setDefaultCACertificates(tls.getCACertificates('system'));
 
 // Get certificates after enabling system CAs
 const newDefaultCerts = tls.getCACertificates('default');
@@ -48,7 +49,8 @@ if (systemCerts.length > 0) {
   assert.deepStrictEqual(initialDefaultCerts, newDefaultCerts);
 }
 
-// Calling useSystemCA again should be a no-op
-tls.useSystemCA();
+// Calling tls.setDefaultCACertificates(tls.getCACertificates('system')) again
+// should still work and not change the default certificates.
+tls.setDefaultCACertificates(tls.getCACertificates('system'));
 const sameDefaultCerts = tls.getCACertificates('default');
 assert.deepStrictEqual(newDefaultCerts, sameDefaultCerts);
