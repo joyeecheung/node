@@ -13,7 +13,7 @@ const { spawnSyncAndAssert } = require('../common/child_process');
 {
   const extraCAPath = fixtures.path('keys', 'fake-startcom-root-cert.pem');
   const testScript = fixtures.path('tls-extra-ca-basic-override.js');
-  
+
   spawnSyncAndAssert(process.execPath, [testScript], {
     env: { ...process.env, NODE_EXTRA_CA_CERTS: extraCAPath }
   }, {
@@ -25,7 +25,7 @@ const { spawnSyncAndAssert } = require('../common/child_process');
 {
   const extraCAPath = fixtures.path('keys', 'fake-startcom-root-cert.pem');
   const testScript = fixtures.path('tls-extra-ca-restore.js');
-  
+
   spawnSyncAndAssert(process.execPath, [testScript], {
     env: { ...process.env, NODE_EXTRA_CA_CERTS: extraCAPath }
   }, {
@@ -37,7 +37,7 @@ const { spawnSyncAndAssert } = require('../common/child_process');
 {
   const extraCAPath = fixtures.path('keys', 'fake-startcom-root-cert.pem');
   const testScript = fixtures.path('tls-extra-ca-isolation.js');
-  
+
   spawnSyncAndAssert(process.execPath, [testScript], {
     env: { ...process.env, NODE_EXTRA_CA_CERTS: extraCAPath }
   }, {

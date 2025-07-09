@@ -24,14 +24,14 @@ const fixtures = require('../common/fixtures');
     const port = server.address().port;
     const bundledCerts = tls.getCACertificates('bundled');
     const fakeStartcomCert = fixtures.readKey('fake-startcom-root-cert.pem');
-    
+
     // Set default CA to bundled certs (which don't include fake-startcom-root-cert)
     tls.setDefaultCACertificates(bundledCerts);
-    
+
     // Verify that fake-startcom-root-cert is not in default
     const defaultCerts = tls.getCACertificates('default');
     assert(!defaultCerts.includes(fakeStartcomCert));
-    
+
     // Connection with per-connection ca should succeed despite wrong default
     const req = https.request({
       hostname: 'localhost',
@@ -48,7 +48,7 @@ const fixtures = require('../common/fixtures');
         server.close();
       }));
     }));
-    
+
     req.on('error', common.mustNotCall('Should not error with per-connection ca option'));
     req.end();
   }));

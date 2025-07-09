@@ -33,17 +33,16 @@ describe('System CA integration with setDefaultCACertificates', function() {
     const server = await setupServer();
     const url = `https://localhost:${server.address().port}/`;
     const fakeStartcomCert = fixtures.readKey('fake-startcom-root-cert.pem');
-    
+
     try {
       // Get system and bundled certificates
       const systemCerts = tls.getCACertificates('system');
       const bundledCerts = tls.getCACertificates('bundled');
       const initialDefaults = tls.getCACertificates('default');
-      
+
       // With --use-system-ca, initial defaults should include system certs
       // Check if system certs are part of the defaults
-      const hasSystemCerts = systemCerts.some(cert => initialDefaults.includes(cert));
-      
+
       if (!systemCerts.includes(fakeStartcomCert)) {
         common.skip('fake-startcom-root-cert.pem not found in system CA store');
       }
@@ -54,7 +53,7 @@ describe('System CA integration with setDefaultCACertificates', function() {
 
       // Override with empty array - should break connection
       tls.setDefaultCACertificates([]);
-      
+
       await assert.rejects(fetch(url), (err) => {
         assert(err.cause.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' ||
                err.cause.code === 'DEPTH_ZERO_SELF_SIGNED_CERT' ||
@@ -64,14 +63,14 @@ describe('System CA integration with setDefaultCACertificates', function() {
 
       // Manually set just the needed certificate - should work
       tls.setDefaultCACertificates([fakeStartcomCert]);
-      
+
       const response2 = await fetch(url);
       assert.strictEqual(response2.status, 200);
 
       // Verify that system and bundled cert types are unaffected
       assert.deepStrictEqual(tls.getCACertificates('system'), systemCerts);
       assert.deepStrictEqual(tls.getCACertificates('bundled'), bundledCerts);
-      
+
     } finally {
       server.close();
     }
@@ -80,12 +79,12 @@ describe('System CA integration with setDefaultCACertificates', function() {
   it('can combine system and bundled certificates', async function() {
     const server = await setupServer();
     const url = `https://localhost:${server.address().port}/`;
-    
+
     try {
       const systemCerts = tls.getCACertificates('system');
       const bundledCerts = tls.getCACertificates('bundled');
       const fakeStartcomCert = fixtures.readKey('fake-startcom-root-cert.pem');
-      
+
       if (!systemCerts.includes(fakeStartcomCert)) {
         common.skip('fake-startcom-root-cert.pem not found in system CA store');
       }
@@ -93,22 +92,22 @@ describe('System CA integration with setDefaultCACertificates', function() {
       // Combine system and bundled certificates
       const combinedCerts = [...systemCerts, ...bundledCerts];
       tls.setDefaultCACertificates(combinedCerts);
-      
+
       // Connection should work
       const response = await fetch(url);
       assert.strictEqual(response.status, 200);
-      
+
       // Verify the combined store contains certificates from both sources
       const currentDefaults = tls.getCACertificates('default');
       assert.strictEqual(currentDefaults.length, combinedCerts.length);
-      
+
       // Check that system certificate is present
       assert(currentDefaults.includes(fakeStartcomCert));
-      
+
       // Check that some bundled certificates are present
-      const hasBundledCerts = bundledCerts.some(cert => currentDefaults.includes(cert));
+      const hasBundledCerts = bundledCerts.some((cert) => currentDefaults.includes(cert));
       assert(hasBundledCerts, 'Combined store should contain bundled certificates');
-      
+
     } finally {
       server.close();
     }

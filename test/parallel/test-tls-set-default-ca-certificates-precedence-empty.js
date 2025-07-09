@@ -23,14 +23,14 @@ const fixtures = require('../common/fixtures');
   server.listen(0, common.mustCall(() => {
     const port = server.address().port;
     const fakeStartcomCert = fixtures.readKey('fake-startcom-root-cert.pem');
-    
+
     // Set default CA to empty array - connections should normally fail
     tls.setDefaultCACertificates([]);
-    
+
     // Verify that default CA is empty
     const defaultCerts = tls.getCACertificates('default');
     assert.deepStrictEqual(defaultCerts, []);
-    
+
     // Connection with per-connection ca option should succeed despite empty default
     const req = https.request({
       hostname: 'localhost',
@@ -47,7 +47,7 @@ const fixtures = require('../common/fixtures');
         server.close();
       }));
     }));
-    
+
     req.on('error', common.mustNotCall('Should not error with per-connection ca option'));
     req.end();
   }));

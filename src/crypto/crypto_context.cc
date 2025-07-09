@@ -27,6 +27,8 @@
 #include <wincrypt.h>
 #endif
 
+#include <set>
+
 namespace node {
 
 using ncrypto::BignumPointer;
@@ -85,7 +87,15 @@ static std::atomic<bool> has_cached_extra_root_certs{false};
 // Per-thread root cert store.
 static thread_local X509_STORE* root_cert_store = nullptr;
 static bool use_system_ca_in_root_cert_store = false;
-static thread_local std::unique_ptr<std::vector<X509*>> root_certs_from_users;
+
+struct X509Less {
+  bool operator()(const X509* lhs, const X509* rhs) const noexcept {
+    return X509_cmp(const_cast<X509*>(lhs), const_cast<X509*>(rhs)) < 0;
+  }
+};
+
+static thread_local std::unique_ptr<std::set<X509*, X509Less>>
+    root_certs_from_users;
 
 X509_STORE* GetOrCreateRootCertStore() {
   if (root_cert_store != nullptr) {
@@ -929,7 +939,8 @@ void GetBundledRootCertificates(const FunctionCallbackInfo<Value>& args) {
       Array::New(env->isolate(), result, arraysize(root_certs)));
 }
 
-bool ArrayOfStringsToX509s(Local<Context> context, Local<Array> cert_array, 
+bool ArrayOfStringsToX509s(Local<Context> context,
+                           Local<Array> cert_array,
                            std::vector<X509*>* certs) {
   ClearErrorOnReturn clear_error_on_return;
   Isolate* isolate = context->GetIsolate();
@@ -967,14 +978,17 @@ bool ArrayOfStringsToX509s(Local<Context> context, Local<Array> cert_array,
   return true;
 }
 
+template <typename It>
 MaybeLocal<Array> X509sToArrayOfStrings(Environment* env,
-                                        const std::vector<X509*>& certs) {
+                                        It first,
+                                        It last,
+                                        size_t size) {
   ClearErrorOnReturn clear_error_on_return;
   EscapableHandleScope scope(env->isolate());
 
-  LocalVector<Value> result(env->isolate(), certs.size());
-  for (size_t i = 0; i < certs.size(); ++i) {
-    X509View view(certs[i]);
+  LocalVector<Value> result(env->isolate(), size);
+  for (It cur = first; cur != last; ++cur) {
+    X509View view(cur);
     auto pem_bio = view.toPEM();
     if (!pem_bio) {
       ThrowCryptoError(env, ERR_get_error(), "X509 to PEM conversion");
@@ -1003,7 +1017,10 @@ void GetUserRootCertificates(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
   CHECK_NOT_NULL(root_certs_from_users);
   Local<Array> results;
-  if (X509sToArrayOfStrings(env, *root_certs_from_users)
+  if (X509sToArrayOfStrings(env,
+                            root_certs_from_users->begin(),
+                            root_certs_from_users->end(),
+                            root_certs_from_users->size())
           .ToLocal(&results)) {
     args.GetReturnValue().Set(results);
   }
@@ -1024,27 +1041,36 @@ void ResetRootCertStore(const FunctionCallbackInfo<Value>& args) {
   }
 
   // Parse certificates from the array
-  std::unique_ptr<std::vector<X509*>> certs = std::make_unique<std::vector<X509*>>();
+  std::unique_ptr<std::vector<X509*>> certs =
+      std::make_unique<std::vector<X509*>>();
   if (!ArrayOfStringsToX509s(context, cert_array, certs.get())) {
     // Error already thrown by ArrayOfStringsToX509s
     return;
   }
 
   if (certs->empty()) {
-    Environment *env = Environment::GetCurrent(context);
-    return THROW_ERR_CRYPTO_OPERATION_FAILED(env, 
-        "No valid certificates found in the provided array");
+    Environment* env = Environment::GetCurrent(context);
+    return THROW_ERR_CRYPTO_OPERATION_FAILED(
+        env, "No valid certificates found in the provided array");
   }
 
   if (root_certs_from_users != nullptr) {
     for (X509* cert : *root_certs_from_users) {
-      // Free any existing certificates in the user certs vector
+      // Free any existing certificates in the user certs set
       X509_free(cert);
     }
   }
 
-  // Reset the global root cert store and create a new one with the certificates
-  root_certs_from_users = std::move(certs);
+  root_certs_from_users = std::make_unique<std::set<X509*, X509Less>>();
+  for (X509* cert : *certs) {
+    auto [it, inserted] = root_certs_from_users->insert(cert);
+    if (!inserted) {  // Free duplicate certificates.
+      X509_free(cert);
+    }
+  }
+
+  // Reset the global root cert store and create a new one with the
+  // certificates.
   if (root_cert_store != nullptr) {
     X509_STORE_free(root_cert_store);
   }
@@ -1056,7 +1082,8 @@ void ResetRootCertStore(const FunctionCallbackInfo<Value>& args) {
 void GetSystemCACertificates(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
   Local<Array> results;
-  if (X509sToArrayOfStrings(env, GetSystemStoreCACertificates())
+  std::vector<X509*>& certs = GetSystemStoreCACertificates();
+  if (X509sToArrayOfStrings(env, certs.begin(), certs.end(), certs.size())
           .ToLocal(&results)) {
     args.GetReturnValue().Set(results);
   }
@@ -1068,7 +1095,9 @@ void GetExtraCACertificates(const FunctionCallbackInfo<Value>& args) {
     return args.GetReturnValue().Set(Array::New(env->isolate()));
   }
   Local<Array> results;
-  if (X509sToArrayOfStrings(env, GetExtraCACertificates()).ToLocal(&results)) {
+  std::vector<X509*>& certs = GetExtraCACertificates();
+  if (X509sToArrayOfStrings(env, certs.begin(), certs.end(), certs.size())
+          .ToLocal(&results)) {
     args.GetReturnValue().Set(results);
   }
 }

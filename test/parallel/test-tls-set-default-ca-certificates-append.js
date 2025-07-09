@@ -22,32 +22,32 @@ const fixtures = require('../common/fixtures');
 
   server.listen(0, common.mustCall(() => {
     const port = server.address().port;
-    
+
     // First, verify that fake-startcom-root-cert is not in bundled certs
     const bundledCerts = tls.getCACertificates('bundled');
     const fakeStartcomCert = fixtures.readKey('fake-startcom-root-cert.pem');
-    assert(!bundledCerts.includes(fakeStartcomCert), 
+    assert(!bundledCerts.includes(fakeStartcomCert),
            'fake-startcom-root-cert should not be in bundled certificates');
-    
+
     // Set to bundled CA certificates - connection should fail
     tls.setDefaultCACertificates(bundledCerts);
-    
+
     const req1 = https.request({
       hostname: 'localhost',
       port: port,
       path: '/',
       method: 'GET'
     }, common.mustNotCall('Should not succeed with bundled CA only'));
-    
+
     req1.on('error', common.mustCall((err) => {
       // Should fail with certificate verification error
-      assert(err.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' || 
+      assert(err.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' ||
              err.code === 'DEPTH_ZERO_SELF_SIGNED_CERT' ||
              err.code === 'SELF_SIGNED_CERT_IN_CHAIN');
-      
+
       // Now add the fake-startcom-root-cert to bundled certs - connection should succeed
       tls.setDefaultCACertificates([...bundledCerts, fakeStartcomCert]);
-      
+
       const req2 = https.request({
         hostname: 'localhost',
         port: port,
@@ -62,11 +62,11 @@ const fixtures = require('../common/fixtures');
           server.close();
         }));
       }));
-      
+
       req2.on('error', common.mustNotCall('Should not error with correct CA added'));
       req2.end();
     }));
-    
+
     req1.end();
   }));
 }

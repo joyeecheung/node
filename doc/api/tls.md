@@ -2270,13 +2270,14 @@ added: REPLACEME
 
 Sets the default CA certificates used by Node.js TLS clients.
 
-Once called, the provided certificates will become the default CA certificate list
-returned by [`tls.getCACertificates()`][] and used by TLS connections that don't
-specify their own CA certificates.
+If the provided certificates are parsed successfully, they will become the
+default CA certificate list returned by [`tls.getCACertificates()`][] and used
+by TLS connections that don't specify their own CA certificates. The certificates
+will be deduplicated before being set as the default.
 
 This function only affects the current Node.js thread.
 
-To use system CA certificates as the default, call:
+To use system CA certificates as the default:
 
 ```cjs
 const tls = require('node:tls');

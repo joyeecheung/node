@@ -53,12 +53,12 @@ describe('tls.setDefaultCACertificates() with --use-system-ca', function() {
   it('verifies system CA includes fake-startcom-root-cert and can be overridden', async function() {
     const url = `https://localhost:${server.address().port}`;
     const fakeStartcomCert = fixtures.readKey('fake-startcom-root-cert.pem');
-    
+
     // Verify that system CA includes the fake-startcom-root-cert
     // (This assumes the certificate was installed as per README.md instructions)
     const systemCerts = tls.getCACertificates('system');
     const hasFakeStartcom = systemCerts.includes(fakeStartcomCert);
-    
+
     if (!hasFakeStartcom) {
       // Skip test if fake-startcom-root-cert is not in system CA store
       // This is expected if the setup instructions in README.md were not followed
@@ -74,9 +74,9 @@ describe('tls.setDefaultCACertificates() with --use-system-ca', function() {
 
     // Now override with bundled certificates (which don't include fake-startcom-root-cert)
     const bundledCerts = tls.getCACertificates('bundled');
-    assert(!bundledCerts.includes(fakeStartcomCert), 
+    assert(!bundledCerts.includes(fakeStartcomCert),
            'fake-startcom-root-cert should not be in bundled certificates');
-    
+
     tls.setDefaultCACertificates(bundledCerts);
 
     // Connection should now fail because fake-startcom-root-cert is no longer in the CA store
@@ -105,7 +105,7 @@ describe('tls.setDefaultCACertificates() with --use-system-ca', function() {
     const url = `https://localhost:${server.address().port}`;
     const fakeStartcomCert = fixtures.readKey('fake-startcom-root-cert.pem');
     const systemCerts = tls.getCACertificates('system');
-    
+
     if (!systemCerts.includes(fakeStartcomCert)) {
       common.skip('fake-startcom-root-cert.pem not found in system CA store');
     }
