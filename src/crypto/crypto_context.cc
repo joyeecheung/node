@@ -1042,6 +1042,14 @@ void ResetRootCertStore(const FunctionCallbackInfo<Value>& args) {
       X509_STORE_free(root_cert_store);
       root_cert_store = nullptr;
     }
+
+    // Free any existing certificates in the old set.
+    if (root_certs_from_users != nullptr) {
+      for (X509* cert : *root_certs_from_users) {
+        X509_free(cert);
+      }
+    }
+    root_certs_from_users = std::make_unique<X509Set>();
     return;
   }
 

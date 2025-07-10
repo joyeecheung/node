@@ -204,4 +204,17 @@ exports.assertEqualCerts = function assertEqualCerts(a, b) {
   assert.deepStrictEqual(setA, setB);
 };
 
+exports.includesCert = function includesCert(certs, cert) {
+  const metadata = extractMetadata(cert);
+  for (const c of certs) {
+    const cMetadata = extractMetadata(c);
+    if (cMetadata.serialNumber === metadata.serialNumber &&
+        cMetadata.issuer === metadata.issuer &&
+        cMetadata.subject === metadata.subject) {
+      return true;
+    }
+  }
+  return false;
+};
+
 exports.TestTLSSocket = TestTLSSocket;

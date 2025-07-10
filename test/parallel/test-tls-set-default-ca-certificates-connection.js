@@ -46,13 +46,11 @@ const fixtures = require('../common/fixtures');
           port: port,
           path: '/',
           method: 'GET'
-        }, common.mustNotCall('Should not succeed with empty CA store'));
+        });
 
         req2.on('error', common.mustCall((err) => {
           // Should fail with certificate verification error
-          assert(err.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' ||
-                 err.code === 'DEPTH_ZERO_SELF_SIGNED_CERT' ||
-                 err.code === 'SELF_SIGNED_CERT_IN_CHAIN');
+          assert.strictEqual(err.code, 'UNABLE_TO_VERIFY_LEAF_SIGNATURE');
           server.close();
         }));
 

@@ -9,6 +9,7 @@ const assert = require('assert');
 const https = require('https');
 const tls = require('tls');
 const fixtures = require('../common/fixtures');
+const { includesCert } = require('../common/tls');
 
 // Test that per-connection ca option overrides non-empty default CA certificates
 {
@@ -30,7 +31,7 @@ const fixtures = require('../common/fixtures');
 
     // Verify that fake-startcom-root-cert is not in default
     const defaultCerts = tls.getCACertificates('default');
-    assert(!defaultCerts.includes(fakeStartcomCert));
+    assert(!includesCert(defaultCerts, fakeStartcomCert));
 
     // Connection with per-connection ca should succeed despite wrong default
     const req = https.request({

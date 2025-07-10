@@ -9,7 +9,7 @@ const assert = require('assert');
 const https = require('https');
 const tls = require('tls');
 const fixtures = require('../common/fixtures');
-
+const { includesCert } = require('../common/tls');
 // Test HTTPS connection fails with bundled CA, succeeds after adding custom CA
 {
   const server = https.createServer({
@@ -26,7 +26,7 @@ const fixtures = require('../common/fixtures');
     // First, verify that fake-startcom-root-cert is not in bundled certs
     const bundledCerts = tls.getCACertificates('bundled');
     const fakeStartcomCert = fixtures.readKey('fake-startcom-root-cert.pem');
-    assert(!bundledCerts.includes(fakeStartcomCert),
+    assert(!includesCert(bundledCerts, fakeStartcomCert),
            'fake-startcom-root-cert should not be in bundled certificates');
 
     // Set to bundled CA certificates - connection should fail
@@ -40,10 +40,9 @@ const fixtures = require('../common/fixtures');
     }, common.mustNotCall('Should not succeed with bundled CA only'));
 
     req1.on('error', common.mustCall((err) => {
+      console.log(err);
       // Should fail with certificate verification error
-      assert(err.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' ||
-             err.code === 'DEPTH_ZERO_SELF_SIGNED_CERT' ||
-             err.code === 'SELF_SIGNED_CERT_IN_CHAIN');
+      assert.strictEqual(err.code, 'UNABLE_TO_VERIFY_LEAF_SIGNATURE');
 
       // Now add the fake-startcom-root-cert to bundled certs - connection should succeed
       tls.setDefaultCACertificates([...bundledCerts, fakeStartcomCert]);
