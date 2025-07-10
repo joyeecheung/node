@@ -186,4 +186,22 @@ exports.assertIsCAArray = function assertIsCAArray(certs) {
   }
 };
 
+function extractMetadata(cert) {
+  const x509 = new crypto.X509Certificate(cert);
+  return {
+    serialNumber: x509.serialNumber,
+    issuer: x509.issuer,
+    subject: x509.subject,
+  };
+}
+
+// To compare two certificates, we can just compare serialNumber, issuer,
+// and subject. We can't just compare two strings because the line endings
+// or order of the fields may differ after PEM serdes by OpenSSL.
+exports.assertEqualCerts = function assertEqualCerts(a, b) {
+  const setA = new Set(a.map(extractMetadata));
+  const setB = new Set(b.map(extractMetadata));
+  assert.deepStrictEqual(setA, setB);
+};
+
 exports.TestTLSSocket = TestTLSSocket;

@@ -1,5 +1,4 @@
 // Flags: --no-use-system-ca
-
 // This tests the basic functionality of tls.setDefaultCACertificates().
 'use strict';
 
@@ -9,32 +8,33 @@ if (!common.hasCrypto) common.skip('missing crypto');
 const assert = require('assert');
 const tls = require('tls');
 const fixtures = require('../common/fixtures');
+const { assertEqualCerts } = require('../common/tls');
 
-const originalBundled = tls.getCACertificates('bundled').sort();
-const originalSystem = tls.getCACertificates('system').sort();
+const originalBundled = tls.getCACertificates('bundled');
+const originalSystem = tls.getCACertificates('system');
 const fixtureCert = fixtures.readKey('fake-startcom-root-cert.pem');
 
 function testSetCertificates(certs) {
   // Test setting it can be verified with tls.getCACertificates().
   tls.setDefaultCACertificates(certs);
-  const result = tls.getCACertificates('default').sort();
-  assert.deepStrictEqual(result, certs.sort());
+  const result = tls.getCACertificates('default');
+  assertEqualCerts(result, certs);
 
   // Verify that other certificate types are unchanged
-  const newBundled = tls.getCACertificates('bundled').sort();
-  const newSystem = tls.getCACertificates('system').sort();
-  assert.deepStrictEqual(newBundled, originalBundled);
-  assert.deepStrictEqual(newSystem, originalSystem);
+  const newBundled = tls.getCACertificates('bundled');
+  const newSystem = tls.getCACertificates('system');
+  assertEqualCerts(newBundled, originalBundled);
+  assertEqualCerts(newSystem, originalSystem);
 
   // Test implicit defaults.
-  const implicitDefaults = tls.getCACertificates().sort();
-  assert.deepStrictEqual(implicitDefaults, certs.sort());
+  const implicitDefaults = tls.getCACertificates();
+  assertEqualCerts(implicitDefaults, certs);
 
   // Test cached results.
-  const cachedResult = tls.getCACertificates('default').sort();
-  assert.deepStrictEqual(cachedResult, certs.sort());
-  const cachedImplicitDefaults = tls.getCACertificates().sort();
-  assert.deepStrictEqual(cachedImplicitDefaults, certs.sort());
+  const cachedResult = tls.getCACertificates('default');
+  assertEqualCerts(cachedResult, certs);
+  const cachedImplicitDefaults = tls.getCACertificates();
+  assertEqualCerts(cachedImplicitDefaults, certs);
 }
 
 // Test setting with fixture certificate.
@@ -47,7 +47,7 @@ testSetCertificates([]);
 testSetCertificates(originalBundled);
 
 // Test combining bundled and extra certificates.
-testSetCertificates([...originalBundled, fixtureCert].sort());
+testSetCertificates([...originalBundled, fixtureCert]);
 
 // Test setting with a subset of bundled certificates
 if (originalBundled.length >= 3) {
@@ -61,4 +61,4 @@ if (originalSystem.length > 0) {
 
 // Test duplicate certificates
 tls.setDefaultCACertificates([fixtureCert, fixtureCert, fixtureCert]);
-assert.deepStrictEqual(tls.getCACertificates('default'), [fixtureCert]);
+assertEqualCerts(tls.getCACertificates('default'), [fixtureCert]);
