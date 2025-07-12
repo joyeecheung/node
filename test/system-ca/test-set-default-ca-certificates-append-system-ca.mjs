@@ -1,8 +1,7 @@
 // Flags: --no-use-system-ca
 
-// This tests that tls.setDefaultCACertificates() can be used to dynamically
-// enable system CA certificates for HTTPS connections, allowing connections
-// that would otherwise fail.
+// This tests that tls.setDefaultCACertificates() can be used to remove
+// system CA certificates from the default CA store.
 // To run this test, install the certificates as described in README.md
 
 import * as common from '../common/index.mjs';

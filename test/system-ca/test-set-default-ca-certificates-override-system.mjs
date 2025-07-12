@@ -1,8 +1,9 @@
 // Flags: --use-system-ca
 
-// This tests that tls.setDefaultCACertificates() can override system CA certificates
-// when --use-system-ca is enabled. Requires fake-startcom-root-cert.pem to be
-// installed in the system CA store as described in README.md
+
+// This tests that tls.setDefaultCACertificates() can be used to dynamically
+// enable system CA certificates for HTTPS connections.
+// To run this test, install the certificates as described in README.md
 
 import * as common from '../common/index.mjs';
 import assert from 'node:assert/strict';

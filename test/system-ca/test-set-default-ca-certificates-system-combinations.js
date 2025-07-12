@@ -1,7 +1,7 @@
 // Flags: --use-system-ca
 
-// This tests various combinations of system CA certificates with tls.setDefaultCACertificates()
-// using only tls.getCACertificates() for verification.
+// This tests various combinations of CA certificates with
+// tls.setDefaultCACertificates().
 
 'use strict';
 
