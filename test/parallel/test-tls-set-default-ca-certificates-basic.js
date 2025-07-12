@@ -1,4 +1,3 @@
-// Flags: --no-use-system-ca
 // This tests the basic functionality of tls.setDefaultCACertificates().
 'use strict';
 

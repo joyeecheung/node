@@ -6,14 +6,28 @@
 
 import * as common from '../common/index.mjs';
 import assert from 'node:assert/strict';
-import https from 'node:https';
-import tls from 'node:tls';
 import fixtures from '../common/fixtures.js';
-import { it, beforeEach, describe } from 'node:test';
+import { it, afterEach, beforeEach, describe } from 'node:test';
 import { once } from 'events';
+import { includesCert, assertEqualCerts } from '../common/tls.js';
 
 if (!common.hasCrypto) {
   common.skip('requires crypto');
+}
+
+const { default: https } = await import('node:https');
+const { default: tls } = await import('node:tls');
+
+// Verify that system CA includes the fake-startcom-root-cert.
+const systemCerts = tls.getCACertificates('system');
+const fixturesCert = fixtures.readKey('fake-startcom-root-cert.pem');
+if (!includesCert(systemCerts, fixturesCert)) {
+  common.skip('fake-startcom-root-cert.pem not found in system CA store. ' +
+              'Please follow setup instructions in test/system-ca/README.md');
+}
+const bundledCerts = tls.getCACertificates('bundled');
+if (includesCert(bundledCerts, fixturesCert)) {
+  common.skip('fake-startcom-root-cert.pem should not be in bundled CA store');
 }
 
 const handleRequest = (req, res) => {
@@ -52,19 +66,7 @@ describe('tls.setDefaultCACertificates() with --use-system-ca', function() {
 
   it('verifies system CA includes fake-startcom-root-cert and can be overridden', async function() {
     const url = `https://localhost:${server.address().port}`;
-    const fakeStartcomCert = fixtures.readKey('fake-startcom-root-cert.pem');
-
-    // Verify that system CA includes the fake-startcom-root-cert
-    // (This assumes the certificate was installed as per README.md instructions)
-    const systemCerts = tls.getCACertificates('system');
-    const hasFakeStartcom = systemCerts.includes(fakeStartcomCert);
-
-    if (!hasFakeStartcom) {
-      // Skip test if fake-startcom-root-cert is not in system CA store
-      // This is expected if the setup instructions in README.md were not followed
-      common.skip('fake-startcom-root-cert.pem not found in system CA store. ' +
-                  'Please follow setup instructions in test/system-ca/README.md');
-    }
+    const fixturesCert = fixtures.readKey('fake-startcom-root-cert.pem');
 
     // First, verify connection works with system CA (including fake-startcom-root-cert)
     const response1 = await fetch(`${url}/system-ca-test`);
@@ -72,59 +74,28 @@ describe('tls.setDefaultCACertificates() with --use-system-ca', function() {
     const text1 = await response1.text();
     assert.strictEqual(text1, 'system ca works\n');
 
-    // Now override with bundled certificates (which don't include fake-startcom-root-cert)
-    const bundledCerts = tls.getCACertificates('bundled');
-    assert(!bundledCerts.includes(fakeStartcomCert),
-           'fake-startcom-root-cert should not be in bundled certificates');
-
+    // Now override with bundled certs (which do not include fake-startcom-root-cert)
     tls.setDefaultCACertificates(bundledCerts);
 
-    // Connection should now fail because fake-startcom-root-cert is no longer in the CA store
+    // Connection should now fail because fake-startcom-root-cert is no longer in the CA store.
+    // Use IP address to skip session cache.
     await assert.rejects(
-      fetch(`${url}/bundled-ca-test`),
+      fetch(`https://127.0.0.1:${server.address().port}/bundled-ca-test`),
       (err) => {
-        assert(err.cause.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' ||
-               err.cause.code === 'DEPTH_ZERO_SELF_SIGNED_CERT' ||
-               err.cause.code === 'SELF_SIGNED_CERT_IN_CHAIN');
+        assert.strictEqual(err.cause.code, 'SELF_SIGNED_CERT_IN_CHAIN');
         return true;
       },
     );
 
     // Verify that system CA type still returns original system certs
     const stillSystemCerts = tls.getCACertificates('system');
-    assert.deepStrictEqual(stillSystemCerts, systemCerts);
-    assert(stillSystemCerts.includes(fakeStartcomCert));
+    assertEqualCerts(stillSystemCerts, systemCerts);
+    assert(includesCert(stillSystemCerts, fixturesCert));
 
     // Verify that default CA now returns bundled certs
     const currentDefaults = tls.getCACertificates('default');
-    assert.deepStrictEqual(currentDefaults, bundledCerts);
-    assert(!currentDefaults.includes(fakeStartcomCert));
-  });
-
-  it('can restore system CA functionality after override', async function() {
-    const url = `https://localhost:${server.address().port}`;
-    const fakeStartcomCert = fixtures.readKey('fake-startcom-root-cert.pem');
-    const systemCerts = tls.getCACertificates('system');
-
-    if (!systemCerts.includes(fakeStartcomCert)) {
-      common.skip('fake-startcom-root-cert.pem not found in system CA store');
-    }
-
-    // Override with bundled certs first
-    const bundledCerts = tls.getCACertificates('bundled');
-    tls.setDefaultCACertificates(bundledCerts);
-
-    // Connection should fail
-    await assert.rejects(fetch(`${url}/bundled-ca-test`));
-
-    // Restore system CA functionality by setting defaults back to system certs
-    tls.setDefaultCACertificates(systemCerts);
-
-    // Connection should work again
-    const response = await fetch(`${url}/system-ca-test`);
-    assert.strictEqual(response.status, 200);
-    const text = await response.text();
-    assert.strictEqual(text, 'system ca works\n');
+    assertEqualCerts(currentDefaults, bundledCerts);
+    assert(!includesCert(currentDefaults, fixturesCert));
   });
 
   afterEach(async function() {

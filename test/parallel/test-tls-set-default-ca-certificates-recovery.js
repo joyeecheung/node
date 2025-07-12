@@ -1,6 +1,5 @@
 'use strict';
 
-// Flags: --no-use-system-ca
 // This tests error recovery and fallback behavior for tls.setDefaultCACertificates()
 
 const common = require('../common');

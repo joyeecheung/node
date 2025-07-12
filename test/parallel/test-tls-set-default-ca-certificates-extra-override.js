@@ -10,7 +10,7 @@ const fixtures = require('../common/fixtures');
 const { spawnSyncAndExitWithoutError } = require('../common/child_process');
 
 spawnSyncAndExitWithoutError(process.execPath, [
-  fixtures.path('tls-extra-ca-basic-override.js')
+  fixtures.path('tls-extra-ca-override.js')
 ], {
   env: {
     ...process.env,

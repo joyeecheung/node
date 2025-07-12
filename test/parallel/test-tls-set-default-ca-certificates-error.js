@@ -1,4 +1,3 @@
-// Flags: --no-use-system-ca
 // This tests input validation and error handling for tls.setDefaultCACertificates()
 'use strict';
 

@@ -1,4 +1,3 @@
-
 'use strict';
 
 // This tests mixed input types for tls.setDefaultCACertificates().

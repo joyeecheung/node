@@ -7,8 +7,6 @@
 
 import * as common from '../common/index.mjs';
 import assert from 'node:assert/strict';
-import https from 'node:https';
-import tls from 'node:tls';
 import fixtures from '../common/fixtures.js';
 import { it, beforeEach, afterEach, describe } from 'node:test';
 import { once } from 'events';
@@ -16,6 +14,9 @@ import { once } from 'events';
 if (!common.hasCrypto) {
   common.skip('requires crypto');
 }
+
+const { default: https } = await import('node:https');
+const { default: tls } = await import('node:tls');
 
 const handleRequest = (req, res) => {
   const path = req.url;
