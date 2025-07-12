@@ -2266,16 +2266,18 @@ The server can be tested by connecting to it using the example client from
 added: REPLACEME
 -->
 
-* `certs` {string[]|ArrayBufferView[]} An array of CA certificates in PEM format.
+* `certs` {string\[]|ArrayBufferView\[]} An array of CA certificates in PEM format.
 
-Sets the default CA certificates used by Node.js TLS clients.
+Sets the default CA certificates used by Node.js TLS clients. If the provided
+certificates are parsed successfully, they will become the default CA
+certificate list returned by [`tls.getCACertificates()`][] and used
+by subsequent TLS connections that don't specify their own CA certificates.
+The certificates will be deduplicated before being set as the default.
 
-If the provided certificates are parsed successfully, they will become the
-default CA certificate list returned by [`tls.getCACertificates()`][] and used
-by TLS connections that don't specify their own CA certificates. The certificates
-will be deduplicated before being set as the default.
-
-This function only affects the current Node.js thread.
+This function only affects the current Node.js thread. Previous
+sessions cached by the HTTPS agent won't be affected by this change, so
+this method should be called before any unwanted cachable TLS connections are
+made.
 
 To use system CA certificates as the default:
 
