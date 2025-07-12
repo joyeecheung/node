@@ -42,11 +42,11 @@ const fixtures = require('../common/fixtures');
         tls.setDefaultCACertificates([]);
 
         const req2 = https.request({
-          hostname: 'localhost',
+          hostname: '127.0.0.1',  // Use a different hostname to skip session cache.
           port: port,
           path: '/',
           method: 'GET'
-        });
+        }, common.mustNotCall('Should not succeed with empty CA'));
 
         req2.on('error', common.mustCall((err) => {
           // Should fail with certificate verification error

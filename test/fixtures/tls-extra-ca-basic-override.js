@@ -4,39 +4,54 @@
 
 const tls = require('tls');
 const assert = require('assert');
+const { assertEqualCerts, includesCert } = require('../common/tls');
 
 // Assert that NODE_EXTRA_CA_CERTS is set
 assert(process.env.NODE_EXTRA_CA_CERTS, 'NODE_EXTRA_CA_CERTS environment variable should be set');
 
 // Get initial state with extra CA
 const initialDefaults = tls.getCACertificates('default');
+const systemCerts = tls.getCACertificates('system');
 const bundledCerts = tls.getCACertificates('bundled');
 const extraCerts = tls.getCACertificates('extra');
 
-// Assert that NODE_EXTRA_CA_CERTS loaded certificates
-assert(extraCerts.length > 0, 'NODE_EXTRA_CA_CERTS should have loaded certificates');
+// For this test to work the extra certs must not be in bundled certs
+assert.notStrictEqual(bundledCerts.length, 0);
+for (const cert of extraCerts) {
+  assert(!includesCert(bundledCerts, cert));
+}
 
-// Verify extra certs are included in defaults initially
-const hasExtraCerts = extraCerts.some(cert => initialDefaults.includes(cert));
-assert(hasExtraCerts, 'Extra certificates should be included in default CA store');
-console.log('PASS: Extra certs included in defaults');
+// Test setting it to initial defaults.
+tls.setDefaultCACertificates(initialDefaults);
+assertEqualCerts(tls.getCACertificates('default'), initialDefaults);
+assertEqualCerts(tls.getCACertificates('default'), initialDefaults);
 
-// Override with bundled certificates only
+// Test setting it to the bundled certificates.
 tls.setDefaultCACertificates(bundledCerts);
-const newDefaults = tls.getCACertificates('default');
+assertEqualCerts(tls.getCACertificates('default'), bundledCerts);
+assertEqualCerts(tls.getCACertificates('default'), bundledCerts);
 
-// Verify complete replacement
-assert.deepStrictEqual(newDefaults, bundledCerts);
-console.log('PASS: Overridden with bundled certs');
+// Test setting it to just the extra certificates.
+tls.setDefaultCACertificates(extraCerts);
+assertEqualCerts(tls.getCACertificates('default'), extraCerts);
+assertEqualCerts(tls.getCACertificates('default'), extraCerts);
 
-// Verify extra certs are no longer in defaults
-const hasExtraCerts = extraCerts.some(cert => newDefaults.includes(cert));
-assert(!hasExtraCerts, 'Extra certificates should not be in overridden default store');
-console.log('PASS: Extra certs removed from defaults');
+if (systemCerts.length > 0) {
+  // Test setting it to system certificates
+  tls.setDefaultCACertificates(systemCerts);
+  assertEqualCerts(tls.getCACertificates('default'), systemCerts);
+  assertEqualCerts(tls.getCACertificates('default'), systemCerts);
+}
 
-// Verify extra cert type is unchanged
-const stillExtraCerts = tls.getCACertificates('extra');
-assert.deepStrictEqual(stillExtraCerts, extraCerts);
-console.log('PASS: Extra cert type unchanged');
+// Test setting it to an empty array.
+tls.setDefaultCACertificates([]);
+assert.deepStrictEqual(tls.getCACertificates('default'), []);
 
-console.log('SUCCESS: All tests passed');
+// Test bundled and extra certs are unaffected
+assertEqualCerts(tls.getCACertificates('bundled'), bundledCerts);
+assertEqualCerts(tls.getCACertificates('extra'), extraCerts);
+
+if (systemCerts.length > 0) {
+  // Test system certs are unaffected.
+  assertEqualCerts(tls.getCACertificates('system'), systemCerts);
+}
