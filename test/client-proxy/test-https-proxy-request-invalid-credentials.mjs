@@ -2,11 +2,14 @@
 // are rejected with an appropriate error.
 import * as common from '../common/index.mjs';
 import assert from 'node:assert';
-import https from 'node:https';
 
 if (!common.hasCrypto) {
   common.skip('missing crypto');
 }
+
+// https must be dynamically imported so that builds without crypto support
+// can skip it.
+const { default: https } = await import('node:https');
 
 const testCases = [
   {

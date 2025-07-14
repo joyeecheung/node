@@ -3,11 +3,14 @@ import * as common from '../common/index.mjs';
 import fixtures from '../common/fixtures.js';
 import assert from 'node:assert';
 import { once } from 'events';
-import https from 'node:https';
 import { runProxiedRequest } from '../common/proxy-server.js';
 
 if (!common.hasCrypto)
   common.skip('missing crypto');
+
+// https must be dynamically imported so that builds without crypto support
+// can skip it.
+const { default: https } = await import('node:https');
 
 const server = https.createServer({
   cert: fixtures.readKey('agent8-cert.pem'),

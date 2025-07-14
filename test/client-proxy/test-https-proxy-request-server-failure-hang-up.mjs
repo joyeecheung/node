@@ -8,8 +8,11 @@ if (!common.hasCrypto)
 import fixtures from '../common/fixtures.js';
 import assert from 'node:assert';
 import { once } from 'events';
-import https from 'node:https';
 import { createProxyServer, runProxiedRequest } from '../common/proxy-server.js';
+
+// https must be dynamically imported so that builds without crypto support
+// can skip it.
+const { default: https } = await import('node:https');
 
 // Start a server to process the final request.
 const server = https.createServer({

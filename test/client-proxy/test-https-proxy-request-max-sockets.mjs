@@ -5,10 +5,16 @@
 
 import * as common from '../common/index.mjs';
 import assert from 'node:assert';
-import https from 'node:https';
 import { once } from 'events';
 import fixtures from '../common/fixtures.js';
 import { createProxyServer } from '../common/proxy-server.js';
+
+if (!common.hasCrypto)
+  common.skip('missing crypto');
+
+// https must be dynamically imported so that builds without crypto support
+// can skip it.
+const { default: https } = await import('node:https');
 
 let resolve;
 const p = new Promise((r) => { resolve = r; });

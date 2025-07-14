@@ -6,13 +6,16 @@ import * as common from '../common/index.mjs';
 import fixtures from '../common/fixtures.js';
 import assert from 'node:assert';
 import http from 'node:http';
-import https from 'node:https';
 import { once } from 'events';
 import { createProxyServer, runProxiedRequest } from '../common/proxy-server.js';
 
 if (!common.hasCrypto) {
   common.skip('missing crypto');
 }
+
+// https must be dynamically imported so that builds without crypto support
+// can skip it.
+const { default: https } = await import('node:https');
 
 // Start a server to process the final request.
 const server = https.createServer({
@@ -75,7 +78,7 @@ const expectedLogs = [{
 // Check that the lower-cased https_proxy environment variable takes precedence over the
 // upper-cased HTTPS_PROXY.
 // On Windows, environment variables are case-insensitive, so this test is not applicable.
-if (common.isWindows) {
+if (!common.isWindows) {
   const proxy2 = http.createServer(common.mustNotCall());
   proxy2.on('connect', common.mustNotCall());
   proxy2.listen(0);

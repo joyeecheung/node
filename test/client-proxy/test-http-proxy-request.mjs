@@ -65,7 +65,7 @@ const expectedLogs = [{
 // Check that the lower-cased http_proxy environment variable takes precedence over the
 // upper-cased HTTP_PROXY.
 // On Windows, environment variables are case-insensitive, so this test is not applicable.
-if (common.isWindows) {
+if (!common.isWindows) {
   const proxy2 = http.createServer(common.mustNotCall());
   proxy2.on('connect', common.mustNotCall());
   proxy2.listen(0);
