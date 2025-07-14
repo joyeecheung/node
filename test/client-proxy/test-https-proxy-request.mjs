@@ -20,7 +20,7 @@ const server = https.createServer({
   key: fixtures.readKey('agent8-key.pem'),
 }, common.mustCall((req, res) => {
   res.end('Hello world');
-}, 3));
+}, common.isWindows ? 2 : 3));
 server.on('error', common.mustNotCall((err) => { console.error('Server error', err); }));
 server.listen(0);
 await once(server, 'listening');
@@ -74,7 +74,8 @@ const expectedLogs = [{
 
 // Check that the lower-cased https_proxy environment variable takes precedence over the
 // upper-cased HTTPS_PROXY.
-{
+// On Windows, environment variables are case-insensitive, so this test is not applicable.
+if (common.isWindows) {
   const proxy2 = http.createServer(common.mustNotCall());
   proxy2.on('connect', common.mustNotCall());
   proxy2.listen(0);
