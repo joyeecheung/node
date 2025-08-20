@@ -67,6 +67,7 @@ module.exports = async function(mod) {
       result,
     };
 
+    console.log(`Spawning worker ${__filename} with name ${name} and args ${process.argv.slice(2)}`);
     const worker = new Worker(__filename, {
       name,
       argv: process.argv.slice(2),
