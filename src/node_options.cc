@@ -986,6 +986,12 @@ EnvironmentOptionsParser::EnvironmentOptionsParser() {
       &EnvironmentOptions::trace_require_module,
       kAllowedInEnvvar);
 
+  AddOption("--track-external-memory-details",
+            "Track details of external memory held alive by native objects in "
+            "heap snapshots",
+            &EnvironmentOptions::track_external_memory_details,
+            kAllowedInEnvvar,
+            true);
   AddOption("--extra-info-on-fatal-exception",
             "hide extra information on fatal exception that causes exit",
             &EnvironmentOptions::extra_info_on_fatal_exception,

@@ -1298,6 +1298,17 @@ if (globalThis.gc) {
 }
 ```
 
+### `--track-external-memory-details`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+By default, details of some native objects (most notably, external native memory held by
+[Oilpan][]-managed Node.js objects) are not tracked in V8 heap snapshots to reduce the runtime
+overhead. This flag will expose extra details in heap snapshots at a cost of extra runtime
+overhead in garbage collection.
+
 ### `--force-context-aware`
 
 <!-- YAML
@@ -4021,6 +4032,7 @@ node --stack-trace-limit=12 -p -e "Error.stackTraceLimit" # prints 12
 [Modules loaders]: packages.md#modules-loaders
 [Navigator API]: globals.md#navigator
 [Node.js issue tracker]: https://github.com/nodejs/node/issues
+[Oilpan]: https://v8.dev/blog/oilpan-library
 [OSSL_PROVIDER-legacy]: https://www.openssl.org/docs/man3.0/man7/OSSL_PROVIDER-legacy.html
 [Permission Model]: permissions.md#permission-model
 [REPL]: repl.md

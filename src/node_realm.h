@@ -171,6 +171,12 @@ class Realm : public MemoryRetainer {
   inline void set_should_purge_empty_cppgc_wrappers(bool value) {
     should_purge_empty_cppgc_wrappers_ = value;
   }
+  inline bool should_track_cppgc_wrappers() const {
+    return should_track_cppgc_wrappers_;
+  }
+  inline void set_should_track_cppgc_wrappers(bool value) {
+    should_track_cppgc_wrappers_ = value;
+  }
 
  protected:
   ~Realm();
@@ -182,6 +188,7 @@ class Realm : public MemoryRetainer {
   v8::Isolate* isolate_;
   v8::Global<v8::Context> context_;
   bool should_purge_empty_cppgc_wrappers_ = false;
+  bool should_track_cppgc_wrappers_ = false;
 
 #define V(PropertyName, TypeName) v8::Global<TypeName> PropertyName##_;
   PER_REALM_STRONG_PERSISTENT_VALUES(V)

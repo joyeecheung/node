@@ -25,6 +25,9 @@ Realm::Realm(Environment* env, v8::Local<v8::Context> context, Kind kind)
     : env_(env), isolate_(context->GetIsolate()), kind_(kind) {
   context_.Reset(isolate_, context);
   env->AssignToContext(context, this, ContextInfo(""));
+  if (env->options()->track_external_memory_details) {
+    set_should_track_cppgc_wrappers(true);
+  }
   // The environment can also purge empty wrappers in the check callback,
   // though that may be a bit excessive depending on usage patterns.
   // For now using the GC epilogue is adequate.
