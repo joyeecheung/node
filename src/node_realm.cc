@@ -44,7 +44,8 @@ void Realm::PurgeEmptyCppgcWrappers(Isolate* isolate,
                                     GCCallbackFlags flags,
                                     void* data) {
   Realm* realm = static_cast<Realm*>(data);
-  if (realm->should_purge_empty_cppgc_wrappers_) {
+  if (realm->should_purge_empty_cppgc_wrappers_ &&
+      !realm->cppgc_wrapper_list_.IsEmpty()) {
     realm->cppgc_wrapper_list_.PurgeEmpty();
     realm->should_purge_empty_cppgc_wrappers_ = false;
   }

@@ -8,17 +8,6 @@
 
 namespace node {
 
-// Helper to detect if T has a method with the signature `void Clean(Realm*)`.
-template <typename U>
-struct has_clean_signature {
-  template <typename V>
-  static auto test(V*) -> decltype(static_cast<void (V::*)(Realm*)>(&V::Clean),
-                                   std::true_type{});
-  template <typename>
-  static std::false_type test(...);
-  static constexpr bool value = decltype(test<U>(nullptr))::value;
-};
-
 template <typename T>
 void CppgcMixin::Wrap(T* ptr, Realm* realm, v8::Local<v8::Object> obj) {
   CHECK_GE(obj->InternalFieldCount(), T::kInternalFieldCount);
@@ -33,7 +22,10 @@ void CppgcMixin::Wrap(T* ptr, Realm* realm, v8::Local<v8::Object> obj) {
   obj->SetAlignedPointerInInternalField(kSlot, ptr);
   // If the class requires per-Realm cleanup, or the Realm is tracking
   // cppgc wrappers for heap snapshots, track this wrapper in the Realm.
-  constexpr bool should_track_in_realm = has_clean_signature<T>::value;
+  bool should_track_in_realm = false;
+  if constexpr (requires { T::kRequiresPerRealmCleanup; }) {
+    should_track_in_realm = T::kRequiresPerRealmCleanup;
+  }
   if (should_track_in_realm || realm->should_track_cppgc_wrappers()) {
     realm->TrackCppgcWrapper(ptr);
   }
