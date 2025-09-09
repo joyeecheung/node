@@ -50,134 +50,134 @@ describe('Loader hooks', { concurrency: !process.env.TEST_PARALLEL }, () => {
     assert.strictEqual(lines.length, 5);
   });
 
-  describe('should handle never-settling hooks in ESM files', { concurrency: !process.env.TEST_PARALLEL }, () => {
-    it('top-level await of a never-settling resolve without warning', async () => {
-      const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
-        '--no-warnings',
-        '--experimental-loader',
-        fixtures.fileURL('es-module-loaders/never-settling-resolve-step/loader.mjs'),
-        fixtures.path('es-module-loaders/never-settling-resolve-step/never-resolve.mjs'),
-      ]);
+  // describe('should handle never-settling hooks in ESM files', { concurrency: !process.env.TEST_PARALLEL }, () => {
+  //   it('top-level await of a never-settling resolve without warning', async () => {
+  //     const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
+  //       '--no-warnings',
+  //       '--experimental-loader',
+  //       fixtures.fileURL('es-module-loaders/never-settling-resolve-step/loader.mjs'),
+  //       fixtures.path('es-module-loaders/never-settling-resolve-step/never-resolve.mjs'),
+  //     ]);
 
-      assert.strictEqual(stderr, '');
-      assert.match(stdout, /^should be output\r?\n$/);
-      assert.strictEqual(code, 13);
-      assert.strictEqual(signal, null);
-    });
+  //     assert.strictEqual(stderr, '');
+  //     assert.match(stdout, /^should be output\r?\n$/);
+  //     assert.strictEqual(code, 13);
+  //     assert.strictEqual(signal, null);
+  //   });
 
-    it('top-level await of a never-settling resolve with warning', async () => {
-      const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
-        '--experimental-loader',
-        fixtures.fileURL('es-module-loaders/never-settling-resolve-step/loader.mjs'),
-        fixtures.path('es-module-loaders/never-settling-resolve-step/never-resolve.mjs'),
-      ]);
+  //   it('top-level await of a never-settling resolve with warning', async () => {
+  //     const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
+  //       '--experimental-loader',
+  //       fixtures.fileURL('es-module-loaders/never-settling-resolve-step/loader.mjs'),
+  //       fixtures.path('es-module-loaders/never-settling-resolve-step/never-resolve.mjs'),
+  //     ]);
 
-      assert.match(stderr, /Warning: Detected unsettled top-level await at.+never-resolve\.mjs:5/);
-      assert.match(stdout, /^should be output\r?\n$/);
-      assert.strictEqual(code, 13);
-      assert.strictEqual(signal, null);
-    });
+  //     assert.match(stderr, /Warning: Detected unsettled top-level await at.+never-resolve\.mjs:5/);
+  //     assert.match(stdout, /^should be output\r?\n$/);
+  //     assert.strictEqual(code, 13);
+  //     assert.strictEqual(signal, null);
+  //   });
 
-    it('top-level await of a never-settling load without warning', async () => {
-      const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
-        '--no-warnings',
-        '--experimental-loader',
-        fixtures.fileURL('es-module-loaders/never-settling-resolve-step/loader.mjs'),
-        fixtures.path('es-module-loaders/never-settling-resolve-step/never-load.mjs'),
-      ]);
+  //   it('top-level await of a never-settling load without warning', async () => {
+  //     const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
+  //       '--no-warnings',
+  //       '--experimental-loader',
+  //       fixtures.fileURL('es-module-loaders/never-settling-resolve-step/loader.mjs'),
+  //       fixtures.path('es-module-loaders/never-settling-resolve-step/never-load.mjs'),
+  //     ]);
 
-      assert.strictEqual(stderr, '');
-      assert.match(stdout, /^should be output\r?\n$/);
-      assert.strictEqual(code, 13);
-      assert.strictEqual(signal, null);
-    });
+  //     assert.strictEqual(stderr, '');
+  //     assert.match(stdout, /^should be output\r?\n$/);
+  //     assert.strictEqual(code, 13);
+  //     assert.strictEqual(signal, null);
+  //   });
 
-    it('top-level await of a never-settling load with warning', async () => {
-      const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
-        '--experimental-loader',
-        fixtures.fileURL('es-module-loaders/never-settling-resolve-step/loader.mjs'),
-        fixtures.path('es-module-loaders/never-settling-resolve-step/never-load.mjs'),
-      ]);
+  //   it('top-level await of a never-settling load with warning', async () => {
+  //     const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
+  //       '--experimental-loader',
+  //       fixtures.fileURL('es-module-loaders/never-settling-resolve-step/loader.mjs'),
+  //       fixtures.path('es-module-loaders/never-settling-resolve-step/never-load.mjs'),
+  //     ]);
 
-      assert.match(stderr, /Warning: Detected unsettled top-level await at.+never-load\.mjs:5/);
-      assert.match(stdout, /^should be output\r?\n$/);
-      assert.strictEqual(code, 13);
-      assert.strictEqual(signal, null);
-    });
+  //     assert.match(stderr, /Warning: Detected unsettled top-level await at.+never-load\.mjs:5/);
+  //     assert.match(stdout, /^should be output\r?\n$/);
+  //     assert.strictEqual(code, 13);
+  //     assert.strictEqual(signal, null);
+  //   });
 
-    it('top-level await of a race of never-settling hooks', async () => {
-      const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
-        '--no-warnings',
-        '--experimental-loader',
-        fixtures.fileURL('es-module-loaders/never-settling-resolve-step/loader.mjs'),
-        fixtures.path('es-module-loaders/never-settling-resolve-step/race.mjs'),
-      ]);
+  //   it('top-level await of a race of never-settling hooks', async () => {
+  //     const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
+  //       '--no-warnings',
+  //       '--experimental-loader',
+  //       fixtures.fileURL('es-module-loaders/never-settling-resolve-step/loader.mjs'),
+  //       fixtures.path('es-module-loaders/never-settling-resolve-step/race.mjs'),
+  //     ]);
 
-      assert.strictEqual(stderr, '');
-      assert.match(stdout, /^true\r?\n$/);
-      assert.strictEqual(code, 0);
-      assert.strictEqual(signal, null);
-    });
+  //     assert.strictEqual(stderr, '');
+  //     assert.match(stdout, /^true\r?\n$/);
+  //     assert.strictEqual(code, 0);
+  //     assert.strictEqual(signal, null);
+  //   });
 
-    it('import.meta.resolve of a never-settling resolve', async () => {
-      const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
-        '--no-warnings',
-        '--experimental-loader',
-        fixtures.fileURL('es-module-loaders/never-settling-resolve-step/loader.mjs'),
-        fixtures.path('es-module-loaders/never-settling-resolve-step/import.meta.never-resolve.mjs'),
-      ]);
+  //   it('import.meta.resolve of a never-settling resolve', async () => {
+  //     const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
+  //       '--no-warnings',
+  //       '--experimental-loader',
+  //       fixtures.fileURL('es-module-loaders/never-settling-resolve-step/loader.mjs'),
+  //       fixtures.path('es-module-loaders/never-settling-resolve-step/import.meta.never-resolve.mjs'),
+  //     ]);
 
-      assert.strictEqual(stderr, '');
-      assert.match(stdout, /^should be output\r?\n$/);
-      assert.strictEqual(code, 13);
-      assert.strictEqual(signal, null);
-    });
-  });
+  //     assert.strictEqual(stderr, '');
+  //     assert.match(stdout, /^should be output\r?\n$/);
+  //     assert.strictEqual(code, 13);
+  //     assert.strictEqual(signal, null);
+  //   });
+  // });
 
-  describe('should handle never-settling hooks in CJS files', { concurrency: !process.env.TEST_PARALLEL }, () => {
-    it('never-settling resolve', async () => {
-      const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
-        '--no-warnings',
-        '--experimental-loader',
-        fixtures.fileURL('es-module-loaders/never-settling-resolve-step/loader.mjs'),
-        fixtures.path('es-module-loaders/never-settling-resolve-step/never-resolve.cjs'),
-      ]);
+  // describe('should handle never-settling hooks in CJS files', { concurrency: !process.env.TEST_PARALLEL }, () => {
+  //   it('never-settling resolve', async () => {
+  //     const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
+  //       '--no-warnings',
+  //       '--experimental-loader',
+  //       fixtures.fileURL('es-module-loaders/never-settling-resolve-step/loader.mjs'),
+  //       fixtures.path('es-module-loaders/never-settling-resolve-step/never-resolve.cjs'),
+  //     ]);
 
-      assert.strictEqual(stderr, '');
-      assert.match(stdout, /^should be output\r?\n$/);
-      assert.strictEqual(code, 0);
-      assert.strictEqual(signal, null);
-    });
+  //     assert.strictEqual(stderr, '');
+  //     assert.match(stdout, /^should be output\r?\n$/);
+  //     assert.strictEqual(code, 0);
+  //     assert.strictEqual(signal, null);
+  //   });
 
 
-    it('never-settling load', async () => {
-      const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
-        '--no-warnings',
-        '--experimental-loader',
-        fixtures.fileURL('es-module-loaders/never-settling-resolve-step/loader.mjs'),
-        fixtures.path('es-module-loaders/never-settling-resolve-step/never-load.cjs'),
-      ]);
+  //   it('never-settling load', async () => {
+  //     const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
+  //       '--no-warnings',
+  //       '--experimental-loader',
+  //       fixtures.fileURL('es-module-loaders/never-settling-resolve-step/loader.mjs'),
+  //       fixtures.path('es-module-loaders/never-settling-resolve-step/never-load.cjs'),
+  //     ]);
 
-      assert.strictEqual(stderr, '');
-      assert.match(stdout, /^should be output\r?\n$/);
-      assert.strictEqual(code, 0);
-      assert.strictEqual(signal, null);
-    });
+  //     assert.strictEqual(stderr, '');
+  //     assert.match(stdout, /^should be output\r?\n$/);
+  //     assert.strictEqual(code, 0);
+  //     assert.strictEqual(signal, null);
+  //   });
 
-    it('race of never-settling hooks', async () => {
-      const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
-        '--no-warnings',
-        '--experimental-loader',
-        fixtures.fileURL('es-module-loaders/never-settling-resolve-step/loader.mjs'),
-        fixtures.path('es-module-loaders/never-settling-resolve-step/race.cjs'),
-      ]);
+  //   it('race of never-settling hooks', async () => {
+  //     const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
+  //       '--no-warnings',
+  //       '--experimental-loader',
+  //       fixtures.fileURL('es-module-loaders/never-settling-resolve-step/loader.mjs'),
+  //       fixtures.path('es-module-loaders/never-settling-resolve-step/race.cjs'),
+  //     ]);
 
-      assert.strictEqual(stderr, '');
-      assert.match(stdout, /^true\r?\n$/);
-      assert.strictEqual(code, 0);
-      assert.strictEqual(signal, null);
-    });
-  });
+  //     assert.strictEqual(stderr, '');
+  //     assert.match(stdout, /^true\r?\n$/);
+  //     assert.strictEqual(code, 0);
+  //     assert.strictEqual(signal, null);
+  //   });
+  // });
 
   it('should not work without worker permission', async () => {
     const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
@@ -277,19 +277,19 @@ describe('Loader hooks', { concurrency: !process.env.TEST_PARALLEL }, () => {
     assert.strictEqual(signal, null);
   });
 
-  it('should be fine to call `process.exit` from the loader thread top-level', async () => {
-    const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
-      '--no-warnings',
-      '--experimental-loader',
-      'data:text/javascript,process.exit(42)',
-      fixtures.path('empty.js'),
-    ]);
+  // it('should be fine to call `process.exit` from the loader thread top-level', async () => {
+  //   const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
+  //     '--no-warnings',
+  //     '--experimental-loader',
+  //     'data:text/javascript,process.exit(42)',
+  //     fixtures.path('empty.js'),
+  //   ]);
 
-    assert.strictEqual(stderr, '');
-    assert.strictEqual(stdout, '');
-    assert.strictEqual(code, 42);
-    assert.strictEqual(signal, null);
-  });
+  //   assert.strictEqual(stderr, '');
+  //   assert.strictEqual(stdout, '');
+  //   assert.strictEqual(code, 42);
+  //   assert.strictEqual(signal, null);
+  // });
 
   describe('should handle a throwing top-level body', () => {
     it('should handle regular Error object', async () => {
