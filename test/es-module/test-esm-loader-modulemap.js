@@ -17,11 +17,9 @@ const stubJsModule = createDynamicModule([], ['default'], jsModuleDataUrl);
 const stubJsonModule = createDynamicModule([], ['default'], jsonModuleDataUrl);
 
 const loader = createModuleLoader(false);
-const jsModuleJob = new ModuleJob(loader, stubJsModule.module, undefined,
-                                  () => new Promise(() => {}));
-const jsonModuleJob = new ModuleJob(loader, stubJsonModule.module,
-                                    { type: 'json' },
-                                    () => new Promise(() => {}));
+const jsModuleJob = new ModuleJob(loader, jsonModuleDataUrl, {}, stubJsModule.module);
+const jsonModuleJob = new ModuleJob(loader, jsonModuleDataUrl,
+                                    { type: 'json' }, stubJsonModule.module);
 
 
 // LoadCache.set and LoadCache.get store and retrieve module jobs for a
