@@ -130,7 +130,6 @@ describe('Loader hooks', { concurrency: !process.env.TEST_PARALLEL }, () => {
       assert.strictEqual(stderr, '');
       assert.match(stdout, /^should be output\r?\n$/);
       assert.strictEqual(code, 0);
-      // assert.strictEqual(code, 13);
       assert.strictEqual(signal, null);
     });
   });
@@ -662,22 +661,26 @@ describe('Loader hooks', { concurrency: !process.env.TEST_PARALLEL }, () => {
       assert.strictEqual(signal, null);
     });
 
-    // it('should handle `initialize` returning never-settling promise', async () => {
-    //   const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
-    //     '--no-warnings',
-    //     '--input-type=module',
-    //     '--eval',
-    //     `
-    //     import {register} from 'node:module';
-    //     register('data:text/javascript,export function initialize(){return new Promise(()=>{})}');
-    //     `,
-    //   ]);
+    it('should handle `initialize` returning never-settling promise', async () => {
+      const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
+        '--no-warnings',
+        '--input-type=module',
+        '--eval',
+        `
+        import {register} from 'node:module';
+        try {
+          register('data:text/javascript,export function initialize(){return new Promise(()=>{})}');
+        } catch (e) {
+          console.log('caught', e.code);
+        }
+        `,
+      ]);
 
-    //   assert.strictEqual(stderr, '');
-    //   assert.strictEqual(stdout, '');
-    //   assert.strictEqual(code, 13);
-    //   assert.strictEqual(signal, null);
-    // });
+      assert.strictEqual(stderr, '');
+      assert.strictEqual(stdout.trim(), 'caught ERR_ASYNC_LOADER_REQUEST_NEVER_SETTLED');
+      assert.strictEqual(code, 0);
+      assert.strictEqual(signal, null);
+    });
 
     it('should handle `initialize` returning rejecting promise', async () => {
       const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
