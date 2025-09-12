@@ -278,19 +278,19 @@ describe('Loader hooks', { concurrency: !process.env.TEST_PARALLEL }, () => {
     assert.strictEqual(signal, null);
   });
 
-  // it('should be fine to call `process.exit` from the loader thread top-level', async () => {
-  //   const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
-  //     '--no-warnings',
-  //     '--experimental-loader',
-  //     'data:text/javascript,process.exit(42)',
-  //     fixtures.path('empty.js'),
-  //   ]);
+  it('should be fine to call `process.exit` from the loader thread top-level', async () => {
+    const { code, signal, stdout, stderr } = await spawnPromisified(execPath, [
+      '--no-warnings',
+      '--experimental-loader',
+      'data:text/javascript,process.exit(42)',
+      fixtures.path('empty.js'),
+    ]);
 
-  //   assert.strictEqual(stderr, '');
-  //   assert.strictEqual(stdout, '');
-  //   assert.strictEqual(code, 42);
-  //   assert.strictEqual(signal, null);
-  // });
+    assert.strictEqual(stderr, '');
+    assert.strictEqual(stdout, '');
+    assert.strictEqual(code, 42);
+    assert.strictEqual(signal, null);
+  });
 
   describe('should handle a throwing top-level body', () => {
     it('should handle regular Error object', async () => {
