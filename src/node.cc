@@ -26,6 +26,7 @@
 
 // ========== local headers ==========
 
+#include "compile_cache.h"
 #include "debug_utils-inl.h"
 #include "env-inl.h"
 #include "histogram-inl.h"
@@ -366,6 +367,10 @@ MaybeLocal<Value> StartExecution(Environment* env, StartExecutionCallback cb) {
 
   if (first_argv == "inspect") {
     return StartExecution(env, "internal/main/inspect");
+  }
+
+  if (!per_process::cli_options->compile_cache_for.empty()) {
+    return StartExecution(env, "internal/main/compile_cache_for");
   }
 
   if (per_process::cli_options->print_help) {

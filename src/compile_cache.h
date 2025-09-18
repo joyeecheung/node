@@ -71,6 +71,7 @@ class CompileCacheHandler {
                                   const std::string& dir,
                                   EnableOption option = EnableOption::DEFAULT);
 
+  int CompileCacheFor(std::string_view path_to_list);
   void Persist();
 
   CompileCacheEntry* GetOrInsert(v8::Local<v8::String> code,

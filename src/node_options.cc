@@ -1396,6 +1396,11 @@ PerProcessOptionsParser::PerProcessOptionsParser(
   AddOption("--run",
             "Run a script specified in package.json",
             &PerProcessOptions::run);
+
+  AddOption("--compile-cache-for",
+            "Precompile and generate compile cache for the modules specified in a JSON file",
+            &PerProcessOptions::compile_cache_for,
+            kAllowedInEnvvar);
   AddOption(
       "--disable-wasm-trap-handler",
       "Disable trap-handler-based WebAssembly bound checks. V8 will insert "
