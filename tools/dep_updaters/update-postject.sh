@@ -40,7 +40,7 @@ echo "Installing postject npm package..."
 
 "$NODE" "$NPM" init --yes
 
-"$NODE" "$NPM" install --no-bin-links --ignore-scripts "postject@$NEW_VERSION"
+"$NODE" "$NPM" install --no-bin-links --ignore-scripts --before="$COOLDOWN_DATE" "postject@$NEW_VERSION"
 
 echo "Replacing existing postject (except GN build files)"
 

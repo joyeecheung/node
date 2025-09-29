@@ -78,7 +78,7 @@ cd "$ROOT"
 
   # Rebuild components from source
   rm lib/*.*
-  "$NODE" "$NPM" install --ignore-scripts
+  "$NODE" "$NPM" install --before="$COOLDOWN_DATE" --ignore-scripts
   "$NODE" "$NPM" run build-wasm
   "$NODE" "$NPM" run build
   "$NODE" "$NPM" prune --production

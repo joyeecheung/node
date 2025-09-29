@@ -3,6 +3,10 @@
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 export ROOT
 
+# Cooldown date is 7 days ago to avoid updating to unverified dependencies.
+COOLDOWN_DATE=$("$NODE" -e "console.log(new Date(Date.now() - 7*24*3600*1000).toISOString())")
+export COOLDOWN_DATE
+
 # This function compare new version with current version of a dependency and
 # exit the script if the versions are the same
 #

@@ -131,8 +131,9 @@ jobs:
                 # Include $NEW_VERSION to explicitly update the package.json
                 # entry for the dependency and also so that semver-major updates
                 # are not skipped.
-                npm install --ignore-scripts $NEW_VERSION
-                npm install --ignore-scripts
+                COOLDOWN_DATE=$("$NODE" -e "console.log(new Date(Date.now() - 7*24*3600*1000).toISOString())")
+                npm install --ignore-scripts --before="$COOLDOWN_DATE" $NEW_VERSION
+                npm install --ignore-scripts --before="$COOLDOWN_DATE"
               fi
           - id: googletest
             subsystem: deps

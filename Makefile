@@ -260,7 +260,7 @@ coverage-build: all ## Build coverage files.
 coverage-build-js: ## Build JavaScript coverage files.
 	mkdir -p node_modules
 	if [ ! -d node_modules/c8 ]; then \
-		$(NODE) ./deps/npm install c8 --no-save --no-package-lock;\
+		$(NODE) ./deps/npm install c8 --no-save --before="$("$NODE" -e "console.log(new Date(Date.now() - 7*24*3600*1000).toISOString())")" --no-package-lock;\
 	fi
 
 .PHONY: coverage-test

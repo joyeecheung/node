@@ -52,7 +52,8 @@ tar -xf "$MINIMATCH_TGZ"
 
 cd package
 
-"$NODE" "$NPM" install esbuild --save-dev
+# This cannot use --ignore-scripts because esbulid has a postinstall step.
+"$NODE" "$NPM" install esbuild --before="$COOLDOWN_DATE" --save-dev
 
 "$NODE" "$NPM" pkg set scripts.node-build="esbuild ./dist/commonjs/index.js --bundle --platform=node --outfile=index.js"
 
