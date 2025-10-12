@@ -22,7 +22,7 @@ process.on('unhandledRejection', common.mustCall((err) => {
 }));
 
 const mod = new vm.SyntheticModule(['a'], common.mustCall(async () => {
-  await Promise.reject(new Error('asynchronous source text module'));
+  throw new Error('asynchronous source text module');
 }));
 
 const promise = mod.evaluate();

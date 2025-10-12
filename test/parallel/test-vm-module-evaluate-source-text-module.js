@@ -26,9 +26,11 @@ common.allowGlobals(globalThis.callCount);
   const promise = mod.evaluate();
   assert.strictEqual(globalThis.callCount.syncError, 1);
   assert.match(inspect(promise), /rejected/);
+  assert(mod.error, 'Expected mod.error to be set');
+  assert.strictEqual(mod.error.message, 'synchronous source text module');
 
   promise.catch(common.mustCall((err) => {
-    assert.strictEqual(err.message, 'synchronous source text module');
+    assert.strictEqual(err, mod.error);
     // Calling evaluate() again results in the same rejection synchronously.
     const promise2 = mod.evaluate();
     assert.match(inspect(promise2), /rejected/);
@@ -115,6 +117,7 @@ common.allowGlobals(globalThis.callCount);
   assert.match(inspect(promise), /<pending>/);
   // Accessing the namespace before the promise is fulfilled throws ReferenceError.
   assert.throws(() => mod.namespace.a, { name: 'ReferenceError' });
+  assert.strictEqual(globalThis.callCount.asyncEvaluation, 1);
   promise.then(common.mustCall((value) => {
     assert.strictEqual(value, undefined);
     assert.strictEqual(globalThis.callCount.asyncEvaluation, 1);
@@ -147,6 +150,7 @@ common.allowGlobals(globalThis.callCount);
   // Accessing the namespace before the promise is fulfilled throws ReferenceError.
   assert.throws(() => mod.namespace.a, { name: 'ReferenceError' });
   promise.catch(common.mustCall((err) => {
+    assert.strictEqual(err, mod.error);
     assert.strictEqual(err.message, 'asynchronous source text module');
     assert.strictEqual(globalThis.callCount.asyncRejection, 1);
 

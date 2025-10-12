@@ -642,10 +642,12 @@ the specification of [Evaluate() of a Synthetic Module Record][]:
 1. If the `evaluateCallback` passed to its constructor throws an exception synchronously, `evaluate()` returns
    a promise that will be synchronously rejected with that exception.
 2. If the `evaluateCallback` does not throw an exception, `evaluate()` returns a promise that will be
-   synchronously resolved to `undefined`. This is the case even if the `evaluateCallback` is an
-   asynchronous function, any asynchronous operations it performs will only have effect after
-   `evaluate()` has returned. If an `evaluateCallback` rejects asynchronously, that rejection will be
-   not reflected in the promise returned by `evaluate()`.
+   synchronously resolved to `undefined`.
+
+The `evaluateCallback` of a `vm.SyntheticModule` is executed synchronously within the `evaluate()` call, and its
+return value is discarded. This means if `evaluateCallback` is an asynchronous function, the promise returned by
+`evaluate()` will not reflect its asynchronous behavior, and any rejections from an asynchronous
+`evaluateCallback` will be lost.
 
 `evaluate()` could also be called again after the module has already been evaluated, in which case:
 
