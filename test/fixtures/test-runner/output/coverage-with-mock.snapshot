@@ -30,6 +30,7 @@ ok 1 - module test with mock
 #   test-runner              |        |          |         | 
 #    coverage-with-mock      |        |          |         | 
 #     module.js              | 100.00 |   100.00 |  100.00 | 
+#     sum.js                 | 100.00 |   100.00 |  100.00 | 
 #    output                  |        |          |         | 
 #     coverage-with-mock.mjs | 100.00 |   100.00 |  100.00 | 
 # ---------------------------------------------------------------------------
