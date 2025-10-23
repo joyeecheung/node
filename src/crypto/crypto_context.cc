@@ -298,6 +298,12 @@ bool isSelfIssued(X509* cert) {
   return X509_NAME_cmp(subject, issuer) == 0;
 }
 
+struct SystemCertStore {
+  std::vector<X509*> trusted_certs;
+  std::vector<X509*> distrusted_certs;  // Only supported on Windows.
+  SystemCertStore();
+};
+
 // The following code is loosely based on
 // https://github.com/chromium/chromium/blob/54bd8e3/net/cert/internal/trust_store_mac.cc
 // and
@@ -489,8 +495,7 @@ bool IsCertificateTrustedForPolicy(X509* cert, SecCertificateRef ref) {
   return false;
 }
 
-void ReadMacOSKeychainCertificates(
-    std::vector<X509*>* system_root_certificates_X509) {
+SystemCertStore::SystemCertStore() {
   CFTypeRef search_keys[] = {kSecClass, kSecMatchLimit, kSecReturnRef};
   CFTypeRef search_values[] = {
       kSecClassCertificate, kSecMatchLimitAll, kCFBooleanTrue};
@@ -528,7 +533,7 @@ void ReadMacOSKeychainCertificates(
     CFRelease(der_data);
     bool is_valid = IsCertificateTrustedForPolicy(cert, cert_ref);
     if (is_valid) {
-      system_root_certificates_X509->emplace_back(cert);
+      trusted_certs.emplace_back(cert);
     }
   }
   CFRelease(curr_anchors);
@@ -642,56 +647,63 @@ void GatherCertsForLocation(std::vector<X509*>* vector,
   }
 }
 
-void ReadWindowsCertificates(
-    std::vector<X509*>* system_root_certificates_X509) {
+SystemCertStore::SystemCertStore() {
   // TODO(joyeecheung): match Chromium's policy, collect more certificates
   // from user-added CAs and support disallowed (revoked) certificates.
 
   // Grab the user-added roots.
   GatherCertsForLocation(
-      system_root_certificates_X509, CERT_SYSTEM_STORE_LOCAL_MACHINE, L"ROOT");
-  GatherCertsForLocation(system_root_certificates_X509,
-                         CERT_SYSTEM_STORE_LOCAL_MACHINE_GROUP_POLICY,
-                         L"ROOT");
-  GatherCertsForLocation(system_root_certificates_X509,
-                         CERT_SYSTEM_STORE_LOCAL_MACHINE_ENTERPRISE,
-                         L"ROOT");
+      &trusted_certs, CERT_SYSTEM_STORE_LOCAL_MACHINE, L"ROOT");
   GatherCertsForLocation(
-      system_root_certificates_X509, CERT_SYSTEM_STORE_CURRENT_USER, L"ROOT");
-  GatherCertsForLocation(system_root_certificates_X509,
-                         CERT_SYSTEM_STORE_CURRENT_USER_GROUP_POLICY,
-                         L"ROOT");
+      &trusted_certs, CERT_SYSTEM_STORE_LOCAL_MACHINE_GROUP_POLICY, L"ROOT");
+  GatherCertsForLocation(
+      &trusted_certs, CERT_SYSTEM_STORE_LOCAL_MACHINE_ENTERPRISE, L"ROOT");
+  GatherCertsForLocation(
+      &trusted_certs, CERT_SYSTEM_STORE_CURRENT_USER, L"ROOT");
+  GatherCertsForLocation(
+      &trusted_certs, CERT_SYSTEM_STORE_CURRENT_USER_GROUP_POLICY, L"ROOT");
 
   // Grab the intermediate certs
   GatherCertsForLocation(
-      system_root_certificates_X509, CERT_SYSTEM_STORE_LOCAL_MACHINE, L"CA");
-  GatherCertsForLocation(system_root_certificates_X509,
-                         CERT_SYSTEM_STORE_LOCAL_MACHINE_GROUP_POLICY,
-                         L"CA");
-  GatherCertsForLocation(system_root_certificates_X509,
-                         CERT_SYSTEM_STORE_LOCAL_MACHINE_ENTERPRISE,
-                         L"CA");
+      &trusted_certs, CERT_SYSTEM_STORE_LOCAL_MACHINE, L"CA");
   GatherCertsForLocation(
-      system_root_certificates_X509, CERT_SYSTEM_STORE_CURRENT_USER, L"CA");
-  GatherCertsForLocation(system_root_certificates_X509,
-                         CERT_SYSTEM_STORE_CURRENT_USER_GROUP_POLICY,
-                         L"CA");
+      &trusted_certs, CERT_SYSTEM_STORE_LOCAL_MACHINE_GROUP_POLICY, L"CA");
+  GatherCertsForLocation(
+      &trusted_certs, CERT_SYSTEM_STORE_LOCAL_MACHINE_ENTERPRISE, L"CA");
+  GatherCertsForLocation(&trusted_certs, CERT_SYSTEM_STORE_CURRENT_USER, L"CA");
+  GatherCertsForLocation(
+      &trusted_certs, CERT_SYSTEM_STORE_CURRENT_USER_GROUP_POLICY, L"CA");
 
   // Grab the user-added trusted server certs. Trusted end-entity certs are
   // only allowed for server auth in the "local machine" store, but not in the
   // "current user" store.
-  GatherCertsForLocation(system_root_certificates_X509,
-                         CERT_SYSTEM_STORE_LOCAL_MACHINE,
-                         L"TrustedPeople");
-  GatherCertsForLocation(system_root_certificates_X509,
+  GatherCertsForLocation(
+      &trusted_certs, CERT_SYSTEM_STORE_LOCAL_MACHINE, L"TrustedPeople");
+  GatherCertsForLocation(&trusted_certs,
                          CERT_SYSTEM_STORE_LOCAL_MACHINE_GROUP_POLICY,
                          L"TrustedPeople");
-  GatherCertsForLocation(system_root_certificates_X509,
+  GatherCertsForLocation(&trusted_certs,
                          CERT_SYSTEM_STORE_LOCAL_MACHINE_ENTERPRISE,
                          L"TrustedPeople");
-}
-#endif
 
+  // Grab the user-added disallowed certs.
+  GatherCertsForLocation(
+      &distrusted_certs, CERT_SYSTEM_STORE_LOCAL_MACHINE, L"Disallowed");
+  GatherCertsForLocation(&distrusted_certs,
+                         CERT_SYSTEM_STORE_LOCAL_MACHINE_GROUP_POLICY,
+                         L"Disallowed");
+  GatherCertsForLocation(&distrusted_certs,
+                         CERT_SYSTEM_STORE_LOCAL_MACHINE_ENTERPRISE,
+                         L"Disallowed");
+  GatherCertsForLocation(
+      &distrusted_certs, CERT_SYSTEM_STORE_CURRENT_USER, L"Disallowed");
+  GatherCertsForLocation(&distrusted_certs,
+                         CERT_SYSTEM_STORE_CURRENT_USER_GROUP_POLICY,
+                         L"Disallowed");
+}
+#endif  // _WIN32
+
+#if !defined(__APPLE__) && !defined(_WIN32)
 static void LoadCertsFromDir(std::vector<X509*>* certs,
                              std::string_view cert_dir) {
   uv_fs_t dir_req;
@@ -733,7 +745,7 @@ static void LoadCertsFromDir(std::vector<X509*>* certs,
 
 // Loads CA certificates from the default certificate paths respected by
 // OpenSSL.
-void GetOpenSSLSystemCertificates(std::vector<X509*>* system_store_certs) {
+SystemCertStore::SystemCertStore() {
   std::string cert_file;
   // While configurable when OpenSSL is built, this is usually SSL_CERT_FILE.
   if (!credentials::SafeGetenv(X509_get_default_cert_file_env(), &cert_file)) {
@@ -751,13 +763,14 @@ void GetOpenSSLSystemCertificates(std::vector<X509*>* system_store_certs) {
   }
 
   if (!cert_file.empty()) {
-    LoadCertsFromFile(system_store_certs, cert_file.c_str());
+    LoadCertsFromFile(&trusted_certs, cert_file.c_str());
   }
 
   if (!cert_dir.empty()) {
-    LoadCertsFromDir(system_store_certs, cert_dir.c_str());
+    LoadCertsFromDir(&trusted_certs, cert_dir.c_str());
   }
 }
+#endif  // !defined(__APPLE__) && !defined(_WIN32)
 
 static std::vector<X509*> InitializeBundledRootCertificates() {
   // Read the bundled certificates in node_root_certs.h into
@@ -792,26 +805,11 @@ static std::vector<X509*>& GetBundledRootCertificates() {
   return bundled_root_certs;
 }
 
-static std::vector<X509*> InitializeSystemStoreCertificates() {
-  std::vector<X509*> system_store_certs;
-#ifdef __APPLE__
-  ReadMacOSKeychainCertificates(&system_store_certs);
-#endif
-#ifdef _WIN32
-  ReadWindowsCertificates(&system_store_certs);
-#endif
-#if !defined(__APPLE__) && !defined(_WIN32)
-  GetOpenSSLSystemCertificates(&system_store_certs);
-#endif
-  return system_store_certs;
-}
-
 static std::vector<X509*>& GetSystemStoreCACertificates() {
   // Use function-local static to guarantee thread safety.
-  static std::vector<X509*> system_store_certs =
-      InitializeSystemStoreCertificates();
+  static SystemCertStore system_store;
   has_cached_system_root_certs.store(true);
-  return system_store_certs;
+  return system_store.trusted_certs;
 }
 
 static std::vector<X509*> InitializeExtraCACertificates() {
