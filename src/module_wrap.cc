@@ -10,6 +10,7 @@
 #include "node_url.h"
 #include "node_watchdog.h"
 #include "util-inl.h"
+#include "cjs-module-lexer.h"
 
 #include <sys/stat.h>  // S_IFDIR
 
