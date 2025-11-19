@@ -82,6 +82,7 @@
       'src/dataqueue/queue.cc',
       'src/debug_utils.cc',
       'src/embedded_data.cc',
+      'src/embedding.cc',
       'src/encoding_binding.cc',
       'src/env.cc',
       'src/fs_event_wrap.cc',

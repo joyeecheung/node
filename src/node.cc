@@ -245,15 +245,6 @@ void Environment::InitializeDiagnostics() {
   }
 }
 
-static
-MaybeLocal<Value> StartExecution(Environment* env, const char* main_script_id) {
-  EscapableHandleScope scope(env->isolate());
-  CHECK_NOT_NULL(main_script_id);
-  Realm* realm = env->principal_realm();
-
-  return scope.EscapeMaybe(realm->ExecuteBootstrapper(main_script_id));
-}
-
 // Convert the result returned by an intermediate main script into
 // StartExecutionCallbackInfo. Currently the result is an array containing
 // [process, requireFunction, cjsRunner]
@@ -285,6 +276,36 @@ std::optional<StartExecutionCallbackInfo> CallbackInfoFromArray(
   return info;
 }
 
+MaybeLocal<Value> RunEmbedderExecutionCallback(Realm* realm, StartExecutionCallback cb) {
+  EscapableHandleScope scope(realm->isolate());
+  Local<Value> result;
+
+  // Prepare the StartExecutionCallbackInfo.
+  if (realm->isolate_data()->is_building_snapshot()) {
+    // This path could be hit if the embedder calls LoadEnvironment() after CreateForSnapshotting().
+    if (!realm->ExecuteBootstrapper("internal/main/mksnapshot").ToLocal(&result)) {
+      return MaybeLocal<Value>();
+    }
+  } else if (!realm->ExecuteBootstrapper("internal/main/embedding").ToLocal(&result)) {
+    return MaybeLocal<Value>();
+  }
+
+  std::optional<StartExecutionCallbackInfo> info = CallbackInfoFromArray(realm->context(), result);
+  if (!info.has_value()) {
+    MaybeLocal<Value>();
+  }
+
+#if HAVE_INSPECTOR
+  if (realm->env()->options()->debug_options().break_first_line) {
+    realm->env()->inspector_agent()->PauseOnNextJavascriptStatement("Break on start");
+  }
+#endif
+
+  realm->env()->performance_state()->Mark(
+      performance::NODE_PERFORMANCE_MILESTONE_BOOTSTRAP_COMPLETE);
+  return scope.EscapeMaybe(cb(info.value()));
+}
+
 MaybeLocal<Value> StartExecution(Environment* env, StartExecutionCallback cb) {
   InternalCallbackScope callback_scope(
       env,
@@ -292,31 +313,23 @@ MaybeLocal<Value> StartExecution(Environment* env, StartExecutionCallback cb) {
       { 1, 0 },
       InternalCallbackScope::kSkipAsyncHooks);
 
-  // Only snapshot builder or embedder applications set the
-  // callback.
+  // Only snapshot builder, sea entrypoint or embedder applications that set the callback
+  // would use the custom start execution callback (possibly just a default one).
   if (cb != nullptr) {
     EscapableHandleScope scope(env->isolate());
-
     Local<Value> result;
-    if (env->isolate_data()->is_building_snapshot()) {
-      if (!StartExecution(env, "internal/main/mksnapshot").ToLocal(&result)) {
-        return MaybeLocal<Value>();
-      }
-    } else {
-      if (!StartExecution(env, "internal/main/embedding").ToLocal(&result)) {
-        return MaybeLocal<Value>();
-      }
+    if (!RunMainScript(env, "internal/main/embedding").ToLocal(&result)) {
+      return MaybeLocal<Value>();
     }
-
     auto info = CallbackInfoFromArray(env->context(), result);
     if (!info.has_value()) {
       MaybeLocal<Value>();
     }
-#if HAVE_INSPECTOR
+  #if HAVE_INSPECTOR
     if (env->options()->debug_options().break_first_line) {
       env->inspector_agent()->PauseOnNextJavascriptStatement("Break on start");
     }
-#endif
+  #endif
 
     env->performance_state()->Mark(
         performance::NODE_PERFORMANCE_MILESTONE_BOOTSTRAP_COMPLETE);
@@ -356,7 +369,7 @@ MaybeLocal<Value> StartExecution(Environment* env, StartExecutionCallback cb) {
   }
 
   if (env->worker_context() != nullptr) {
-    return StartExecution(env, "internal/main/worker_thread");
+    return RunMainScript(env, "internal/main/worker_thread");
   }
 
   std::string first_argv;
@@ -365,43 +378,43 @@ MaybeLocal<Value> StartExecution(Environment* env, StartExecutionCallback cb) {
   }
 
   if (first_argv == "inspect") {
-    return StartExecution(env, "internal/main/inspect");
+    return RunMainScript(env, "internal/main/inspect");
   }
 
   if (per_process::cli_options->print_help) {
-    return StartExecution(env, "internal/main/print_help");
+    return RunMainScript(env, "internal/main/print_help");
   }
 
   if (env->options()->prof_process) {
-    return StartExecution(env, "internal/main/prof_process");
+    return RunMainScript(env, "internal/main/prof_process");
   }
 
   // -e/--eval without -i/--interactive
   if (env->options()->has_eval_string && !env->options()->force_repl) {
-    return StartExecution(env, "internal/main/eval_string");
+    return RunMainScript(env, "internal/main/eval_string");
   }
 
   if (env->options()->syntax_check_only) {
-    return StartExecution(env, "internal/main/check_syntax");
+    return RunMainScript(env, "internal/main/check_syntax");
   }
 
   if (env->options()->test_runner) {
-    return StartExecution(env, "internal/main/test_runner");
+    return RunMainScript(env, "internal/main/test_runner");
   }
 
   if (env->options()->watch_mode) {
-    return StartExecution(env, "internal/main/watch_mode");
+    return RunMainScript(env, "internal/main/watch_mode");
   }
 
   if (!first_argv.empty() && first_argv != "-") {
-    return StartExecution(env, "internal/main/run_main_module");
+    return RunMainScript(env, "internal/main/run_main_module");
   }
 
   if (env->options()->force_repl || uv_guess_handle(STDIN_FILENO) == UV_TTY) {
-    return StartExecution(env, "internal/main/repl");
+    return RunMainScript(env, "internal/main/repl");
   }
 
-  return StartExecution(env, "internal/main/eval_stdin");
+  return RunMainScript(env, "internal/main/eval_stdin");
 }
 
 #ifdef __POSIX__

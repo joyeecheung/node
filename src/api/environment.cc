@@ -576,16 +576,19 @@ NODE_EXTERN std::unique_ptr<InspectorParentHandle> GetInspectorParentHandle(
 #endif
 }
 
-MaybeLocal<Value> LoadEnvironment(Environment* env,
-                                  StartExecutionCallback cb,
-                                  EmbedderPreloadCallback preload) {
+void PrepareEnvironment(Environment* env, EmbedderPreloadCallback preload) {
   env->InitializeLibuv();
   env->InitializeDiagnostics();
   if (preload) {
     env->set_embedder_preload(std::move(preload));
   }
   env->InitializeCompileCache();
+}
 
+MaybeLocal<Value> LoadEnvironment(Environment* env,
+                                  StartExecutionCallback cb,
+                                  EmbedderPreloadCallback preload) {
+  PrepareEnvironment(env, std::move(preload));
   return StartExecution(env, cb);
 }
 

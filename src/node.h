@@ -719,14 +719,29 @@ NODE_EXTERN std::unique_ptr<InspectorParentHandle> GetInspectorParentHandle(
     std::string_view child_url,
     std::string_view name);
 
+enum class MainScriptType {
+  kBootstrapScript,  // CommonJS-like internal bootstrap script
+  kBootstrapModule,  // Internal bootstrap ESM
+};
+
 struct StartExecutionCallbackInfo {
   v8::Local<v8::Object> process_object;
   v8::Local<v8::Function> native_require;
   v8::Local<v8::Function> run_cjs;
 };
 
+struct StartModuleExecutionCallbackInfo {
+  v8::Local<v8::Object> process_object;
+  v8::Local<v8::Function> native_require;
+  v8::Local<v8::Module> main_module;
+};
+
 using StartExecutionCallback =
     std::function<v8::MaybeLocal<v8::Value>(const StartExecutionCallbackInfo&)>;
+
+using StartModuleExecutionCallback =
+    std::function<v8::MaybeLocal<v8::Value>(const StartModuleExecutionCallbackInfo&)>;
+
 using EmbedderPreloadCallback =
     std::function<void(Environment* env,
                        v8::Local<v8::Value> process,
@@ -746,6 +761,7 @@ using EmbedderPreloadCallback =
 // imports internal modules with the internal require function.
 // Worker threads created in the environment will also respect The |preload|
 // function, so make sure the function is thread-safe.
+
 NODE_EXTERN v8::MaybeLocal<v8::Value> LoadEnvironment(
     Environment* env,
     StartExecutionCallback cb,

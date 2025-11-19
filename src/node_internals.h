@@ -371,7 +371,12 @@ v8::MaybeLocal<v8::Value> StartExecution(Environment* env,
 v8::MaybeLocal<v8::Object> GetPerContextExports(
     v8::Local<v8::Context> context, IsolateData* isolate_data = nullptr);
 void MarkBootstrapComplete(const v8::FunctionCallbackInfo<v8::Value>& args);
-
+// The internal version of LoadEnvironment that does not do the execution step
+// so that the caller can control it without jumping through the hoops of many
+// callbacks or repeatedly transcoding strings.
+void PrepareEnvironment(Environment* env, EmbedderPreloadCallback preload = nullptr);
+// Runs a main script, main_script_id should start with lib/internal/main/.
+v8::MaybeLocal<v8::Value> RunMainScript(Environment* env, const char* main_script_id);
 class InitializationResultImpl final : public InitializationResult {
  public:
   ~InitializationResultImpl() = default;

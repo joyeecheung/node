@@ -48,6 +48,7 @@
   V(contextify)                                                                \
   V(credentials)                                                               \
   V(encoding_binding)                                                          \
+  V(embedding)                                                                 \
   V(errors)                                                                    \
   V(fs)                                                                        \
   V(fs_dir)                                                                    \

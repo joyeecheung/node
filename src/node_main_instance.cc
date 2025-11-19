@@ -103,7 +103,8 @@ ExitCode NodeMainInstance::Run() {
 void NodeMainInstance::Run(ExitCode* exit_code, Environment* env) {
   if (*exit_code == ExitCode::kNoFailure) {
     if (!sea::MaybeLoadSingleExecutableApplication(env)) {
-      LoadEnvironment(env, StartExecutionCallback{});
+      PrepareEnvironment(env);
+      
     }
 
     *exit_code =

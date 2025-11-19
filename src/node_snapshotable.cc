@@ -1017,9 +1017,13 @@ ExitCode BuildSnapshotWithoutCodeCache(
 #if HAVE_INSPECTOR
         env->InitializeInspector({});
 #endif
-        if (LoadEnvironment(env, builder_script_content.value()).IsEmpty()) {
+        Local<String> builder_script_v8_str;
+        if (!ToV8Value(setup->context(), builder_script_content.value()).ToLocal(&
+                builder_script_v8_str)) {
           return ExitCode::kGenericUserError;
         }
+        PrepareEnvironment(env);
+        
     }
 
     // Drain the loop and platform tasks before creating a snapshot. This is
@@ -1497,48 +1501,6 @@ void SerializeSnapshotableObjects(Realm* realm,
   });
 }
 
-void RunEmbedderPreload(const FunctionCallbackInfo<Value>& args) {
-  Environment* env = Environment::GetCurrent(args);
-  CHECK(env->embedder_preload());
-  CHECK_EQ(args.Length(), 2);
-  Local<Value> process_obj = args[0];
-  Local<Value> require_fn = args[1];
-  CHECK(process_obj->IsObject());
-  CHECK(require_fn->IsFunction());
-  env->embedder_preload()(env, process_obj, require_fn);
-}
-
-void CompileSerializeMain(const FunctionCallbackInfo<Value>& args) {
-  CHECK(args[0]->IsString());
-  Local<String> filename = args[0].As<String>();
-  Local<String> source = args[1].As<String>();
-  Isolate* isolate = args.GetIsolate();
-  Local<Context> context = isolate->GetCurrentContext();
-  // TODO(joyeecheung): do we need all of these? Maybe we would want a less
-  // internal version of them.
-  LocalVector<String> parameters(
-      isolate,
-      {
-          FIXED_ONE_BYTE_STRING(isolate, "require"),
-          FIXED_ONE_BYTE_STRING(isolate, "__filename"),
-          FIXED_ONE_BYTE_STRING(isolate, "__dirname"),
-      });
-
-  ScriptOrigin script_origin(filename, 0, 0, true);
-  ScriptCompiler::Source script_source(source, script_origin);
-  MaybeLocal<Function> maybe_fn =
-      ScriptCompiler::CompileFunction(context,
-                                      &script_source,
-                                      parameters.size(),
-                                      parameters.data(),
-                                      0,
-                                      nullptr);
-  Local<Function> fn;
-  if (maybe_fn.ToLocal(&fn)) {
-    args.GetReturnValue().Set(fn);
-  }
-}
-
 void SetSerializeCallback(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
   CHECK(env->snapshot_serialize_callback().IsEmpty());
@@ -1558,12 +1520,6 @@ void SetDeserializeMainFunction(const FunctionCallbackInfo<Value>& args) {
   CHECK(env->snapshot_deserialize_main().IsEmpty());
   CHECK(args[0]->IsFunction());
   env->set_snapshot_deserialize_main(args[0].As<Function>());
-}
-
-constexpr const char* kAnonymousMainPath = "__node_anonymous_main";
-
-std::string GetAnonymousMainPath() {
-  return kAnonymousMainPath;
 }
 
 namespace mksnapshot {
@@ -1642,21 +1598,15 @@ void CreatePerContextProperties(Local<Object> target,
 void CreatePerIsolateProperties(IsolateData* isolate_data,
                                 Local<ObjectTemplate> target) {
   Isolate* isolate = isolate_data->isolate();
-  SetMethod(isolate, target, "runEmbedderPreload", RunEmbedderPreload);
-  SetMethod(isolate, target, "compileSerializeMain", CompileSerializeMain);
   SetMethod(isolate, target, "setSerializeCallback", SetSerializeCallback);
   SetMethod(isolate, target, "setDeserializeCallback", SetDeserializeCallback);
   SetMethod(isolate,
             target,
             "setDeserializeMainFunction",
             SetDeserializeMainFunction);
-  target->Set(FIXED_ONE_BYTE_STRING(isolate, "anonymousMainPath"),
-              OneByteString(isolate, kAnonymousMainPath));
 }
 
 void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
-  registry->Register(RunEmbedderPreload);
-  registry->Register(CompileSerializeMain);
   registry->Register(SetSerializeCallback);
   registry->Register(SetDeserializeCallback);
   registry->Register(SetDeserializeMainFunction);
