@@ -835,6 +835,12 @@ parser.add_argument('--without-amaro',
     default=None,
     help='do not install the bundled Amaro (TypeScript utils)')
 
+parser.add_argument('--with-lief',
+    action='store_true',
+    dest='with_lief',
+    default=None,
+    help='build with LIEF (Library for instrumenting executable formats)')
+
 parser.add_argument('--without-npm',
     action='store_true',
     dest='without_npm',
@@ -1558,6 +1564,10 @@ def configure_node(o):
   o['variables']['node_install_npm'] = b(not options.without_npm)
   o['variables']['node_install_corepack'] = b(options.with_corepack)
   o['variables']['control_flow_guard'] = b(options.enable_cfg)
+  if (options.with_lief is not None):
+    o['variables']['node_use_lief'] = b(options.with_lief)
+  else:
+    o['variables']['node_use_lief'] = 'false'
   o['variables']['node_use_amaro'] = b(not options.without_amaro)
   o['variables']['debug_node'] = b(options.debug_node)
   o['variables']['build_type%'] = 'Debug' if options.debug else 'Release'
