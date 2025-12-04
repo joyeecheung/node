@@ -139,6 +139,7 @@
       'src/node_report_module.cc',
       'src/node_report_utils.cc',
       'src/node_sea.cc',
+      'src/node_sea_injection.cc',
       'src/node_serdes.cc',
       'src/node_shadow_realm.cc',
       'src/node_snapshotable.cc',
@@ -982,8 +983,6 @@
         [ 'node_use_lief=="true"', {
           'defines': [ 'HAVE_LIEF=1' ],
           'dependencies': [ 'deps/LIEF/lief.gyp:liblief' ],
-        }, {
-          'defines': [ 'HAVE_LIEF=0' ]
         }],
         [ 'node_use_sqlite=="true"', {
           'sources': [
