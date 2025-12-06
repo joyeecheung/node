@@ -4376,9 +4376,12 @@ A browser-compatible implementation of {WebSocket}.
 added:
  - v24.5.0
  - v22.21.0
+changes:
+  - version:
+    - REPLACEME
+    pr-url: REPLACEME
+    description: This feature is no longer experimental.
 -->
-
-> Stability: 1.1 - Active development
 
 When Node.js creates the global agent, if the `NODE_USE_ENV_PROXY` environment variable is
 set to `1` or `--use-env-proxy` is enabled, the global agent will be constructed

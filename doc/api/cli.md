@@ -3135,9 +3135,12 @@ See `SSL_CERT_DIR` and `SSL_CERT_FILE`.
 added:
  - v24.5.0
  - v22.21.0
+changes:
+  - version:
+    - REPLACEME
+    pr-url: REPLACEME
+    description: This option is no longer experimental.
 -->
-
-> Stability: 1.1 - Active Development
 
 When enabled, Node.js parses the `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY`
 environment variables during startup, and tunnels requests over the
@@ -3807,9 +3810,12 @@ variable is strongly discouraged.
 added:
  - v24.0.0
  - v22.21.0
+changes:
+  - version:
+    - REPLACEME
+    pr-url: REPLACEME
+    description: This option is no longer experimental.
 -->
-
-> Stability: 1.1 - Active Development
 
 When enabled, Node.js parses the `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY`
 environment variables during startup, and tunnels requests over the
