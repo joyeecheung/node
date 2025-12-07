@@ -61,7 +61,11 @@ node::ExitCode BuildSingleExecutableBlob(
     const std::string& config_path,
     const std::vector<std::string>& args,
     const std::vector<std::string>& exec_args);
-
+ExitCode GenerateSingleExecutableBlob(
+    const SeaConfig& config,
+    const std::vector<std::string>& args,
+    const std::vector<std::string>& exec_args,
+    std::vector<char>* out)
 // Try loading the Environment as a single-executable application.
 // Returns true if it is loaded as a single-executable application.
 // Otherwise returns false and the caller is expected to call LoadEnvironment()

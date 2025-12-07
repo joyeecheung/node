@@ -338,6 +338,7 @@ namespace {
 
 struct SeaConfig {
   std::string main_path;
+  std::string exe_path;
   std::string output_path;
   SeaFlags flags = SeaFlags::kDefault;
   SeaExecArgvExtension exec_argv_extension = SeaExecArgvExtension::kEnv;
@@ -391,6 +392,14 @@ std::optional<SeaConfig> ParseSingleExecutableConfig(
           result.main_path.empty()) {
         FPrintF(stderr,
                 "\"main\" field of %s is not a non-empty string\n",
+                config_path);
+        return std::nullopt;
+      }
+    } else if (key == "exe") {
+      if (field.value().get_string().get(result.exe_path) ||
+          result.exe_path.empty()) {
+        FPrintF(stderr,
+                "\"exe\" field of %s is not a non-empty string\n",
                 config_path);
         return std::nullopt;
       }
@@ -654,6 +663,29 @@ ExitCode GenerateSingleExecutableBlob(
     const SeaConfig& config,
     const std::vector<std::string>& args,
     const std::vector<std::string>& exec_args) {
+  std::vector<char> blob;
+  GenerateSingleExecutableBlob(config, args, exec_args, &blob);
+  uv_buf_t buf = uv_buf_init(blob.data(), blob.size());
+  int r = WriteFileSync(config.output_path.c_str(), buf);
+  if (r != 0) {
+    const char* err = uv_strerror(r);
+    FPrintF(stderr, "Cannot write output to %s:%s\n", config.output_path, err);
+    return ExitCode::kGenericUserError;
+  }
+
+  FPrintF(stderr,
+          "Wrote single executable preparation blob to %s\n",
+          config.output_path);
+  return ExitCode::kNoFailure;
+}
+
+}  // anonymous namespace
+
+ExitCode GenerateSingleExecutableBlob(
+    const SeaConfig& config,
+    const std::vector<std::string>& args,
+    const std::vector<std::string>& exec_args,
+    std::vector<char>* out) {
   std::string main_script;
   // TODO(joyeecheung): unify the file utils.
   int r = ReadFileSync(&main_script, config.main_path.c_str());
@@ -716,21 +748,8 @@ ExitCode GenerateSingleExecutableBlob(
   SeaSerializer serializer;
   serializer.Write(sea);
 
-  uv_buf_t buf = uv_buf_init(serializer.sink.data(), serializer.sink.size());
-  r = WriteFileSync(config.output_path.c_str(), buf);
-  if (r != 0) {
-    const char* err = uv_strerror(r);
-    FPrintF(stderr, "Cannot write output to %s:%s\n", config.output_path, err);
-    return ExitCode::kGenericUserError;
-  }
-
-  FPrintF(stderr,
-          "Wrote single executable preparation blob to %s\n",
-          config.output_path);
-  return ExitCode::kNoFailure;
+  std::swap(serializer.sink, *out);
 }
-
-}  // anonymous namespace
 
 ExitCode BuildSingleExecutableBlob(const std::string& config_path,
                                    const std::vector<std::string>& args,
