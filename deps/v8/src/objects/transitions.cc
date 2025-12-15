@@ -50,6 +50,15 @@ void TransitionsAccessor::InsertHelper(Isolate* isolate, DirectHandle<Map> map,
   ReadOnlyRoots roots(isolate);
   (*target)->SetBackPointer(*map);
 
+  auto cached = isolate->factory()->ObjectLiteralMapFromCache(isolate->native_context(),
+                                                      4);
+  if (*map == *cached) {
+    Tagged<TransitionArray> array = GetTransitionArray(isolate, map);
+    int number_of_transitions = array->number_of_transitions();
+    printf("Inserting transition into cached map for 4 properties %d\n", number_of_transitions);
+    Print(*name);
+  }
+
   // If the map doesn't have any transitions at all yet, install the new one.
   if (encoding == kUninitialized || encoding == kMigrationTarget) {
     if (flag == SIMPLE_PROPERTY_TRANSITION) {
@@ -173,7 +182,12 @@ void TransitionsAccessor::InsertHelper(Isolate* isolate, DirectHandle<Map> map,
       }
       array->SetKey(insertion_index, *name);
       array->SetRawTarget(insertion_index, MakeWeak(*target));
-      SLOW_DCHECK(array->IsSortedNoDuplicates());
+      // The new size exceeds the threshold for linear search, sort the array
+      // for binary search later.
+      // if (new_nof == TransitionArray::kMaxElementsForLinearSearch + 1) {
+      //   array->Sort();
+      // }
+      DCHECK(array->IsSortedNoDuplicates());
       return;
     }
   }
@@ -221,8 +235,12 @@ void TransitionsAccessor::InsertHelper(Isolate* isolate, DirectHandle<Map> map,
   for (int i = insertion_index; i < number_of_transitions; ++i) {
     result->Set(i + 1, array->GetKey(i), array->GetRawTarget(i));
   }
-
-  SLOW_DCHECK(result->IsSortedNoDuplicates());
+  // The new size exceeds the threshold for linear search, sort the array
+  // for binary search later.
+  // if (new_nof == TransitionArray::kMaxElementsForLinearSearch + 1) {
+  //   result->Sort();
+  // }
+  DCHECK(result->IsSortedNoDuplicates());
   ReplaceTransitions(isolate, map, result);
 }
 

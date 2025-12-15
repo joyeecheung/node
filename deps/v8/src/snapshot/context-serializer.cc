@@ -169,6 +169,19 @@ void ContextSerializer::SerializeObjectImpl(Handle<HeapObject> obj,
     if (SerializeReadOnlyObjectReference(raw, &sink_)) return;
   }
 
+  if (IsMap(*obj)) {
+    DisallowGarbageCollection no_gc;
+    Tagged<Map> current_map = Cast<Map>(*obj);
+    DirectHandle<Context> context_handle(context_, isolate());
+    DirectHandle<Map> cached_map =
+        isolate()->factory()->ObjectLiteralMapFromCache(
+            Cast<NativeContext>(context_handle), 4);
+    if (!cached_map.is_null() && current_map == *cached_map) {
+      printf("[snapshot] ContextSerializer: serializing cached map for 4 properties\n");
+      Print(*current_map);
+    }
+  }
+
   if (startup_serializer_->SerializeUsingSharedHeapObjectCache(&sink_, obj)) {
     return;
   }
