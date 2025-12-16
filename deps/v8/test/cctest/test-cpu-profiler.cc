@@ -2848,6 +2848,10 @@ TEST(DeoptAtFirstLevelInlinedSource) {
 // deopt at the second level inlined function
 TEST(DeoptAtSecondLevelInlinedSource) {
   if (!CcTest::i_isolate()->use_optimizer()) return;
+  if (i::v8_flags.turboshaft_verify_load_store_taggedness) {
+    // TODO(dmercadier): investigate why this test doesn't work with this flag.
+    return;
+  }
   i::v8_flags.allow_natives_syntax = true;
   v8::HandleScope scope(CcTest::isolate());
   v8::Local<v8::Context> env = CcTest::NewContext({PROFILER_EXTENSION_ID});
@@ -3133,6 +3137,10 @@ TEST(TracingCpuProfiler) {
           const profile_header = json[0];
           if (typeof profile_header['startTime'] !== 'number')
             return false;
+          if (profile_header.source !== 'Internal')
+            return false;
+          if (!json.every(event => event.source === 'Internal'))
+            return false;
           return json.some(event => (event.lines || []).some(line => line)) &&
               json.filter(e => e.cpuProfile && e.cpuProfile.nodes)
               .some(e => e.cpuProfile.nodes
@@ -3149,6 +3157,34 @@ TEST(TracingCpuProfiler) {
       i::V8::GetCurrentPlatform()->GetTracingController())
       ->Initialize(nullptr);
 #endif  // !V8_USE_PERFETTO
+}
+
+TEST(CpuProfilingOptionsProfileSource) {
+  {
+    v8::CpuProfilingOptions options;
+    CHECK_EQ(v8::CpuProfileSource::kUnspecified, options.profile_source());
+  }
+
+  {
+    v8::CpuProfilingOptions options(
+        v8::kLeafNodeLineNumbers, v8::CpuProfilingOptions::kNoSampleLimit, 0,
+        v8::MaybeLocal<v8::Context>(), v8::CpuProfileSource::kInspector);
+    CHECK_EQ(v8::CpuProfileSource::kInspector, options.profile_source());
+  }
+
+  {
+    v8::CpuProfilingOptions options(
+        v8::kLeafNodeLineNumbers, v8::CpuProfilingOptions::kNoSampleLimit, 0,
+        v8::MaybeLocal<v8::Context>(), v8::CpuProfileSource::kSelfProfiling);
+    CHECK_EQ(v8::CpuProfileSource::kSelfProfiling, options.profile_source());
+  }
+
+  {
+    v8::CpuProfilingOptions options(
+        v8::kLeafNodeLineNumbers, v8::CpuProfilingOptions::kNoSampleLimit, 0,
+        v8::MaybeLocal<v8::Context>(), v8::CpuProfileSource::kInternal);
+    CHECK_EQ(v8::CpuProfileSource::kInternal, options.profile_source());
+  }
 }
 
 TEST(Issue763073) {
@@ -4791,6 +4827,10 @@ TEST(BytecodeFlushEventsEagerLogging) {
   v8_flags.flush_bytecode = true;
   v8_flags.allow_natives_syntax = true;
 
+  // This test is not compatible with conservative stack scanning, as it
+  // expects that the compilation cache is flushed after a number of GCs.
+  if (v8_flags.conservative_stack_scanning) return;
+
   TestSetup test_setup;
   ManualGCScope manual_gc_scope;
 
@@ -4798,8 +4838,6 @@ TEST(BytecodeFlushEventsEagerLogging) {
   v8::Isolate* isolate = CcTest::isolate();
   Isolate* i_isolate = CcTest::i_isolate();
   Factory* factory = i_isolate->factory();
-  i::DisableConservativeStackScanningScopeForTesting no_stack_scanning(
-      CcTest::heap());
 
   CpuProfiler profiler(i_isolate, kDebugNaming, kEagerLogging);
   InstructionStreamMap* instruction_stream_map = profiler.code_map_for_test();

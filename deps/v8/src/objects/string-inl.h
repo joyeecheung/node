@@ -51,14 +51,6 @@ class V8_NODISCARD SharedStringAccessGuardIfNeeded {
   // called from the main thread.
   explicit SharedStringAccessGuardIfNeeded(Isolate* isolate) {}
 
-  // Creates a MutexGuard for the string access if it was called
-  // from a background thread.
-  explicit SharedStringAccessGuardIfNeeded(LocalIsolate* local_isolate) {
-    if (IsNeeded(local_isolate)) {
-      mutex_guard.emplace(local_isolate->internalized_string_access());
-    }
-  }
-
   // Slow version which gets the isolate from the String.
   explicit SharedStringAccessGuardIfNeeded(Tagged<String> str) {
     Isolate* isolate = GetIsolateIfNeeded(str);
@@ -67,9 +59,13 @@ class V8_NODISCARD SharedStringAccessGuardIfNeeded {
     }
   }
 
-  SharedStringAccessGuardIfNeeded(Tagged<String> str,
-                                  LocalIsolate* local_isolate) {
-    if (IsNeeded(str, local_isolate)) {
+  // Creates a MutexGuard for the string access if it was called
+  // from a background thread and one of `strs` requires a mutex.
+  template <typename... Args>
+  SharedStringAccessGuardIfNeeded(LocalIsolate* local_isolate, Args... strs)
+    requires(std::is_convertible_v<Args, Tagged<String>> && ...)
+  {
+    if (IsNeeded(local_isolate) && (IsNeeded(strs, false) || ...)) {
       mutex_guard.emplace(local_isolate->internalized_string_access());
     }
   }
@@ -84,7 +80,14 @@ class V8_NODISCARD SharedStringAccessGuardIfNeeded {
 
   static bool IsNeeded(Tagged<String> str, bool check_local_heap = true) {
     if (check_local_heap) {
-      if (LocalHeap::Current()->is_main_thread()) {
+      LocalHeap* current = LocalHeap::TryGetCurrent();
+
+      if (!current) {
+        // GC worker threads may access the string content but do not have a
+        // LocalHeap.
+        DCHECK_EQ(Isolate::Current()->heap()->gc_state(), Heap::MARK_COMPACT);
+        return false;
+      } else if (current->is_main_thread()) {
         // Don't acquire the lock for the main thread.
         return false;
       }
@@ -92,6 +95,12 @@ class V8_NODISCARD SharedStringAccessGuardIfNeeded {
 
     if (ReadOnlyHeap::Contains(str)) {
       // Don't acquire lock for strings in ReadOnlySpace.
+      return false;
+    }
+
+    if (str->IsShared()) {
+      // Don't acquire lock for shared strings. They can only be
+      // internalized/externalized during GC pauses.
       return false;
     }
 
@@ -117,8 +126,13 @@ class V8_NODISCARD SharedStringAccessGuardIfNeeded {
     if (!IsNeeded(str)) return nullptr;
 
     DCHECK(!ReadOnlyHeap::Contains(str));
+    DCHECK(!str->IsShared());
     Isolate* isolate = Isolate::Current();
-    if (str->IsShared()) isolate = isolate->shared_space_isolate();
+    // For strings in the shared space we need the shared space isolate instead
+    // of the current isolate.
+    if (HeapLayout::InWritableSharedSpace(str)) {
+      isolate = isolate->shared_space_isolate();
+    }
     DCHECK_EQ(isolate->heap(), Heap::FromWritableHeapObject(str));
     return isolate;
   }
@@ -719,7 +733,7 @@ bool String::IsEqualTo(base::Vector<const Char> str) const {
 template <String::EqualityType kEqType, typename Char>
 bool String::IsEqualTo(base::Vector<const Char> str,
                        LocalIsolate* isolate) const {
-  SharedStringAccessGuardIfNeeded access_guard(isolate);
+  SharedStringAccessGuardIfNeeded access_guard(isolate, this);
   return IsEqualToImpl<kEqType>(str, access_guard);
 }
 
@@ -1104,7 +1118,7 @@ uint16_t String::Get(uint32_t index, Isolate* isolate) const {
 }
 
 uint16_t String::Get(uint32_t index, LocalIsolate* local_isolate) const {
-  SharedStringAccessGuardIfNeeded scope(local_isolate);
+  SharedStringAccessGuardIfNeeded scope(local_isolate, this);
   return GetImpl(index, scope);
 }
 
@@ -1219,6 +1233,12 @@ size_t String::Utf8Length(Isolate* isolate, DirectHandle<String> string) {
     auto vec = content.ToOneByteVector();
     return simdutf::utf8_length_from_latin1(
         reinterpret_cast<const char*>(vec.begin()), vec.size());
+  }
+
+  base::Vector<const base::uc16> vec = content.ToUC16Vector();
+  const char16_t* data = reinterpret_cast<const char16_t*>(vec.begin());
+  if (simdutf::validate_utf16(data, vec.size())) {
+    return simdutf::utf8_length_from_utf16(data, vec.size());
   }
 
   // TODO(419496232): Use simdutf once upstream bug is resolved.

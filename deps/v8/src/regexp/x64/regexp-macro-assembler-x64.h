@@ -5,6 +5,7 @@
 #ifndef V8_REGEXP_X64_REGEXP_MACRO_ASSEMBLER_X64_H_
 #define V8_REGEXP_X64_REGEXP_MACRO_ASSEMBLER_X64_H_
 
+#include "src/base/functional/function-ref.h"
 #include "src/codegen/macro-assembler.h"
 #include "src/regexp/regexp-macro-assembler.h"
 #include "src/zone/zone-chunk-list.h"
@@ -18,7 +19,6 @@ class V8_EXPORT_PRIVATE RegExpMacroAssemblerX64
   RegExpMacroAssemblerX64(Isolate* isolate, Zone* zone, Mode mode,
                           int registers_to_save);
   ~RegExpMacroAssemblerX64() override;
-  int stack_limit_slack_slot_count() override;
   void AdvanceCurrentPosition(int by) override;
   void AdvanceRegister(int reg, int by) override;
   void Backtrack() override;
@@ -63,10 +63,13 @@ class V8_EXPORT_PRIVATE RegExpMacroAssemblerX64
                             Label* on_match1, Label* on_match2,
                             Label* on_failure) override;
   bool SkipUntilOneOfMaskedUseSimd(int advance_by);
+  bool SkipUntilOneOfMasked3UseSimd(
+      const SkipUntilOneOfMasked3Args& args) override;
+  void SkipUntilOneOfMasked3(const SkipUntilOneOfMasked3Args& args) override;
   // Checks whether the given offset from the current position is before
   // the end of the string.
   void CheckPosition(int cp_offset, Label* on_outside_input) override;
-  bool CheckSpecialClassRanges(StandardCharacterSet type,
+  void CheckSpecialClassRanges(StandardCharacterSet type,
                                Label* on_no_match) override;
 
   void BindJumpTarget(Label* label) override;
@@ -234,10 +237,8 @@ class V8_EXPORT_PRIVATE RegExpMacroAssemblerX64
   // object.
   static constexpr Register code_object_pointer() { return r8; }
 
-  // Byte size of chars in the string to match (decided by the Mode argument)
-  inline int char_size() { return static_cast<int>(mode_); }
   inline ScaleFactor CharSizeScaleFactor() {
-    switch (mode_) {
+    switch (mode()) {
       case LATIN1:
         return ScaleFactor::times_1;
       case UC16:
@@ -294,6 +295,11 @@ class V8_EXPORT_PRIVATE RegExpMacroAssemblerX64
 
   inline void ReadPositionFromRegister(Register dst, int reg);
 
+  void EmitSkipUntilBitInTableSimdHelper(
+      int cp_offset, int advance_by, Handle<ByteArray> nibble_table_handle,
+      int max_on_match_lookahead, Label* scalar_fallback,
+      base::FunctionRef<void(Register, Register)> on_match);
+
   Isolate* isolate() const { return masm_.isolate(); }
 
   MacroAssembler masm_;
@@ -307,9 +313,6 @@ class V8_EXPORT_PRIVATE RegExpMacroAssemblerX64
   const NoRootArrayScope no_root_array_scope_;
 
   ZoneChunkList<int> code_relative_fixup_positions_;
-
-  // Which mode to generate code for (LATIN1 or UC16).
-  const Mode mode_;
 
   // One greater than maximal register index actually used.
   int num_registers_;

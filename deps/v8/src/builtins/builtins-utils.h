@@ -45,6 +45,10 @@ class BuiltinArguments : public JavaScriptArguments {
     *address_of_arg_at(index + kArgsIndex) = value.ptr();
   }
 
+  inline Address* address_of_receiver() const {
+    return address_of_arg_at(kReceiverIndex);
+  }
+
   // Note: this should return the address after the receiver,
   // even when length() == 1.
   inline Address* address_of_first_argument() const {
@@ -76,6 +80,9 @@ class BuiltinArguments : public JavaScriptArguments {
   // Gets the total number of arguments including the receiver (but
   // excluding extra arguments).
   int length() const { return Arguments::length() - kNumExtraArgs; }
+  uint32_t ulength() const { return static_cast<uint32_t>(length()); }
+
+  uint32_t argc_without_receiver() const { return ulength() - 1; }
 };
 
 static_assert(BuiltinArguments::kNewTargetIndex ==

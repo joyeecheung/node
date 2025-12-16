@@ -34,7 +34,8 @@ void SealCurrentObjects(Heap* heap) {
   CHECK(!v8_flags.stress_concurrent_allocation);
   heap::InvokeMajorGC(heap);
   heap::InvokeMajorGC(heap);
-  heap->EnsureSweepingCompleted(Heap::SweepingForcedFinalizationMode::kV8Only);
+  heap->EnsureSweepingCompleted(Heap::SweepingForcedFinalizationMode::kV8Only,
+                                CompleteSweepingReason::kTesting);
   heap->FreeMainThreadLinearAllocationAreas();
   for (PageMetadata* page : *heap->old_space()) {
     page->MarkNeverAllocateForTesting();
@@ -146,10 +147,7 @@ void FillPageInPagedSpace(PageMetadata* page,
 
   PauseAllocationObserversScope no_observers_scope(heap);
 
-  CollectionEpoch full_epoch =
-      heap->tracer()->CurrentEpoch(GCTracer::Scope::ScopeId::MARK_COMPACTOR);
-  CollectionEpoch young_epoch = heap->tracer()->CurrentEpoch(
-      GCTracer::Scope::ScopeId::MINOR_MARK_SWEEPER);
+  CollectionEpoch epoch = heap->tracer()->CurrentEpoch();
 
   for (PageMetadata* p : *paged_space) {
     if (p != page) paged_space->UnlinkFreeListCategories(p);
@@ -224,10 +222,7 @@ void FillPageInPagedSpace(PageMetadata* page,
   }
 
   // Allocations in this method should not require a GC.
-  CHECK_EQ(full_epoch, heap->tracer()->CurrentEpoch(
-                           GCTracer::Scope::ScopeId::MARK_COMPACTOR));
-  CHECK_EQ(young_epoch, heap->tracer()->CurrentEpoch(
-                            GCTracer::Scope::ScopeId::MINOR_MARK_SWEEPER));
+  CHECK_EQ(epoch, heap->tracer()->CurrentEpoch());
   heap->FreeLinearAllocationAreas();
 }
 }  // namespace
@@ -241,7 +236,8 @@ void FillCurrentPage(v8::internal::NewSpace* space,
     if (top == kNullAddress) return;
     PageMetadata* page = PageMetadata::FromAllocationAreaAddress(top);
     space->heap()->EnsureSweepingCompleted(
-        Heap::SweepingForcedFinalizationMode::kV8Only);
+        Heap::SweepingForcedFinalizationMode::kV8Only,
+        CompleteSweepingReason::kTesting);
     FillPageInPagedSpace(page, out_handles);
     space->heap()->FreeMainThreadLinearAllocationAreas();
   } else {
@@ -276,8 +272,8 @@ void SimulateIncrementalMarking(i::Heap* heap, bool force_completion) {
 
   if (heap->sweeping_in_progress()) {
     IsolateSafepointScope scope(heap);
-    heap->EnsureSweepingCompleted(
-        Heap::SweepingForcedFinalizationMode::kV8Only);
+    heap->EnsureSweepingCompleted(Heap::SweepingForcedFinalizationMode::kV8Only,
+                                  CompleteSweepingReason::kTesting);
   }
 
   if (marking->IsMinorMarking()) {
@@ -316,7 +312,8 @@ void SimulateFullSpace(v8::internal::PagedSpace* space) {
   CHECK(!v8_flags.stress_concurrent_allocation);
   if (space->heap()->sweeping_in_progress()) {
     space->heap()->EnsureSweepingCompleted(
-        Heap::SweepingForcedFinalizationMode::kV8Only);
+        Heap::SweepingForcedFinalizationMode::kV8Only,
+        CompleteSweepingReason::kTesting);
   }
   space->ResetFreeList();
 }
@@ -349,7 +346,8 @@ void InvokeAtomicMajorGC(Heap* heap) {
                                  GarbageCollectionReason::kTesting);
   if (heap->sweeping_in_progress()) {
     heap->EnsureSweepingCompleted(
-        Heap::SweepingForcedFinalizationMode::kUnifiedHeap);
+        Heap::SweepingForcedFinalizationMode::kUnifiedHeap,
+        CompleteSweepingReason::kTesting);
   }
 }
 
@@ -357,7 +355,8 @@ void InvokeAtomicMinorGC(Heap* heap) {
   InvokeMinorGC(heap);
   if (heap->sweeping_in_progress()) {
     heap->EnsureSweepingCompleted(
-        Heap::SweepingForcedFinalizationMode::kUnifiedHeap);
+        Heap::SweepingForcedFinalizationMode::kUnifiedHeap,
+        CompleteSweepingReason::kTesting);
   }
 }
 
@@ -389,6 +388,66 @@ void GrowNewSpaceToMaximumCapacity(Heap* heap) {
   IsolateSafepointScope scope(heap);
   heap->new_space()->GrowToMaximumCapacityForTesting();
 }
+
+class MockTaskRunner : public v8::TaskRunner {
+ public:
+  void PostTaskImpl(std::unique_ptr<v8::Task> task,
+                    const SourceLocation& location) override {
+    task_ = std::move(task);
+  }
+
+  void PostNonNestableTaskImpl(std::unique_ptr<Task> task,
+                               const SourceLocation& location) override {
+    PostTask(std::move(task));
+  }
+
+  void PostDelayedTaskImpl(std::unique_ptr<Task> task, double delay_in_seconds,
+                           const SourceLocation& location) override {
+    delay_ = delay_in_seconds;
+    PostTask(std::move(task));
+  }
+
+  void PostNonNestableDelayedTaskImpl(std::unique_ptr<Task> task,
+                                      double delay_in_seconds,
+                                      const SourceLocation& location) override {
+    PostDelayedTaskImpl(std::move(task), delay_in_seconds, location);
+  }
+
+  void PostIdleTaskImpl(std::unique_ptr<IdleTask> task,
+                        const SourceLocation& location) override {
+    UNREACHABLE();
+  }
+
+  bool IdleTasksEnabled() override { return false; }
+  bool NonNestableTasksEnabled() const override { return true; }
+  bool NonNestableDelayedTasksEnabled() const override { return true; }
+
+  bool PendingTask() { return task_ != nullptr; }
+
+  double Delay() { return delay_; }
+
+  void PerformTask() {
+    std::unique_ptr<Task> task = std::move(task_);
+    task->Run();
+  }
+
+ private:
+  double delay_ = -1;
+  std::unique_ptr<Task> task_;
+};
+
+MockPlatform::MockPlatform() : taskrunner_(new MockTaskRunner()) {}
+
+std::shared_ptr<v8::TaskRunner> MockPlatform::GetForegroundTaskRunner(
+    v8::Isolate* isolate, v8::TaskPriority) {
+  return taskrunner_;
+}
+
+bool MockPlatform::PendingTask() { return taskrunner_->PendingTask(); }
+
+void MockPlatform::PerformTask() { taskrunner_->PerformTask(); }
+
+double MockPlatform::Delay() { return taskrunner_->Delay(); }
 
 }  // namespace heap
 

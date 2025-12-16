@@ -47,6 +47,24 @@
 
 namespace v8 {
 namespace internal {
+namespace {
+
+// Atomically zap the specified area.
+V8_INLINE void AtomicZapBlock(Address addr, size_t size_in_bytes) {
+  static_assert(sizeof(Tagged_t) == kTaggedSize);
+  static constexpr Tagged_t kZapTagged = static_cast<Tagged_t>(kZapValue);
+  DCHECK(IsAligned(addr, kTaggedSize));
+  DCHECK(IsAligned(size_in_bytes, kTaggedSize));
+  const size_t size_in_tagged = size_in_bytes / kTaggedSize;
+  Tagged_t* current_addr = reinterpret_cast<Tagged_t*>(addr);
+  for (size_t i = 0; i < size_in_tagged; ++i) {
+    std::atomic_ref<Tagged_t>(*current_addr)
+        .store(kZapTagged, std::memory_order_relaxed);
+    current_addr++;
+  }
+}
+
+}  // namespace
 
 class Sweeper::ConcurrentMajorSweeper final {
  public:
@@ -58,7 +76,10 @@ class Sweeper::ConcurrentMajorSweeper final {
     DCHECK_NE(NEW_SPACE, identity);
     while (!delegate->ShouldYield()) {
       PageMetadata* page = sweeper_->GetSweepingPageSafe(identity);
-      if (page == nullptr) return true;
+      if (page == nullptr) {
+        TRACE_GC_NOTE("Sweeper::ConcurrentMajorSweeper Finished");
+        return true;
+      }
       local_sweeper_.ParallelSweepPage(page, identity,
                                        SweepingMode::kLazyOrConcurrent);
     }
@@ -86,7 +107,10 @@ class Sweeper::ConcurrentMinorSweeper final {
     DCHECK(IsValidSweepingSpace(kNewSpace));
     while (!delegate->ShouldYield()) {
       PageMetadata* page = sweeper_->GetSweepingPageSafe(kNewSpace);
-      if (page == nullptr) return true;
+      if (page == nullptr) {
+        TRACE_GC_NOTE("Sweeper::ConcurrentMinorSweeper Finished");
+        return true;
+      }
       local_sweeper_.ParallelSweepPage(page, kNewSpace,
                                        SweepingMode::kLazyOrConcurrent);
     }
@@ -281,12 +305,9 @@ void Sweeper::SweepingState<scope>::InitializeSweeping() {
                  !sweeper_->heap_->ShouldReduceMemory());
   should_reduce_memory_ = (scope != Sweeper::SweepingScope::kMinor) &&
                           sweeper_->heap_->ShouldReduceMemory();
-  trace_id_ =
-      (reinterpret_cast<uint64_t>(sweeper_) ^
-       sweeper_->heap_->tracer()->CurrentEpoch(
-           scope == SweepingScope::kMajor ? GCTracer::Scope::MC_SWEEP
-                                          : GCTracer::Scope::MINOR_MS_SWEEP))
-      << 1;
+  trace_id_ = (reinterpret_cast<uint64_t>(sweeper_) ^
+               sweeper_->heap_->tracer()->CurrentEpoch())
+              << 1;
   background_trace_id_ = trace_id_ + 1;
 }
 
@@ -589,20 +610,6 @@ class PromotedPageRecordMigratedSlotVisitor final
   MutablePageMetadata* const host_page_;
   EphemeronRememberedSet* ephemeron_remembered_set_;
 };
-
-// Atomically zap the specified area.
-V8_INLINE void AtomicZapBlock(Address addr, size_t size_in_bytes) {
-  static_assert(sizeof(Tagged_t) == kTaggedSize);
-  static constexpr Tagged_t kZapTagged = static_cast<Tagged_t>(kZapValue);
-  DCHECK(IsAligned(addr, kTaggedSize));
-  DCHECK(IsAligned(size_in_bytes, kTaggedSize));
-  const size_t size_in_tagged = size_in_bytes / kTaggedSize;
-  Tagged_t* current_addr = reinterpret_cast<Tagged_t*>(addr);
-  for (size_t i = 0; i < size_in_tagged; ++i) {
-    base::AsAtomicPtr(current_addr++)
-        ->store(kZapTagged, std::memory_order_relaxed);
-  }
-}
 
 enum class ZappingMode { kNone, kCreateFillers, kCreateFillersAndZap };
 ZappingMode ShouldZapDeadObjectsOnPage() {
@@ -1567,14 +1574,8 @@ void Sweeper::SweepEmptyNewSpacePage(PageMetadata* page) {
   Address start = page->area_start();
   size_t size = page->area_size();
 
-  if (heap::ShouldZapGarbage()) {
-    static constexpr Tagged_t kZapTagged = static_cast<Tagged_t>(kZapValue);
-    const size_t size_in_tagged = size / kTaggedSize;
-    Tagged_t* current_addr = reinterpret_cast<Tagged_t*>(start);
-    for (size_t i = 0; i < size_in_tagged; ++i) {
-      base::AsAtomicPtr(current_addr++)
-          ->store(kZapTagged, std::memory_order_relaxed);
-    }
+  if (heap::ShouldZapGarbage()) [[unlikely]] {
+    AtomicZapBlock(start, size);
   }
 
   page->ResetAllocationStatistics();

@@ -85,6 +85,7 @@
 #include "test/cctest/heap/heap-tester.h"
 #include "test/cctest/heap/heap-utils.h"
 #include "test/cctest/test-transitions.h"
+#include "test/common/noop-bytecode-verifier.h"
 
 namespace v8 {
 namespace internal {
@@ -665,6 +666,16 @@ TEST(BytecodeArray) {
       constant_pool, handler_table);
 
   CHECK(IsBytecodeArray(*array));
+
+#ifdef V8_ENABLE_SANDBOX
+  // BytecodeArrays are not exposed to the sandbox ("published") immediately
+  // after allocation. Instead, this only happens once the bytecode has been
+  // verified. This way, we ensure that we only execute safe bytecode.
+  CHECK(!array->IsPublished(isolate));
+  NoOpBytecodeVerifier::Verify(isolate, array);
+  CHECK(array->IsPublished(isolate));
+#endif  // V8_ENABLE_SANDBOX
+
   CHECK_EQ(array->length(), (int)sizeof(kRawBytes));
   CHECK_EQ(array->frame_size(), kFrameSize);
   CHECK_EQ(array->parameter_count(), kParameterCount);
@@ -2003,7 +2014,8 @@ TEST(TestSizeOfRegExpCode) {
     heap::InvokeMemoryReducingMajorGCs(heap);
     if (heap->sweeping_in_progress()) {
       heap->EnsureSweepingCompleted(
-          Heap::SweepingForcedFinalizationMode::kV8Only);
+          Heap::SweepingForcedFinalizationMode::kV8Only,
+          CompleteSweepingReason::kTesting);
     }
   }
   int initial_size = static_cast<int>(heap->SizeOfObjects());
@@ -2054,7 +2066,8 @@ HEAP_TEST(TestSizeOfObjects) {
     heap::InvokeMemoryReducingMajorGCs(heap);
     if (heap->sweeping_in_progress()) {
       heap->EnsureSweepingCompleted(
-          Heap::SweepingForcedFinalizationMode::kV8Only);
+          Heap::SweepingForcedFinalizationMode::kV8Only,
+          CompleteSweepingReason::kTesting);
     }
   }
   int initial_size = static_cast<int>(heap->SizeOfObjects());
@@ -2084,8 +2097,8 @@ HEAP_TEST(TestSizeOfObjects) {
   // Waiting for sweeper threads should not change heap size.
   if (heap->sweeping_in_progress()) {
     DisableConservativeStackScanningScopeForTesting no_stack_scanning(heap);
-    heap->EnsureSweepingCompleted(
-        Heap::SweepingForcedFinalizationMode::kV8Only);
+    heap->EnsureSweepingCompleted(Heap::SweepingForcedFinalizationMode::kV8Only,
+                                  CompleteSweepingReason::kTesting);
   }
   CHECK_EQ(initial_size, static_cast<int>(heap->SizeOfObjects()));
 }
@@ -2682,8 +2695,8 @@ HEAP_TEST(GCFlags) {
   CHECK_EQ(heap->current_gc_flags_, GCFlag::kNoFlags);
 
   if (heap->sweeping_in_progress()) {
-    heap->EnsureSweepingCompleted(
-        Heap::SweepingForcedFinalizationMode::kV8Only);
+    heap->EnsureSweepingCompleted(Heap::SweepingForcedFinalizationMode::kV8Only,
+                                  CompleteSweepingReason::kTesting);
   }
 
   IncrementalMarking* marking = heap->incremental_marking();
@@ -2732,8 +2745,9 @@ TEST(OptimizedPretenuringAllocationFolding) {
   if (!CcTest::i_isolate()->use_optimizer()) return;
   if (v8_flags.gc_global || v8_flags.stress_compaction ||
       v8_flags.stress_incremental_marking || v8_flags.single_generation ||
-      v8_flags.stress_concurrent_allocation)
+      v8_flags.stress_concurrent_allocation || v8_flags.scavenger_chaos_mode) {
     return;
+  }
   v8::HandleScope scope(CcTest::isolate());
   v8::Local<v8::Context> ctx = CcTest::isolate()->GetCurrentContext();
   ManualGCScope manual_gc_scope;
@@ -2750,7 +2764,7 @@ TEST(OptimizedPretenuringAllocationFolding) {
                  "  return elements[number_elements-1]"
                  "};"
                  "%%PrepareFunctionForOptimization(f);"
-                 "f(); gc();"
+                 "f(); gc({type: 'minor'});"
                  "f(); f();"
                  "%%OptimizeFunctionOnNextCall(f);"
                  "f();",
@@ -2783,7 +2797,7 @@ TEST(OptimizedPretenuringObjectArrayLiterals) {
   if (!CcTest::i_isolate()->use_optimizer()) return;
   if (v8_flags.gc_global || v8_flags.stress_compaction ||
       v8_flags.stress_incremental_marking || v8_flags.single_generation ||
-      v8_flags.stress_concurrent_allocation) {
+      v8_flags.stress_concurrent_allocation || v8_flags.scavenger_chaos_mode) {
     return;
   }
   v8::HandleScope scope(CcTest::isolate());
@@ -2801,7 +2815,7 @@ TEST(OptimizedPretenuringObjectArrayLiterals) {
                  "  return elements[number_elements - 1];"
                  "};"
                  "%%PrepareFunctionForOptimization(f);"
-                 "f(); gc();"
+                 "f(); gc({type: 'minor'});"
                  "f(); f();"
                  "%%OptimizeFunctionOnNextCall(f);"
                  "f();",
@@ -2823,7 +2837,7 @@ TEST(OptimizedPretenuringNestedInObjectProperties) {
   if (!CcTest::i_isolate()->use_optimizer()) return;
   if (v8_flags.gc_global || v8_flags.stress_compaction ||
       v8_flags.stress_incremental_marking || v8_flags.single_generation ||
-      v8_flags.stress_concurrent_allocation) {
+      v8_flags.stress_concurrent_allocation || v8_flags.scavenger_chaos_mode) {
     return;
   }
   v8::HandleScope scope(CcTest::isolate());
@@ -2844,7 +2858,7 @@ TEST(OptimizedPretenuringNestedInObjectProperties) {
       "  return elements[number_elements-1];"
       "};"
       "%%PrepareFunctionForOptimization(f);"
-      "f(); gc(); gc();"
+      "f(); gc({type: 'minor'}); gc({type: 'minor'});"
       "f(); f();"
       "%%OptimizeFunctionOnNextCall(f);"
       "f();",
@@ -2867,8 +2881,9 @@ TEST(OptimizedPretenuringMixedInObjectProperties) {
   if (!CcTest::i_isolate()->use_optimizer()) return;
   if (v8_flags.gc_global || v8_flags.stress_compaction ||
       v8_flags.stress_incremental_marking || v8_flags.single_generation ||
-      v8_flags.stress_concurrent_allocation)
+      v8_flags.stress_concurrent_allocation || v8_flags.scavenger_chaos_mode) {
     return;
+  }
   v8::HandleScope scope(CcTest::isolate());
   ManualGCScope manual_gc_scope;
   GrowNewSpaceToMaximumCapacity(CcTest::heap());
@@ -2884,7 +2899,7 @@ TEST(OptimizedPretenuringMixedInObjectProperties) {
                  "  return elements[number_elements - 1];"
                  "};"
                  "%%PrepareFunctionForOptimization(f);"
-                 "f(); gc();"
+                 "f(); gc({type: 'minor'});"
                  "f(); f();"
                  "%%OptimizeFunctionOnNextCall(f);"
                  "f();",
@@ -2914,7 +2929,7 @@ TEST(OptimizedPretenuringDoubleArrayProperties) {
   if (!CcTest::i_isolate()->use_optimizer()) return;
   if (v8_flags.gc_global || v8_flags.stress_compaction ||
       v8_flags.stress_incremental_marking || v8_flags.single_generation ||
-      v8_flags.stress_concurrent_allocation)
+      v8_flags.stress_concurrent_allocation || v8_flags.scavenger_chaos_mode)
     return;
   v8::HandleScope scope(CcTest::isolate());
   ManualGCScope manual_gc_scope;
@@ -2931,7 +2946,7 @@ TEST(OptimizedPretenuringDoubleArrayProperties) {
                  "  return elements[i - 1];"
                  "};"
                  "%%PrepareFunctionForOptimization(f);"
-                 "f(); gc();"
+                 "f(); gc({type: 'minor'});"
                  "f(); f();"
                  "%%OptimizeFunctionOnNextCall(f);"
                  "f();",
@@ -2954,8 +2969,9 @@ TEST(OptimizedPretenuringDoubleArrayLiterals) {
   if (!CcTest::i_isolate()->use_optimizer()) return;
   if (v8_flags.gc_global || v8_flags.stress_compaction ||
       v8_flags.stress_incremental_marking || v8_flags.single_generation ||
-      v8_flags.stress_concurrent_allocation)
+      v8_flags.stress_concurrent_allocation || v8_flags.scavenger_chaos_mode) {
     return;
+  }
   v8::HandleScope scope(CcTest::isolate());
   ManualGCScope manual_gc_scope;
   GrowNewSpaceToMaximumCapacity(CcTest::heap());
@@ -2971,7 +2987,7 @@ TEST(OptimizedPretenuringDoubleArrayLiterals) {
                  "  return elements[number_elements - 1];"
                  "};"
                  "%%PrepareFunctionForOptimization(f);"
-                 "f(); gc();"
+                 "f(); gc({type: 'minor'});"
                  "f(); f();"
                  "%%OptimizeFunctionOnNextCall(f);"
                  "f();",
@@ -2993,8 +3009,9 @@ TEST(OptimizedPretenuringNestedMixedArrayLiterals) {
   if (!CcTest::i_isolate()->use_optimizer()) return;
   if (v8_flags.gc_global || v8_flags.stress_compaction ||
       v8_flags.stress_incremental_marking || v8_flags.single_generation ||
-      v8_flags.stress_concurrent_allocation)
+      v8_flags.stress_concurrent_allocation || v8_flags.scavenger_chaos_mode) {
     return;
+  }
   v8::HandleScope scope(CcTest::isolate());
   v8::Local<v8::Context> ctx = CcTest::isolate()->GetCurrentContext();
   ManualGCScope manual_gc_scope;
@@ -3011,7 +3028,7 @@ TEST(OptimizedPretenuringNestedMixedArrayLiterals) {
                  "  return elements[number_elements - 1];"
                  "};"
                  "%%PrepareFunctionForOptimization(f);"
-                 "f(); gc();"
+                 "f(); gc({type: 'minor'});"
                  "f(); f();"
                  "%%OptimizeFunctionOnNextCall(f);"
                  "f();",
@@ -3044,8 +3061,9 @@ TEST(OptimizedPretenuringNestedObjectLiterals) {
   if (!CcTest::i_isolate()->use_optimizer()) return;
   if (v8_flags.gc_global || v8_flags.stress_compaction ||
       v8_flags.stress_incremental_marking || v8_flags.single_generation ||
-      v8_flags.stress_concurrent_allocation)
+      v8_flags.stress_concurrent_allocation || v8_flags.scavenger_chaos_mode) {
     return;
+  }
   v8::HandleScope scope(CcTest::isolate());
   v8::Local<v8::Context> ctx = CcTest::isolate()->GetCurrentContext();
   ManualGCScope manual_gc_scope;
@@ -3062,7 +3080,7 @@ TEST(OptimizedPretenuringNestedObjectLiterals) {
                  "  return elements[number_elements - 1];"
                  "};"
                  "%%PrepareFunctionForOptimization(f);"
-                 "f(); gc();"
+                 "f(); gc({type: 'minor'});"
                  "f(); f();"
                  "%%OptimizeFunctionOnNextCall(f);"
                  "f();",
@@ -3095,8 +3113,9 @@ TEST(OptimizedPretenuringNestedDoubleLiterals) {
   if (!CcTest::i_isolate()->use_optimizer()) return;
   if (v8_flags.gc_global || v8_flags.stress_compaction ||
       v8_flags.stress_incremental_marking || v8_flags.single_generation ||
-      v8_flags.stress_concurrent_allocation)
+      v8_flags.stress_concurrent_allocation || v8_flags.scavenger_chaos_mode) {
     return;
+  }
   v8::HandleScope scope(CcTest::isolate());
   v8::Local<v8::Context> ctx = CcTest::isolate()->GetCurrentContext();
   ManualGCScope manual_gc_scope;
@@ -3113,7 +3132,7 @@ TEST(OptimizedPretenuringNestedDoubleLiterals) {
                  "  return elements[number_elements - 1];"
                  "};"
                  "%%PrepareFunctionForOptimization(f);"
-                 "f(); gc();"
+                 "f(); gc({type: 'minor'});"
                  "f(); f();"
                  "%%OptimizeFunctionOnNextCall(f);"
                  "f();",
@@ -4672,11 +4691,9 @@ TEST(ObjectsInEagerlyDeoptimizedCodeAreWeak) {
     code = handle(bar->code(isolate), isolate);
     CompileRun("%DeoptimizeFunction(bar);");
     CHECK(code->marked_for_deoptimization());
-    CHECK_IMPLIES(V8_ENABLE_LEAPTIERING_BOOL,
-                  !code->SafeEquals(bar->code(isolate)));
+    CHECK(!code->SafeEquals(bar->code(isolate)));
     code = scope.CloseAndEscape(code);
   }
-
 
   // Now make sure that a gc should get rid of the function
   for (int i = 0; i < 4; i++) {
@@ -5769,7 +5786,8 @@ HEAP_TEST(Regress587004) {
   heap::InvokeMajorGC(heap);
   heap::SimulateFullSpace(heap->old_space());
   heap->RightTrimArray(*array, 1, N);
-  heap->EnsureSweepingCompleted(Heap::SweepingForcedFinalizationMode::kV8Only);
+  heap->EnsureSweepingCompleted(Heap::SweepingForcedFinalizationMode::kV8Only,
+                                CompleteSweepingReason::kTesting);
   Tagged<ByteArray> byte_array;
   const int M = 256;
   // Don't allow old space expansion. The test works without this flag too,
@@ -5942,8 +5960,8 @@ TEST(Regress598319) {
   // GC to cleanup state
   heap::InvokeMajorGC(heap);
   if (heap->sweeping_in_progress()) {
-    heap->EnsureSweepingCompleted(
-        Heap::SweepingForcedFinalizationMode::kV8Only);
+    heap->EnsureSweepingCompleted(Heap::SweepingForcedFinalizationMode::kV8Only,
+                                  CompleteSweepingReason::kTesting);
   }
 
   CHECK(heap->lo_space()->Contains(arr.get()));
@@ -6020,7 +6038,8 @@ DirectHandle<FixedArray> ShrinkArrayAndCheckSize(Heap* heap, int length) {
   for (int i = 0; i < 5; i++) {
     heap::InvokeMajorGC(heap);
   }
-  heap->EnsureSweepingCompleted(Heap::SweepingForcedFinalizationMode::kV8Only);
+  heap->EnsureSweepingCompleted(Heap::SweepingForcedFinalizationMode::kV8Only,
+                                CompleteSweepingReason::kTesting);
   // Disable LAB, such that calculations with SizeOfObjects() and object size
   // are correct.
   heap->DisableInlineAllocation();
@@ -6036,7 +6055,8 @@ DirectHandle<FixedArray> ShrinkArrayAndCheckSize(Heap* heap, int length) {
   CHECK_EQ(size_after_allocation, size_after_shrinking);
   // GC and sweeping updates the size to account for shrinking.
   heap::InvokeMajorGC(heap);
-  heap->EnsureSweepingCompleted(Heap::SweepingForcedFinalizationMode::kV8Only);
+  heap->EnsureSweepingCompleted(Heap::SweepingForcedFinalizationMode::kV8Only,
+                                CompleteSweepingReason::kTesting);
   intptr_t size_after_gc = heap->SizeOfObjects();
   CHECK_EQ(size_after_gc, size_before_allocation + array->Size());
   return array;
@@ -6072,8 +6092,8 @@ TEST(Regress615489) {
 
   i::IncrementalMarking* marking = heap->incremental_marking();
   if (heap->sweeping_in_progress()) {
-    heap->EnsureSweepingCompleted(
-        Heap::SweepingForcedFinalizationMode::kV8Only);
+    heap->EnsureSweepingCompleted(Heap::SweepingForcedFinalizationMode::kV8Only,
+                                  CompleteSweepingReason::kTesting);
   }
   CHECK(marking->IsMarking() || marking->IsStopped());
   if (marking->IsStopped()) {
@@ -6172,8 +6192,8 @@ TEST(ContinuousRightTrimFixedArrayInBlackArea) {
 
   i::IncrementalMarking* marking = heap->incremental_marking();
   if (heap->sweeping_in_progress()) {
-    heap->EnsureSweepingCompleted(
-        Heap::SweepingForcedFinalizationMode::kV8Only);
+    heap->EnsureSweepingCompleted(Heap::SweepingForcedFinalizationMode::kV8Only,
+                                  CompleteSweepingReason::kTesting);
   }
   CHECK(marking->IsMarking() || marking->IsStopped());
   if (marking->IsStopped()) {
@@ -6236,8 +6256,8 @@ TEST(RightTrimFixedArrayWithBlackAllocatedPages) {
 
   i::IncrementalMarking* marking = heap->incremental_marking();
   if (heap->sweeping_in_progress()) {
-    heap->EnsureSweepingCompleted(
-        Heap::SweepingForcedFinalizationMode::kV8Only);
+    heap->EnsureSweepingCompleted(Heap::SweepingForcedFinalizationMode::kV8Only,
+                                  CompleteSweepingReason::kTesting);
   }
   CHECK(marking->IsMarking() || marking->IsStopped());
   if (marking->IsStopped()) {
@@ -6686,7 +6706,8 @@ HEAP_TEST(Regress670675) {
   heap::InvokeMajorGC(heap);
 
   heap->EnsureSweepingCompleted(
-      Heap::SweepingForcedFinalizationMode::kUnifiedHeap);
+      Heap::SweepingForcedFinalizationMode::kUnifiedHeap,
+      CompleteSweepingReason::kTesting);
   heap->tracer()->StopFullCycleIfFinished();
   i::IncrementalMarking* marking = CcTest::heap()->incremental_marking();
   if (marking->IsStopped()) {
@@ -6747,8 +6768,8 @@ HEAP_TEST(RegressMissingWriteBarrierInAllocate) {
   heap::SimulateIncrementalMarking(heap, true);
   heap::InvokeMajorGC(heap);
   if (heap->sweeping_in_progress()) {
-    heap->EnsureSweepingCompleted(
-        Heap::SweepingForcedFinalizationMode::kV8Only);
+    heap->EnsureSweepingCompleted(Heap::SweepingForcedFinalizationMode::kV8Only,
+                                  CompleteSweepingReason::kTesting);
   }
   CHECK(IsMap(object->map()));
 }

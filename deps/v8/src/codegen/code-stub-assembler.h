@@ -637,9 +637,6 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
   TNode<Number> BitwiseSmiOp(TNode<Smi> left32, TNode<Smi> right32,
                              Operation bitwise_op);
 
-  TNode<BoolT> LogicalOr(TNode<BoolT> lhs,
-                         base::FunctionRef<TNode<BoolT>()> rhs);
-
   // Align the value to kObjectAlignment8GbHeap if V8_COMPRESS_POINTERS_8GB is
   // defined.
   TNode<IntPtrT> AlignToAllocationAlignment(TNode<IntPtrT> value);
@@ -1084,9 +1081,9 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
 
   TNode<RawPtrT> LoadFunctionTemplateInfoJsCallbackPtr(
       TNode<FunctionTemplateInfo> object) {
-    return LoadExternalPointerFromObject(
-        object, FunctionTemplateInfo::kMaybeRedirectedCallbackOffset,
-        kFunctionTemplateInfoCallbackTag);
+    return LoadExternalPointerFromObject(object,
+                                         FunctionTemplateInfo::kCallbackOffset,
+                                         kFunctionTemplateInfoCallbackTag);
   }
 
   TNode<RawPtrT> LoadExternalStringResourcePtr(TNode<ExternalString> object) {
@@ -2314,11 +2311,14 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
   // Calls the next method of an iterator and returns the pair of
   // {value, done} properties of the result.
   std::pair<TNode<Object>, TNode<Object>> CallIteratorNext(
-      TNode<Object> iterator, TNode<Object> next_method,
-      TNode<Context> context);
+      TNode<Context> context, TNode<Object> iterator, TNode<Object> next,
+      TNode<Union<FeedbackVector, Undefined>> feedback_vector,
+      TNode<UintPtrT> call_slot);
   using ForOfNextResult = TorqueStructForOfNextResult_0;
-  ForOfNextResult ForOfNextHelper(TNode<Context> context, TNode<Object> object,
-                                  TNode<Object> next);
+  ForOfNextResult ForOfNextHelper(
+      TNode<Context> context, TNode<Object> object, TNode<Object> next,
+      TNode<Union<FeedbackVector, Undefined>> feedback_vector,
+      TNode<UintPtrT> call_slot);
 
   TNode<JSObject> AllocatePromiseWithResolversResult(TNode<Context> context,
                                                      TNode<Object> promise,
@@ -2924,7 +2924,7 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
   TNode<BoolT> IsOneByteStringInstanceType(TNode<Int32T> instance_type);
   TNode<BoolT> IsSeqOneByteStringInstanceType(TNode<Int32T> instance_type);
   TNode<BoolT> IsPrimitiveInstanceType(TNode<Int32T> instance_type);
-  TNode<BoolT> IsPrivateName(TNode<Symbol> symbol);
+  TNode<BoolT> IsAnyPrivateName(TNode<Symbol> symbol);
   TNode<BoolT> IsPropertyArray(TNode<HeapObject> object);
   TNode<BoolT> IsPropertyCell(TNode<HeapObject> object);
   TNode<BoolT> IsPromiseReactionJobTask(TNode<HeapObject> object);
@@ -2961,6 +2961,8 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
 
   TNode<BoolT> IsSymbolInstanceType(TNode<Int32T> instance_type);
   TNode<BoolT> IsInternalizedStringInstanceType(TNode<Int32T> instance_type);
+  TNode<BoolT> IsInternalizedStringMap(TNode<Map> map);
+  TNode<BoolT> IsInternalizedString(TNode<HeapObject> object);
   TNode<BoolT> IsSharedStringInstanceType(TNode<Int32T> instance_type);
 #ifdef V8_TEMPORAL_SUPPORT
   TNode<BoolT> IsTemporalInstantInstanceType(TNode<Int32T> instance_type);
@@ -3171,6 +3173,10 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
   // Same as ToObject but avoids the Builtin call if |input| is already a
   // JSReceiver.
   TNode<JSReceiver> ToObject_Inline(TNode<Context> context,
+                                    TNode<Object> input);
+
+  // ES6 section 9.2.1.2, OrdinaryCallBindThis for sloppy callee.
+  TNode<JSReceiver> ConvertReceiver(TNode<Context> context,
                                     TNode<Object> input);
 
   // ES6 7.1.15 ToLength, but with inlined fast path.
@@ -3841,6 +3847,10 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
                            TNode<HeapObject> maybe_feedback_vector,
                            TNode<UintPtrT> slot_id);
 
+  void UpdateEmbeddedFeedback(TNode<Int32T> feedback,
+                              TNode<BytecodeArray> bytecode_array,
+                              TNode<IntPtrT> feedback_offset);
+
   // Report that there was a feedback update, performing any tasks that should
   // be done after a feedback update.
   void ReportFeedbackUpdate(TNode<FeedbackVector> feedback_vector,
@@ -4104,6 +4114,12 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
   void GotoIfNumberGreaterThanOrEqual(TNode<Number> left, TNode<Number> right,
                                       Label* if_false);
 
+#ifdef V8_ENABLE_SPARKPLUG_PLUS
+  void GenerateStrictEqualAndTryPatchCode(TNode<Object> lhs, TNode<Object> rhs,
+                                          TNode<Int32T> current_type_feedback,
+                                          TNode<UintPtrT> feedback_offset);
+#endif  // V8_ENABLE_SPARKPLUG_PLUS
+
   TNode<Boolean> Equal(TNode<Object> lhs, TNode<Object> rhs,
                        TNode<Context> context,
                        TVariable<Smi>* var_type_feedback = nullptr) {
@@ -4198,9 +4214,6 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
       TNode<JSArrayBuffer> array_buffer);
   TNode<RawPtrT> LoadJSArrayBufferBackingStorePtr(
       TNode<JSArrayBuffer> array_buffer);
-  void ThrowIfArrayBufferIsDetached(TNode<Context> context,
-                                    TNode<JSArrayBuffer> array_buffer,
-                                    const char* method_name);
 
   // JSArrayBufferView helpers
   TNode<JSArrayBuffer> LoadJSArrayBufferViewBuffer(
@@ -4213,28 +4226,35 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
       TNode<JSArrayBufferView> array_buffer_view);
   void StoreJSArrayBufferViewByteOffset(
       TNode<JSArrayBufferView> array_buffer_view, TNode<UintPtrT> value);
-  void ThrowIfArrayBufferViewBufferIsDetached(
-      TNode<Context> context, TNode<JSArrayBufferView> array_buffer_view,
-      const char* method_name);
 
   // JSTypedArray helpers
   TNode<UintPtrT> LoadJSTypedArrayLength(TNode<JSTypedArray> typed_array);
-  TNode<UintPtrT> LoadJSTypedArrayLengthAndCheckDetached(
-      TNode<JSTypedArray> typed_array, Label* detached);
+  TNode<UintPtrT> LoadJSTypedArrayLengthAndValidate(
+      TNode<JSTypedArray> typed_array, TypedArrayAccessMode mode, Label* fail);
+  TNode<UintPtrT> LoadJSTypedArrayLengthAndValidate(
+      TNode<JSTypedArray> typed_array, TNode<JSArrayBuffer> buffer,
+      TypedArrayAccessMode mode, bool is_resizable, Label* fail);
+
   // Helper for length tracking JSTypedArrays and JSTypedArrays backed by
   // ResizableArrayBuffer.
+
   TNode<UintPtrT> LoadVariableLengthJSTypedArrayLength(
       TNode<JSTypedArray> array, TNode<JSArrayBuffer> buffer,
-      Label* detached_or_out_of_bounds);
-  // Helper for length tracking JSTypedArrays and JSTypedArrays backed by
-  // ResizableArrayBuffer.
+      TypedArrayAccessMode mode, Label* fail);
+
   TNode<UintPtrT> LoadVariableLengthJSTypedArrayByteLength(
       TNode<Context> context, TNode<JSTypedArray> array,
       TNode<JSArrayBuffer> buffer);
+
+  // Helper for length tracking JSArrayBufferViews and JSArrayBufferViews backed
+  // by ResizableArrayBuffer.
   TNode<UintPtrT> LoadVariableLengthJSArrayBufferViewByteLength(
       TNode<JSArrayBufferView> array, TNode<JSArrayBuffer> buffer,
-      Label* detached_or_out_of_bounds);
+      TypedArrayAccessMode mode, Label* fail);
 
+  void IsJSArrayBufferViewValid(TNode<JSArrayBufferView> array_buffer_view,
+                                TypedArrayAccessMode mode, Label* valid,
+                                Label* fail);
   void IsJSArrayBufferViewDetachedOrOutOfBounds(
       TNode<JSArrayBufferView> array_buffer_view, Label* detached_or_oob,
       Label* not_detached_nor_oob);
@@ -4269,7 +4289,6 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
   // Load a builtin's code from the builtin array in the isolate.
   TNode<Code> LoadBuiltin(TNode<Smi> builtin_id);
 
-#ifdef V8_ENABLE_LEAPTIERING
   // Load a builtin's handle into the JSDispatchTable.
 #if V8_STATIC_DISPATCH_HANDLES_BOOL
   TNode<JSDispatchHandleT> LoadBuiltinDispatchHandle(
@@ -4286,7 +4305,6 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
 
   TNode<UintPtrT> ComputeJSDispatchTableEntryOffset(
       TNode<JSDispatchHandleT> handle);
-#endif  // V8_ENABLE_LEAPTIERING
 
   // Tailcalls to the given code object with JSCall linkage. The JS arguments
   // (including receiver) are supposed to be already on the stack.
@@ -4302,8 +4320,7 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
                       TNode<Int32T> arg_count,
                       TNode<JSDispatchHandleT> dispatch_handle);
   // Same as above, but the code object is loaded from the dispatch table
-  // entry or from the function according to V8_ENABLE_LEAPTIERING state and
-  // thus the parameter count check is not necessary.
+  // entry and thus the parameter count check is not necessary.
   void TailCallJSCode(TNode<Context> context, TNode<JSFunction> function,
                       TNode<Object> new_target, TNode<Int32T> arg_count,
                       TNode<JSDispatchHandleT> dispatch_handle);
@@ -4459,6 +4476,13 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
 
   void Abort(AbortReason reason) {
     CallRuntime(Runtime::kAbort, NoContextConstant(), SmiConstant(reason));
+    Unreachable();
+  }
+
+  void AbortWithSandboxViolation() {
+    TNode<ExternalReference> abort_with_sandbox_violation =
+        ExternalConstant(ExternalReference::abort_with_sandbox_violation());
+    CallCFunction(abort_with_sandbox_violation, std::nullopt);
     Unreachable();
   }
 

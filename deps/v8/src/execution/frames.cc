@@ -44,6 +44,7 @@
 #include "src/wasm/wasm-engine.h"
 #include "src/wasm/wasm-linkage.h"
 #include "src/wasm/wasm-objects-inl.h"
+#include "src/wasm/wasm-stack-wrapper-cache.h"
 #if V8_ENABLE_DRUMBRAKE
 #include "src/wasm/interpreter/wasm-interpreter-runtime.h"
 #endif  // V8_ENABLE_DRUMBRAKE
@@ -51,6 +52,14 @@
 
 namespace v8 {
 namespace internal {
+
+static_assert(CommonFrameConstants::kCPSlotSize ==
+              Internals::kFrameCPSlotCount * kSystemPointerSize);
+
+static_assert(Internals::kFrameTypeApiCallExit ==
+              StackFrame::API_CALLBACK_EXIT);
+static_assert(Internals::kFrameTypeApiConstructExit ==
+              StackFrame::API_CONSTRUCT_EXIT);
 
 ReturnAddressLocationResolver StackFrame::return_address_location_resolver_ =
     nullptr;
@@ -181,6 +190,7 @@ void StackFrameIterator::Advance() {
   // handler and the value of any callee-saved register if needed.
   StackFrame::State state;
   StackFrame::Type type;
+  state.iteration_depth = frame_->iteration_depth() + 1;
 #if V8_ENABLE_WEBASSEMBLY
   if (((frame_->type() == StackFrame::WASM_JSPI &&
         Memory<Address>(frame_->fp() +
@@ -845,6 +855,7 @@ StackFrame::Type SafeStackFrameType(StackFrame::Type candidate) {
   switch (candidate) {
     case StackFrame::API_ACCESSOR_EXIT:
     case StackFrame::API_CALLBACK_EXIT:
+    case StackFrame::API_CONSTRUCT_EXIT:
     case StackFrame::BUILTIN_CONTINUATION:
     case StackFrame::BUILTIN_EXIT:
     case StackFrame::CONSTRUCT:
@@ -1274,16 +1285,37 @@ bool BuiltinExitFrame::IsConstructor() const {
 }
 
 // Ensure layout of v8::FunctionCallbackInfo is in sync with
-// ApiCallbackExitFrameConstants.
+// ApiCallbackExitFrameConstants/ApiConstructExitFrameConstants.
 namespace ensure_layout {
-using FC = ApiCallbackExitFrameConstants;
+// Check ApiCallbackExitFrameConstants/ApiConstructExitFrameConstants constants
+// through the latter since it inherits from the former.
+static_assert(std::is_base_of_v<ApiCallbackExitFrameConstants,
+                                ApiConstructExitFrameConstants>);
+using FC = ApiConstructExitFrameConstants;
 using FCA = FunctionCallbackArguments;
-static_assert(FC::kFunctionCallbackInfoContextIndex == FCA::kContextIndex);
-static_assert(FC::kFunctionCallbackInfoReturnValueIndex ==
-              FCA::kReturnValueIndex);
-static_assert(FC::kFunctionCallbackInfoTargetIndex == FCA::kTargetIndex);
-static_assert(FC::kFunctionCallbackInfoNewTargetIndex == FCA::kNewTargetIndex);
-static_assert(FC::kFunctionCallbackInfoArgsLength == FCA::kArgsLength);
+constexpr int FCIOffset(int fp_relative_offset) {
+  return fp_relative_offset - FC::kFunctionCallbackInfoOffset;
+}
+static_assert(FC::kFunctionCallbackInfoApiArgsLength == FCA::kApiArgsLength);
+
+static_assert(FCA::ArgOffset(FCA::kArgcIndex) == FCIOffset(FC::kFCIArgcOffset));
+static_assert(FCA::ArgOffset(FCA::kNewTargetIndex) ==
+              FCIOffset(FC::kFCINewTargetOffset));
+static_assert(FCA::ArgOffset(FCA::kFrameSPIndex) == FCIOffset(FC::kSPOffset));
+static_assert(FCA::ArgOffset(FCA::kFrameTypeIndex) ==
+              FCIOffset(FC::kFrameTypeOffset));
+
+static_assert(FCA::ArgOffset(FCA::kContextIndex) ==
+              FCIOffset(FC::kContextOffset));
+static_assert(FCA::ArgOffset(FCA::kTargetIndex) ==
+              FCIOffset(FC::kTargetOffset));
+static_assert(FCA::ArgOffset(FCA::kReturnValueIndex) ==
+              FCIOffset(FC::kReturnValueOffset));
+static_assert(FCA::ArgOffset(FCA::kReceiverIndex) ==
+              FCIOffset(FC::kReceiverOffset));
+static_assert(FCA::ArgOffset(FCA::kFirstJSArgumentIndex) ==
+              FCIOffset(FC::kFirstJSArgumentOffset));
+
 }  // namespace ensure_layout
 
 DirectHandle<JSFunction> ApiCallbackExitFrame::GetFunction() const {
@@ -1334,7 +1366,8 @@ DirectHandle<FixedArray> ApiCallbackExitFrame::GetParameters() const {
   return parameters;
 }
 
-FrameSummaries ApiCallbackExitFrame::Summarize() const {
+FrameSummaries ApiCallbackExitFrame::SummarizeApiFrame(
+    bool is_constructor) const {
   DirectHandle<FixedArray> parameters = GetParameters();
   DirectHandle<JSFunction> function = GetFunction();
   DisallowGarbageCollection no_gc;
@@ -1343,8 +1376,16 @@ FrameSummaries ApiCallbackExitFrame::Summarize() const {
   std::tie(code, code_offset) = LookupCodeAndOffset();
   FrameSummary::JavaScriptFrameSummary summary(
       isolate(), receiver(), *function, Cast<AbstractCode>(code), code_offset,
-      IsConstructor(), *parameters);
+      is_constructor, *parameters);
   return FrameSummaries(summary);
+}
+
+// Garbage collection support.
+void ApiConstructExitFrame::Iterate(RootVisitor* v) const {
+  // New.target slot is located in the frame, so it has to be visited
+  // explicitly.
+  v->VisitRootPointer(Root::kStackRoots, nullptr, new_target_slot());
+  ApiCallbackExitFrame::Iterate(v);
 }
 
 // Ensure layout of v8::PropertyCallbackInfo is in sync with
@@ -1430,8 +1471,9 @@ void BuiltinExitFrame::Print(StringStream* accumulator, PrintMode mode,
   accumulator->Add(")\n");
 }
 
-void ApiCallbackExitFrame::Print(StringStream* accumulator, PrintMode mode,
-                                 int index) const {
+void ApiCallbackExitFrame::PrintApiFrame(StringStream* accumulator,
+                                         PrintMode mode, int index,
+                                         bool is_constructor) const {
   DirectHandle<JSFunction> function = GetFunction();
   DisallowGarbageCollection no_gc;
   Tagged<Object> receiver = this->receiver();
@@ -1439,7 +1481,7 @@ void ApiCallbackExitFrame::Print(StringStream* accumulator, PrintMode mode,
   accumulator->PrintSecurityTokenIfChanged(isolate(), *function);
   PrintIndex(accumulator, mode, index);
   accumulator->Add("ApiCallbackExitFrame ");
-  if (IsConstructor()) accumulator->Add("new ");
+  if (is_constructor) accumulator->Add("new ");
   accumulator->PrintFunction(isolate(), *function, receiver);
 
   accumulator->Add("(this=%o", receiver);
@@ -1451,6 +1493,16 @@ void ApiCallbackExitFrame::Print(StringStream* accumulator, PrintMode mode,
   }
 
   accumulator->Add(")\n\n");
+}
+
+void ApiCallbackExitFrame::Print(StringStream* accumulator, PrintMode mode,
+                                 int index) const {
+  return PrintApiFrame(accumulator, mode, index, false);
+}
+
+void ApiConstructExitFrame::Print(StringStream* accumulator, PrintMode mode,
+                                  int index) const {
+  return PrintApiFrame(accumulator, mode, index, true);
 }
 
 void ApiAccessorExitFrame::Print(StringStream* accumulator, PrintMode mode,
@@ -2746,11 +2798,10 @@ void FrameSummary::JavaScriptFrameSummary::EnsureSourcePositionsAvailable() {
 }
 
 bool FrameSummary::JavaScriptFrameSummary::AreSourcePositionsAvailable() const {
-  return !v8_flags.enable_lazy_source_positions ||
-         function()
-             ->shared()
-             ->GetBytecodeArray(isolate())
-             ->HasSourcePositionTable();
+  if (!v8_flags.enable_lazy_source_positions) return true;
+  Tagged<SharedFunctionInfo> sfi = function()->shared();
+  return sfi->HasBytecodeArray() &&
+         sfi->GetBytecodeArray(isolate())->HasSourcePositionTable();
 }
 
 bool FrameSummary::JavaScriptFrameSummary::is_subject_to_debugging() const {
@@ -3683,7 +3734,7 @@ void JsToWasmFrame::Iterate(RootVisitor* v) const {
       DCHECK_LE(current_index, param_count);
       for (size_t i = 0; i < current_index; i++) {
         wasm::ValueType type = sig.GetParam(i);
-        if (type.is_reference()) {
+        if (type.is_ref()) {
           // Make sure slot for ref args are 64-bit aligned.
           slot_ptr += (slot_ptr & 0x04);  // Branchless.
           FullObjectSlot array_slot(&Memory<Address>(slot_ptr));
@@ -3709,7 +3760,7 @@ void JsToWasmFrame::Iterate(RootVisitor* v) const {
       // When converting return values, all results are already in the array.
       for (size_t i = 0; i < return_count; i++) {
         wasm::ValueType type = sig.GetReturn(i);
-        if (type.is_reference()) {
+        if (type.is_ref()) {
           // Make sure slot for ref args are 64-bit aligned.
           slot_ptr += (slot_ptr & 0x04);  // Branchless.
           FullObjectSlot array_slot(&Memory<Address>(slot_ptr));
@@ -3777,6 +3828,11 @@ void WasmJspiFrame::Iterate(RootVisitor* v) const {
   FullObjectSlot result_array_slot(
       &Memory<Address>(fp() + WasmJspiFrameConstants::kResultArrayOffset));
   v->VisitRootPointer(Root::kStackRoots, nullptr, result_array_slot);
+}
+
+wasm::WasmCode* WasmStackEntryFrame::wasm_code() {
+  return wasm::GetWasmStackEntryWrapperCache()->Lookup(
+      maybe_unauthenticated_pc());
 }
 
 #if V8_ENABLE_DRUMBRAKE
@@ -3928,7 +3984,7 @@ void WasmLiftoffSetupFrame::Iterate(RootVisitor* v) const {
       num_int_params++;
     } else if (param == wasm::kWasmI64) {
       num_int_params += kSystemPointerSize == 8 ? 1 : 2;
-    } else if (param.is_reference()) {
+    } else if (param.is_ref()) {
       num_ref_params++;
     }
   }

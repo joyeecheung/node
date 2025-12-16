@@ -1435,18 +1435,6 @@ void Builtins::Generate_WasmCEntry(MacroAssembler* masm) {
   Generate_CEntry(masm, 1, ArgvMode::kStack, false, true);
 }
 
-#if !defined(V8_TARGET_ARCH_ARM)
-void Builtins::Generate_MemCopyUint8Uint8(MacroAssembler* masm) {
-  masm->CallBuiltin(Builtin::kIllegal);
-}
-#endif  // !defined(V8_TARGET_ARCH_ARM)
-
-#ifndef V8_TARGET_ARCH_IA32
-void Builtins::Generate_MemMove(MacroAssembler* masm) {
-  masm->CallBuiltin(Builtin::kIllegal);
-}
-#endif  // V8_TARGET_ARCH_IA32
-
 void Builtins::Generate_BaselineLeaveFrame(MacroAssembler* masm) {
 #ifdef V8_ENABLE_SPARKPLUG
   EmitReturnBaseline(masm);
@@ -1455,23 +1443,10 @@ void Builtins::Generate_BaselineLeaveFrame(MacroAssembler* masm) {
 #endif  // V8_ENABLE_SPARKPLUG
 }
 
-#if defined(V8_ENABLE_MAGLEV) && !defined(V8_ENABLE_LEAPTIERING)
-void Builtins::Generate_MaglevOptimizeCodeOrTailCallOptimizedCodeSlot(
-    MacroAssembler* masm) {
-  using D = MaglevOptimizeCodeOrTailCallOptimizedCodeSlotDescriptor;
-  Register flags = D::GetRegisterParameter(D::kFlags);
-  Register feedback_vector = D::GetRegisterParameter(D::kFeedbackVector);
-  Register temporary = D::GetRegisterParameter(D::kTemporary);
-  masm->AssertFeedbackVector(feedback_vector, temporary);
-  masm->OptimizeCodeOrTailCallOptimizedCodeSlot(flags, feedback_vector);
-  masm->Trap();
-}
-#else
 void Builtins::Generate_MaglevOptimizeCodeOrTailCallOptimizedCodeSlot(
     MacroAssembler* masm) {
   masm->Trap();
 }
-#endif  // V8_ENABLE_MAGLEV && !V8_ENABLE_LEAPTIERING
 
 #ifndef V8_ENABLE_MAGLEV
 // static
@@ -1654,11 +1629,9 @@ TF_BUILTIN(InstantiateAsmJs, JSTrampolineAssembler) {
 #ifdef V8_JS_LINKAGE_INCLUDES_DISPATCH_HANDLE
   auto dispatch_handle =
       UncheckedParameter<JSDispatchHandleT>(Descriptor::kDispatchHandle);
-#elif defined(V8_ENABLE_LEAPTIERING)
+#else
   TNode<JSDispatchHandleT> dispatch_handle = ReinterpretCast<JSDispatchHandleT>(
       LoadJSFunctionDispatchHandle(function));
-#else
-  auto dispatch_handle = InvalidDispatchHandleConstant();
 #endif
 
   // This builtin is used on functions with different parameter counts.
@@ -1681,6 +1654,12 @@ TF_BUILTIN(InstantiateAsmJs, JSTrampolineAssembler) {
   BIND(&tailcall_to_function);
   // On failure, tail call back to regular JavaScript by re-calling the given
   // function which has been reset to the compile lazy builtin.
+  // Make sure that the dispatch table entry is still intact; calling out to JS
+  // might have free'd and re-allocated it (https://crbug.com/462217236).
+  CSA_SBXCHECK(
+      this,
+      Word32Equal(DynamicJSParameterCount(),
+                  LoadParameterCountFromJSDispatchTable(dispatch_handle)));
   TailCallJSFunction(function);
 }
 

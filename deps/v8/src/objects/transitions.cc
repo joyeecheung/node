@@ -31,6 +31,7 @@ bool TransitionsAccessor::HasSimpleTransitionTo(Tagged<Map> map) {
     case kWeakRef:
       return raw_transitions_.GetHeapObjectAssumeWeak() == map;
     case kPrototypeInfo:
+    case kPrototypeSharedClosureInfo:
     case kUninitialized:
     case kMigrationTarget:
     case kFullTransitionArray:
@@ -231,6 +232,7 @@ Tagged<Map> TransitionsAccessor::SearchTransition(
   DCHECK(IsUniqueName(name));
   switch (encoding()) {
     case kPrototypeInfo:
+    case kPrototypeSharedClosureInfo:
     case kUninitialized:
     case kMigrationTarget:
       return Tagged<Map>();
@@ -288,6 +290,7 @@ void TransitionsAccessor::ForEachTransitionTo(
   DCHECK(IsUniqueName(name));
   switch (encoding()) {
     case kPrototypeInfo:
+    case kPrototypeSharedClosureInfo:
     case kUninitialized:
     case kMigrationTarget:
       return;
@@ -503,6 +506,7 @@ void TransitionArray::SetNumberOfPrototypeTransitions(
 int TransitionsAccessor::NumberOfTransitions() {
   switch (encoding()) {
     case kPrototypeInfo:
+    case kPrototypeSharedClosureInfo:
     case kUninitialized:
     case kMigrationTarget:
       return 0;
@@ -517,6 +521,7 @@ int TransitionsAccessor::NumberOfTransitions() {
 bool TransitionsAccessor::HasPrototypeTransitions() {
   switch (encoding()) {
     case kPrototypeInfo:
+    case kPrototypeSharedClosureInfo:
     case kUninitialized:
     case kMigrationTarget:
     case kWeakRef:
@@ -624,6 +629,7 @@ void TransitionsAccessor::TraverseTransitionTreeInternal(
 
     switch (encoding) {
       case kPrototypeInfo:
+      case kPrototypeSharedClosureInfo:
       case kUninitialized:
       case kMigrationTarget:
         break;
@@ -779,6 +785,9 @@ void TransitionArray::Sort() {
   DisallowGarbageCollection no_gc;
   // In-place insertion sort.
   int length = number_of_transitions();
+  // Sorting matters only for binary search.
+  if (length <= kMaxElementsForLinearSearch) return;
+
   ReadOnlyRoots roots = GetReadOnlyRoots();
   for (int i = 1; i < length; i++) {
     Tagged<Name> key = GetKey(i);

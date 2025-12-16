@@ -42,6 +42,7 @@
 #include "src/base/strings.h"
 #include "src/codegen/assembler-inl.h"
 #include "src/debug/debug.h"
+#include "src/flags/flags.h"
 #include "src/handles/global-handles.h"
 #include "src/heap/heap-inl.h"
 #include "src/heap/pretenuring-handler.h"
@@ -4348,7 +4349,7 @@ TEST(SamplingHeapProfilerPretenuredInlineAllocations) {
   if (i::v8_flags.gc_global || i::v8_flags.stress_compaction ||
       i::v8_flags.stress_incremental_marking ||
       i::v8_flags.stress_concurrent_allocation ||
-      i::v8_flags.single_generation) {
+      i::v8_flags.single_generation || i::v8_flags.scavenger_chaos_mode) {
     return;
   }
 
@@ -4376,7 +4377,7 @@ TEST(SamplingHeapProfilerPretenuredInlineAllocations) {
                      "  return elements[number_elements - 1];"
                      "};"
                      "%%PrepareFunctionForOptimization(f);"
-                     "f(); gc();"
+                     "f(); gc({type: 'minor'});"
                      "f(); f();"
                      "%%OptimizeFunctionOnNextCall(f);"
                      "f();"
@@ -4586,6 +4587,7 @@ TEST(WeakReference) {
       shared_function, feedback_cell_array,
       direct_handle(i::Cast<i::JSFunction>(*obj)->raw_feedback_cell(),
                     i_isolate));
+  USE(fv);
 
   // Create a Code object.
   i::Assembler assm(i_isolate->allocator(), i::AssemblerOptions{});
@@ -4596,17 +4598,6 @@ TEST(WeakReference) {
       i::Factory::CodeBuilder(i_isolate, desc, i::CodeKind::FOR_TESTING)
           .Build();
   CHECK(IsCode(*code));
-
-#ifdef V8_ENABLE_LEAPTIERING
-  USE(fv);
-#else
-  // Manually inlined version of FeedbackVector::SetOptimizedCode (needed due
-  // to the FOR_TESTING code kind).
-  fv->set_maybe_optimized_code(i::MakeWeak(code->wrapper()));
-  fv->set_flags(
-      i::FeedbackVector::MaybeHasTurbofanCodeBit::encode(true) |
-      i::FeedbackVector::TieringStateBits::encode(i::TieringState::kNone));
-#endif  // V8_ENABLE_LEAPTIERING
 
   v8::HeapProfiler* heap_profiler = isolate->GetHeapProfiler();
   const v8::HeapSnapshot* snapshot = heap_profiler->TakeHeapSnapshot();

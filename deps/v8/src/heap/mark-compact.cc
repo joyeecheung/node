@@ -61,8 +61,6 @@
 #include "src/heap/page-metadata-inl.h"
 #include "src/heap/page-metadata.h"
 #include "src/heap/parallel-work-item.h"
-#include "src/heap/pretenuring-handler-inl.h"
-#include "src/heap/pretenuring-handler.h"
 #include "src/heap/read-only-heap.h"
 #include "src/heap/read-only-spaces.h"
 #include "src/heap/remembered-set.h"
@@ -354,12 +352,15 @@ bool MarkCompactCollector::StartCompaction(StartCompactionMode mode) {
   DCHECK(evacuation_candidates_.empty());
 
   // Bailouts for completely disabled compaction.
-  if (!v8_flags.compact ||
-      (mode == StartCompactionMode::kAtomic && heap_->IsGCWithStack() &&
-       !v8_flags.compact_with_stack) ||
-      (v8_flags.gc_experiment_less_compaction &&
-       !heap_->ShouldReduceMemory()) ||
-      heap_->isolate()->serializer_enabled()) {
+  if (!v8_flags.compact || heap_->isolate()->serializer_enabled()) {
+    return false;
+  }
+
+  // For --no-compact-with-stack we can bail out for atomic GCs with a stack
+  // present. For non-atomic GCs the final atomic pause could still be triggered
+  // from a task.
+  if (!v8_flags.compact_with_stack && mode == StartCompactionMode::kAtomic &&
+      heap_->IsGCWithStack()) {
     return false;
   }
 
@@ -589,16 +590,21 @@ void MarkCompactCollector::ComputeEvacuationHeuristics(
     size_t* max_evacuated_bytes) {
   // For memory reducing and optimize for memory mode we directly define both
   // constants.
-  const int kTargetFragmentationPercentForReduceMemory = 20;
-  const size_t kMaxEvacuatedBytesForReduceMemory = 12 * MB;
-  const int kTargetFragmentationPercentForOptimizeMemory = 20;
-  const size_t kMaxEvacuatedBytesForOptimizeMemory = 6 * MB;
+  const int kTargetFragmentationPercentForReduceMemory =
+      v8_flags.compaction_target_fragmentation_percent_for_reduce_memory;
+  const size_t kMaxEvacuatedBytesForReduceMemory =
+      v8_flags.compaction_max_evacuated_bytes_mb_for_reduce_memory * MB;
+  const int kTargetFragmentationPercentForOptimizeMemory =
+      v8_flags.compaction_target_fragmentation_percent_for_optimize_memory;
+  const size_t kMaxEvacuatedBytesForOptimizeMemory =
+      v8_flags.compaction_max_evacuated_bytes_mb_for_optimize_memory * MB;
 
   // For regular mode (which is latency critical) we define less aggressive
   // defaults to start and switch to a trace-based (using compaction speed)
   // approach as soon as we have enough samples.
   const int kTargetFragmentationPercent = 70;
-  const size_t kMaxEvacuatedBytes = 4 * MB;
+  const size_t kMaxEvacuatedBytes =
+      v8_flags.compaction_max_evacuated_bytes_mb * MB;
   // Time to take for a single area (=payload of page). Used as soon as there
   // exist enough compaction speed samples.
   const float kTargetMsPerArea = .5;
@@ -1263,22 +1269,6 @@ class MarkCompactWeakObjectRetainer final : public WeakObjectRetainer {
     if (MarkingHelper::IsMarkedOrAlwaysLive(heap_, marking_state_,
                                             heap_object)) {
       return object;
-    } else if (IsAllocationSite(heap_object) &&
-               !Cast<AllocationSite>(object)->IsZombie()) {
-      // "dead" AllocationSites need to live long enough for a traversal of new
-      // space. These sites get a one-time reprieve.
-
-      Tagged<Object> nested = object;
-      while (IsAllocationSite(nested)) {
-        Tagged<AllocationSite> current_site = Cast<AllocationSite>(nested);
-        // MarkZombie will override the nested_site, read it first before
-        // marking
-        nested = current_site->nested_site();
-        current_site->MarkZombie();
-        marking_state_->TryMarkAndAccountLiveBytes(current_site);
-      }
-
-      return object;
     } else {
       return Smi::zero();
     }
@@ -1752,14 +1742,10 @@ class EvacuateVisitorBase : public HeapObjectVisitor {
 
 class EvacuateNewSpaceVisitor final : public EvacuateVisitorBase {
  public:
-  explicit EvacuateNewSpaceVisitor(
-      Heap* heap, EvacuationAllocator* local_allocator,
-      RecordMigratedSlotVisitor* record_visitor,
-      PretenuringHandler::PretenuringFeedbackMap* local_pretenuring_feedback)
+  EvacuateNewSpaceVisitor(Heap* heap, EvacuationAllocator* local_allocator,
+                          RecordMigratedSlotVisitor* record_visitor)
       : EvacuateVisitorBase(heap, local_allocator, record_visitor),
         promoted_size_(0),
-        pretenuring_handler_(heap_->pretenuring_handler()),
-        local_pretenuring_feedback_(local_pretenuring_feedback),
         is_incremental_marking_(heap->incremental_marking()->IsMarking()),
         shortcut_strings_(!heap_->IsGCWithStack() ||
                           v8_flags.shortcut_strings_with_stack) {
@@ -1772,9 +1758,6 @@ class EvacuateNewSpaceVisitor final : public EvacuateVisitorBase {
     if (TryEvacuateWithoutCopy(object)) return true;
     Tagged<HeapObject> target_object;
 
-    PretenuringHandler::UpdateAllocationSite(heap_, object->map(), object,
-                                             size.value(),
-                                             local_pretenuring_feedback_);
 
     if (!TryEvacuateObject(OLD_SPACE, object, size, &target_object)) {
       heap_->FatalProcessOutOfMemory(
@@ -1840,8 +1823,6 @@ class EvacuateNewSpaceVisitor final : public EvacuateVisitorBase {
   }
 
   intptr_t promoted_size_;
-  PretenuringHandler* const pretenuring_handler_;
-  PretenuringHandler::PretenuringFeedbackMap* local_pretenuring_feedback_;
   bool is_incremental_marking_;
   const bool shortcut_strings_;
 };
@@ -1849,13 +1830,8 @@ class EvacuateNewSpaceVisitor final : public EvacuateVisitorBase {
 class EvacuateNewToOldSpacePageVisitor final : public HeapObjectVisitor {
  public:
   explicit EvacuateNewToOldSpacePageVisitor(
-      Heap* heap, RecordMigratedSlotVisitor* record_visitor,
-      PretenuringHandler::PretenuringFeedbackMap* local_pretenuring_feedback)
-      : heap_(heap),
-        record_visitor_(record_visitor),
-        moved_bytes_(0),
-        pretenuring_handler_(heap_->pretenuring_handler()),
-        local_pretenuring_feedback_(local_pretenuring_feedback) {}
+      Heap* heap, RecordMigratedSlotVisitor* record_visitor)
+      : record_visitor_(record_visitor), moved_bytes_(0) {}
 
   static void Move(PageMetadata* page) {
     page->set_will_be_promoted(true);
@@ -1869,9 +1845,6 @@ class EvacuateNewToOldSpacePageVisitor final : public HeapObjectVisitor {
 
   inline bool Visit(Tagged<HeapObject> object,
                     SafeHeapObjectSize size) override {
-    PretenuringHandler::UpdateAllocationSite(heap_, object->map(), object,
-                                             size.value(),
-                                             local_pretenuring_feedback_);
     DCHECK(!TrustedHeapLayout::InCodeSpace(object));
     record_visitor_->Visit(object->map(), object, size.value());
     return true;
@@ -1881,11 +1854,8 @@ class EvacuateNewToOldSpacePageVisitor final : public HeapObjectVisitor {
   void account_moved_bytes(intptr_t bytes) { moved_bytes_ += bytes; }
 
  private:
-  Heap* heap_;
   RecordMigratedSlotVisitor* record_visitor_;
   intptr_t moved_bytes_;
-  PretenuringHandler* const pretenuring_handler_;
-  PretenuringHandler::PretenuringFeedbackMap* local_pretenuring_feedback_;
 };
 
 class EvacuateOldSpaceVisitor final : public EvacuateVisitorBase {
@@ -2169,7 +2139,7 @@ void MarkCompactCollector::MarkObjectsFromClientHeap(Isolate* client) {
       client->shared_external_pointer_space();
   MarkExternalPointerFromExternalStringTable external_string_visitor(
       &shared_table, shared_space);
-  client_heap->external_string_table_.IterateAll(&external_string_visitor);
+  client_heap->external_string_table_.Iterate(&external_string_visitor);
 #endif  // V8_ENABLE_SANDBOX
 }
 
@@ -2736,8 +2706,7 @@ class ClearStringTableJobItem final : public ParallelClearingJob::ClearingItem {
   explicit ClearStringTableJobItem(Isolate* isolate)
       : isolate_(isolate),
         trace_id_(reinterpret_cast<uint64_t>(this) ^
-                  isolate->heap()->tracer()->CurrentEpoch(
-                      GCTracer::Scope::MC_CLEAR_STRING_TABLE)) {}
+                  isolate->heap()->tracer()->CurrentEpoch()) {}
 
   void Run(JobDelegate* delegate) final {
     // Set the current isolate such that trusted pointer tables etc are
@@ -2746,9 +2715,7 @@ class ClearStringTableJobItem final : public ParallelClearingJob::ClearingItem {
 
     if (isolate_->OwnsStringTables()) {
       TRACE_GC1_WITH_FLOW(isolate_->heap()->tracer(),
-                          GCTracer::Scope::MC_CLEAR_STRING_TABLE,
-                          delegate->IsJoiningThread() ? ThreadKind::kMain
-                                                      : ThreadKind::kBackground,
+                          GCTracer::Scope::MC_CLEAR_STRING_TABLE, delegate,
                           trace_id_, TRACE_EVENT_FLAG_FLOW_IN);
       // Prune the string table removing all strings only pointed to by the
       // string table.  Cannot use string_table() here because the string
@@ -2979,8 +2946,7 @@ class MarkCompactCollector::ClearTrivialWeakRefJobItem final
   explicit ClearTrivialWeakRefJobItem(MarkCompactCollector* collector)
       : collector_(collector),
         trace_id_(reinterpret_cast<uint64_t>(this) ^
-                  collector->heap()->tracer()->CurrentEpoch(
-                      GCTracer::Scope::MC_CLEAR_WEAK_REFERENCES_TRIVIAL)) {}
+                  collector->heap()->tracer()->CurrentEpoch()) {}
 
   void Run(JobDelegate* delegate) final {
     Heap* heap = collector_->heap();
@@ -2991,9 +2957,7 @@ class MarkCompactCollector::ClearTrivialWeakRefJobItem final
 
     TRACE_GC1_WITH_FLOW(heap->tracer(),
                         GCTracer::Scope::MC_CLEAR_WEAK_REFERENCES_TRIVIAL,
-                        delegate->IsJoiningThread() ? ThreadKind::kMain
-                                                    : ThreadKind::kBackground,
-                        trace_id_, TRACE_EVENT_FLAG_FLOW_IN);
+                        delegate, trace_id_, TRACE_EVENT_FLAG_FLOW_IN);
     collector_->ClearTrivialWeakReferences();
     collector_->ClearTrustedWeakReferences();
   }
@@ -3010,11 +2974,8 @@ class MarkCompactCollector::FilterNonTrivialWeakRefJobItem final
  public:
   explicit FilterNonTrivialWeakRefJobItem(MarkCompactCollector* collector)
       : collector_(collector),
-        trace_id_(
-            reinterpret_cast<uint64_t>(this) ^
-            collector->heap()->tracer()->CurrentEpoch(
-                GCTracer::Scope::MC_CLEAR_WEAK_REFERENCES_FILTER_NON_TRIVIAL)) {
-  }
+        trace_id_(reinterpret_cast<uint64_t>(this) ^
+                  collector->heap()->tracer()->CurrentEpoch()) {}
 
   void Run(JobDelegate* delegate) final {
     Heap* heap = collector_->heap();
@@ -3025,9 +2986,7 @@ class MarkCompactCollector::FilterNonTrivialWeakRefJobItem final
 
     TRACE_GC1_WITH_FLOW(
         heap->tracer(),
-        GCTracer::Scope::MC_CLEAR_WEAK_REFERENCES_FILTER_NON_TRIVIAL,
-        delegate->IsJoiningThread() ? ThreadKind::kMain
-                                    : ThreadKind::kBackground,
+        GCTracer::Scope::MC_CLEAR_WEAK_REFERENCES_FILTER_NON_TRIVIAL, delegate,
         trace_id_, TRACE_EVENT_FLAG_FLOW_IN);
     collector_->FilterNonTrivialWeakReferences();
   }
@@ -3095,10 +3054,9 @@ void MarkCompactCollector::ClearNonLiveReferences() {
 
   {
     TRACE_GC(heap_->tracer(), GCTracer::Scope::MC_CLEAR_EXTERNAL_STRING_TABLE);
-    ExternalStringTableCleanerVisitor<ExternalStringTableCleaningMode::kAll>
-        external_visitor(heap_);
-    heap_->external_string_table_.IterateAll(&external_visitor);
-    heap_->external_string_table_.CleanUpAll();
+    ExternalStringTableCleanerVisitor external_visitor(heap_);
+    heap_->external_string_table_.Iterate(&external_visitor);
+    heap_->external_string_table_.CleanUp();
   }
 
   {
@@ -3446,7 +3404,7 @@ void MarkCompactCollector::FlushBytecodeFromSFI(
 
   // Replace the bytecode with an uncompiled data object.
   Tagged<BytecodeArray> bytecode_array =
-      shared_info->GetBytecodeArray(heap_->isolate());
+      shared_info->GetBytecodeArrayForGC(heap_->isolate());
 
 #ifdef V8_ENABLE_SANDBOX
   DCHECK(!HeapLayout::InWritableSharedSpace(shared_info));
@@ -3575,7 +3533,7 @@ bool MarkCompactCollector::ProcessOldBytecodeSFI(
   if (!bytecode_already_decompiled) {
     // Check if the bytecode is still live.
     Tagged<BytecodeArray> bytecode =
-        flushing_candidate->GetBytecodeArray(isolate);
+        flushing_candidate->GetBytecodeArrayForGC(isolate);
     if (MarkingHelper::IsMarkedOrAlwaysLive(heap_, non_atomic_marking_state_,
                                             bytecode)) {
       return true;
@@ -3605,7 +3563,7 @@ bool MarkCompactCollector::ProcessOldBaselineSFI(
   bool is_bytecode_live = false;
   if (!bytecode_already_decompiled) {
     Tagged<BytecodeArray> bytecode =
-        flushing_candidate->GetBytecodeArray(heap_->isolate());
+        flushing_candidate->GetBytecodeArrayForGC(heap_->isolate());
     is_bytecode_live = MarkingHelper::IsMarkedOrAlwaysLive(
         heap_, non_atomic_marking_state_, bytecode);
   }
@@ -4414,14 +4372,6 @@ static Tagged<String> UpdateReferenceInExternalStringTableEntry(
   if (map_word.IsForwardingAddress()) {
     Tagged<String> new_string =
         Cast<String>(map_word.ToForwardingAddress(old_string));
-
-    if (IsExternalString(new_string)) {
-      MutablePageMetadata::MoveExternalBackingStoreBytes(
-          ExternalBackingStoreType::kExternalString,
-          PageMetadata::FromAddress((*p).ptr()),
-          PageMetadata::FromHeapObject(new_string),
-          Cast<ExternalString>(new_string)->ExternalPayloadSize());
-    }
     return new_string;
   }
 
@@ -4519,16 +4469,11 @@ class Evacuator final : public Malloced {
 
   explicit Evacuator(Heap* heap)
       : heap_(heap),
-        local_pretenuring_feedback_(
-            PretenuringHandler::kInitialFeedbackCapacity),
         local_allocator_(heap_,
                          CompactionSpaceKind::kCompactionSpaceForMarkCompact),
         record_visitor_(heap_),
-        new_space_visitor_(heap_, &local_allocator_, &record_visitor_,
-                           &local_pretenuring_feedback_),
-        new_to_old_page_visitor_(heap_, &record_visitor_,
-                                 &local_pretenuring_feedback_),
-
+        new_space_visitor_(heap_, &local_allocator_, &record_visitor_),
+        new_to_old_page_visitor_(heap_, &record_visitor_),
         old_space_visitor_(heap_, &local_allocator_, &record_visitor_),
         duration_(0.0),
         bytes_compacted_(0) {}
@@ -4556,8 +4501,6 @@ class Evacuator final : public Malloced {
   }
 
   Heap* heap_;
-
-  PretenuringHandler::PretenuringFeedbackMap local_pretenuring_feedback_;
 
   // Locally cached collector data.
   EvacuationAllocator local_allocator_;
@@ -4607,8 +4550,6 @@ void Evacuator::Finalize() {
   heap_->IncrementYoungSurvivorsCounter(
       new_space_visitor_.promoted_size() +
       new_to_old_page_visitor_.moved_bytes());
-  heap_->pretenuring_handler()->MergeAllocationSitePretenuringFeedback(
-      local_pretenuring_feedback_);
 }
 
 class LiveObjectVisitor final : AllStatic {
@@ -4720,8 +4661,7 @@ class PageEvacuationJob : public v8::JobTask {
         remaining_evacuation_items_(evacuation_items_.size()),
         generator_(evacuation_items_.size()),
         tracer_(isolate->heap()->tracer()),
-        trace_id_(reinterpret_cast<uint64_t>(this) ^
-                  tracer_->CurrentEpoch(GCTracer::Scope::MC_EVACUATE)) {}
+        trace_id_(reinterpret_cast<uint64_t>(this) ^ tracer_->CurrentEpoch()) {}
 
   void Run(JobDelegate* delegate) override {
     // Set the current isolate such that trusted pointer tables etc are
@@ -5163,8 +5103,7 @@ class PointersUpdatingJob : public v8::JobTask {
         remaining_updating_items_(updating_items_.size()),
         generator_(updating_items_.size()),
         tracer_(isolate->heap()->tracer()),
-        trace_id_(reinterpret_cast<uint64_t>(this) ^
-                  tracer_->CurrentEpoch(GCTracer::Scope::MC_EVACUATE)) {}
+        trace_id_(reinterpret_cast<uint64_t>(this) ^ tracer_->CurrentEpoch()) {}
 
   void Run(JobDelegate* delegate) override {
     // Set the current isolate such that trusted pointer tables etc are
@@ -5648,7 +5587,7 @@ void MarkCompactCollector::UpdatePointersAfterEvacuation() {
     TRACE_GC(heap_->tracer(),
              GCTracer::Scope::MC_EVACUATE_UPDATE_POINTERS_WEAK);
     // Update pointers from external string table.
-    heap_->UpdateReferencesInExternalStringTable(
+    heap_->external_string_table_.UpdateReferences(
         &UpdateReferenceInExternalStringTableEntry);
 
     // Update pointers in string forwarding table.

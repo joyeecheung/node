@@ -9,6 +9,7 @@
 
 #include "include/v8-internal.h"
 #include "src/base/iterator.h"
+#include "src/codegen/interface-descriptors-inl.h"
 #include "src/codegen/machine-type.h"
 #include "src/codegen/tick-counter.h"
 #include "src/common/globals.h"
@@ -1245,7 +1246,7 @@ void InstructionSelector::InitializeCallBuffer(
       // immediate argument on all architectures.
 #if defined(V8_TARGET_ARCH_X64) || defined(V8_TARGET_ARCH_ARM) ||     \
     defined(V8_TARGET_ARCH_ARM64) || defined(V8_TARGET_ARCH_PPC64) || \
-    defined(V8_TARGET_ARCH_S390X)
+    defined(V8_TARGET_ARCH_S390X) || defined(V8_TARGET_ARCH_LOONG64)
       if (this->IsHeapConstant(callee)) {
         buffer->instruction_args.push_back(g.UseImmediate(callee));
         break;
@@ -1632,6 +1633,13 @@ void InstructionSelector::VisitLoadStackPointer(OpIndex node) {
   OperandGenerator g(this);
   Emit(kArchStackPointer, g.DefineAsRegister(node));
 }
+
+void InstructionSelector::VisitWasmFXArgBuffer(OpIndex node) {
+  OperandGenerator g(this);
+  LinkageLocation arg_buffer = LinkageLocation::ForRegister(
+      WasmFXSuspendDescriptor::GetRegisterParameter(2).code());
+  Emit(kArchNop, g.DefineAsLocation(node, arg_buffer));
+}
 #endif  // V8_ENABLE_WEBASSEMBLY
 
 void InstructionSelector::VisitLoadParentFramePointer(OpIndex node) {
@@ -1965,6 +1973,7 @@ IF_WASM(VISIT_UNSUPPORTED_OP, I64x2AddReduce)
 IF_WASM(VISIT_UNSUPPORTED_OP, F32x4AddReduce)
 IF_WASM(VISIT_UNSUPPORTED_OP, F64x2AddReduce)
 
+IF_WASM(VISIT_UNSUPPORTED_OP, I8x1Shuffle)
 IF_WASM(VISIT_UNSUPPORTED_OP, I8x2Shuffle)
 IF_WASM(VISIT_UNSUPPORTED_OP, I8x4Shuffle)
 IF_WASM(VISIT_UNSUPPORTED_OP, I8x8Shuffle)
@@ -3472,6 +3481,8 @@ void InstructionSelector::VisitNode(OpIndex node) {
 #if V8_ENABLE_WEBASSEMBLY
     case Opcode::kTrapIf:
       return VisitTrapIf(node);
+    case Opcode::kWasmFXArgBuffer:
+      return VisitWasmFXArgBuffer(node);
 #endif  // V8_ENABLE_WEBASSEMBLY
     case Opcode::kCatchBlockBegin:
       MarkAsTagged(node);
@@ -3496,11 +3507,15 @@ void InstructionSelector::VisitNode(OpIndex node) {
       return VisitDebugBreak(node);
     case Opcode::kAbortCSADcheck:
       return VisitAbortCSADcheck(node);
+#ifdef V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
+    case Opcode::kSwitchSandboxMode:
+      return VisitSwitchSandboxMode(node);
+#endif  // V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
     case Opcode::kSelect: {
       const SelectOp& select = op.Cast<SelectOp>();
       // If there is a Select, then it should only be one that is supported by
       // the machine, and it should be meant to be implementation with cmove.
-      DCHECK_EQ(select.implem, SelectOp::Implementation::kCMove);
+      DCHECK_EQ(select.implem, SelectOp::Implementation::kForceCMove);
       MarkAsRepresentation(select.rep, node);
       return VisitSelect(node);
     }
@@ -3694,6 +3709,8 @@ void InstructionSelector::VisitNode(OpIndex node) {
       MarkAsSimd128(node);
       const Simd128ShuffleOp& shuffle = op.Cast<Simd128ShuffleOp>();
       switch (shuffle.kind) {
+        case Simd128ShuffleOp::Kind::kI8x1:
+          return VisitI8x1Shuffle(node);
         case Simd128ShuffleOp::Kind::kI8x2:
           return VisitI8x2Shuffle(node);
         case Simd128ShuffleOp::Kind::kI8x4:

@@ -75,6 +75,10 @@ class SimulatorData;
 }  // namespace v8
 #endif
 
+#ifdef V8_DUMPLING
+#include "src/dumpling/dumpling-manager.h"
+#endif
+
 namespace v8_inspector {
 class V8Inspector;
 }  // namespace v8_inspector
@@ -198,10 +202,6 @@ class WasmExecutionTimer;
 class WasmCodeLookupCache;
 class WasmOrphanedGlobalHandle;
 }
-
-namespace detail {
-class WaiterQueueNode;
-}  // namespace detail
 
 #define RETURN_FAILURE_IF_EXCEPTION(isolate)         \
   do {                                               \
@@ -773,8 +773,6 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
                : shared_space_isolate()->shared_struct_type_registry_.get();
   }
 
-  Address get_address_from_id(IsolateAddressId id);
-
   // Access to top context (where the current function object was created).
   Tagged<Context> context() const { return thread_local_top()->context_; }
   inline void set_context(Tagged<Context> context);
@@ -953,6 +951,15 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   void PrintStack(StringStream* accumulator,
                   PrintStackMode mode = kPrintStackVerbose);
   void PrintStack(FILE* out, PrintStackMode mode = kPrintStackVerbose);
+
+  // Prints minimal stack trace without allocating on the V8 heap (native
+  // allocations are allowed). Used for printing the JS stack on OOM errors.
+  void PrintMinimalStack(FILE* out);
+  std::string BuildMinimalStack();
+
+  // Reports the minimal stack trace as a crash key. Used for OOM errors.
+  void ReportStackAsCrashKey();
+
   DirectHandle<String> StackTraceString();
   // Stores a stack trace in a stack-allocated temporary buffer which will
   // end up in the minidump for debugging purposes.
@@ -1888,6 +1895,10 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
     return builtins_constants_table_builder_;
   }
 
+#ifdef V8_DUMPLING
+  DumplingManager* dumpling_manager() { return &dumpling_manager_; }
+#endif
+
   // Hashes bits of the Isolate that are relevant for embedded builtins. In
   // particular, the embedded blob requires builtin InstructionStream object
   // layout and the builtins constants table to remain unchanged from
@@ -2023,6 +2034,16 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
       add_crash_key_callback_(id, value);
     }
   }
+
+  v8::CrashKey AddCrashKeyString(const char key[], CrashKeySize size,
+                                 std::string_view value);
+  void SetCrashKeyString(CrashKey crash_key, std::string_view value);
+
+  void SetCrashKeyStringCallbacks(
+      AllocateCrashKeyStringCallback allocate_callback,
+      SetCrashKeyStringCallback set_callback);
+
+  bool HasCrashKeyStringCallbacks();
 
 #if defined(V8_ENABLE_ETW_STACK_WALKING)
   // Specifies the callback called when an ETW tracing session starts.
@@ -2375,9 +2396,6 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
     memory_saver_mode_enabled_ = memory_saver_mode_enabled;
   }
 
-  std::list<std::unique_ptr<detail::WaiterQueueNode>>&
-  async_waiter_queue_nodes();
-
   void ReportExceptionFunctionCallback(
       DirectHandle<JSReceiver> receiver,
       DirectHandle<FunctionTemplateInfo> function,
@@ -2409,7 +2427,8 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
       heap()->FinalizeIncrementalMarkingAtomicallyIfRunning(
           i::GarbageCollectionReason::kFrozen);
       heap()->EnsureSweepingCompleted(
-          Heap::SweepingForcedFinalizationMode::kUnifiedHeap);
+          Heap::SweepingForcedFinalizationMode::kUnifiedHeap,
+          CompleteSweepingReason::kFreeze);
     }
   }
 
@@ -2543,7 +2562,6 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   int stack_trace_nesting_level_ = 0;
   std::atomic<bool> was_locker_ever_used_{false};
   StringStream* incomplete_message_ = nullptr;
-  Address isolate_addresses_[kIsolateAddressCount + 1] = {};
   Bootstrapper* bootstrapper_ = nullptr;
   TieringManager* tiering_manager_ = nullptr;
   CompilationCache* compilation_cache_ = nullptr;
@@ -2869,10 +2887,6 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   TrustedPointerTable::Space* shared_trusted_pointer_space_ = nullptr;
 #endif  // V8_ENABLE_SANDBOX
 
-  // List to manage the lifetime of the WaiterQueueNodes used to track async
-  // waiters for JSSynchronizationPrimitives.
-  std::list<std::unique_ptr<detail::WaiterQueueNode>> async_waiter_queue_nodes_;
-
   // Used to track and safepoint all client isolates attached to this shared
   // isolate.
   std::unique_ptr<GlobalSafepoint> global_safepoint_;
@@ -2906,6 +2920,9 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   // in case of a crash.
   AddCrashKeyCallback add_crash_key_callback_ = nullptr;
 
+  AllocateCrashKeyStringCallback allocate_crash_key_string_callback_;
+  SetCrashKeyStringCallback set_crash_key_string_callback_;
+
 #ifdef V8_ENABLE_WASM_SIMD256_REVEC
   compiler::turboshaft::WasmRevecVerifier* wasm_revec_verifier_for_test_ =
       nullptr;
@@ -2914,6 +2931,10 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   // Delete new/delete operators to ensure that Isolate::New() and
   // Isolate::Delete() are used for Isolate creation and deletion.
   void* operator new(size_t, void* ptr) { return ptr; }
+
+#ifdef V8_DUMPLING
+  DumplingManager dumpling_manager_;
+#endif
 
 #if USE_SIMULATOR
   SimulatorData* simulator_data_ = nullptr;
