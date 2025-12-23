@@ -1443,6 +1443,10 @@ PerProcessOptionsParser::PerProcessOptionsParser(
       "performance.",
       &PerProcessOptions::disable_wasm_trap_handler,
       kAllowedInEnvvar);
+
+  AddOption("--build-sea",
+            "Build a Node.js single executable application",
+            &PerProcessOptions::build_sea);
 }
 
 inline std::string RemoveBrackets(const std::string& host) {
