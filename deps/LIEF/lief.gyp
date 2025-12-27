@@ -441,6 +441,12 @@
       'cflags': [
         '-fPIC'
       ],
+      # We need c++17 to compile without std::format and avoid conflicts with spdlog.
+      'msvs_settings': {
+        'VCCLCompilerTool': {
+          'LanguageStandard': 'stdcpp17',
+        },
+      },
       'cflags_cc': [
         '-std=gnu++17',
         '-fPIC',
@@ -467,11 +473,6 @@
           '-fno-exceptions'
         ],
       },
-      # 'conditions': [
-      #   ['OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="netbsd"', {
-      #     'ldflags': ['-Wl,--gc-sections', '-Wl,--exclude-libs,ALL'],
-      #   }]
-      # ],
       'sources': [
         '<@(lief_sources)',
         '<@(lief_third_party_sources)',
