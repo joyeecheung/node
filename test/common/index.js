@@ -950,6 +950,13 @@ function sleepSync(ms) {
   Atomics.wait(i32, 0, 0, ms);
 }
 
+function resolveBuiltBinary(binary) {
+  if (isWindows) {
+    binary += '.exe';
+  }
+  return path.join(path.dirname(process.execPath), binary);
+}
+
 const common = {
   allowGlobals,
   buildType,
@@ -995,6 +1002,7 @@ const common = {
   printSkipMessage,
   pwdCommand,
   requireNoPackageJSONAbove,
+  resolveBuiltBinary,
   runWithInvalidFD,
   skip,
   skipIf32Bits,

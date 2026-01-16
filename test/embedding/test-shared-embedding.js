@@ -1,4 +1,7 @@
 'use strict';
+
+// This tests using embedding APIs when linking to the shared library.
+
 const common = require('../common');
 const fixtures = require('../common/fixtures');
 const tmpdir = require('../common/tmpdir');
@@ -8,15 +11,11 @@ const {
   spawnSyncAndExit,
   spawnSyncAndExitWithoutError,
 } = require('../common/child_process');
-const path = require('path');
+
 const fs = require('fs');
 const os = require('os');
 
-tmpdir.refresh();
-common.allowGlobals(global.require);
-common.allowGlobals(global.embedVars);
-
-const binary = common.resolveBuiltBinary('embedtest');
+const binary = common.resolveBuiltBinary('shared_embedtest');
 
 spawnSyncAndAssert(
   binary,
