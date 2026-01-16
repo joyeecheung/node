@@ -1332,10 +1332,6 @@
         'deps/nbytes/nbytes.gyp:nbytes',
       ],
 
-      'includes': [
-        'node.gypi'
-      ],
-
       'include_dirs': [
         'src',
         'tools',
@@ -1355,14 +1351,19 @@
         ['OS=="solaris"', {
           'ldflags': [ '-I<(SHARED_INTERMEDIATE_DIR)' ]
         }],
-        # Skip cctest while building shared lib node for Windows
-        [ 'OS=="win" and node_shared=="true"', {
-          'type': 'none',
-        }],
         [ 'node_shared=="true"', {
           'xcode_settings': {
             'OTHER_LDFLAGS': [ '-Wl,-rpath,@loader_path', ],
           },
+          'ldflags': [
+            '-Wl,-rpath,\\$$ORIGIN'
+          ],
+          # Don't depend on node.gypi when testing shared libs - it otherwise links to
+          # the static libraries and resolve symbols at build time.
+        }, {
+          'includes': [
+            'node.gypi'
+          ],
         }],
         [ 'node_shared_hdr_histogram=="false"', {
           'dependencies': [
