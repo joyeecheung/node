@@ -572,8 +572,9 @@ NODE_EXTERN std::unique_ptr<InspectorParentHandle> GetInspectorParentHandle(
 }
 
 MaybeLocal<Value> LoadEnvironment(Environment* env,
-                                  StartExecutionCallback cb,
-                                  EmbedderPreloadCallback preload) {
+                                  StartExecutionCallbackWithEntryPoint cb,
+                                  EmbedderPreloadCallback preload,
+                                  void* callback_data) {
   env->InitializeLibuv();
   env->InitializeDiagnostics();
   if (preload) {
@@ -581,27 +582,187 @@ MaybeLocal<Value> LoadEnvironment(Environment* env,
   }
   env->InitializeCompileCache();
 
-  return StartExecution(env, cb);
+  return StartExecution(env, cb, callback_data);
+}
+
+struct StartExecutionCallbackInfoWithEntryPoint::Impl {
+  Environment* env = nullptr;
+  Local<Object> process_object;
+  Local<Function> native_require;
+  Local<Function> run_entry_point;
+  void* data = nullptr;
+};
+
+StartExecutionCallbackInfoWithEntryPoint::
+    StartExecutionCallbackInfoWithEntryPoint()
+    : impl_(std::make_unique<Impl>()) {}
+
+StartExecutionCallbackInfoWithEntryPoint::
+    ~StartExecutionCallbackInfoWithEntryPoint() = default;
+
+StartExecutionCallbackInfoWithEntryPoint::
+    StartExecutionCallbackInfoWithEntryPoint(
+        StartExecutionCallbackInfoWithEntryPoint&&) = default;
+
+StartExecutionCallbackInfoWithEntryPoint&
+StartExecutionCallbackInfoWithEntryPoint::operator=(
+    StartExecutionCallbackInfoWithEntryPoint&&) = default;
+
+void StartExecutionCallbackInfoWithEntryPoint::set_env(Environment* env) {
+  impl_->env = env;
+}
+
+void StartExecutionCallbackInfoWithEntryPoint::set_process_object(
+    Local<Object> process_object) {
+  impl_->process_object = process_object;
+}
+
+void StartExecutionCallbackInfoWithEntryPoint::set_native_require(
+    Local<Function> native_require) {
+  impl_->native_require = native_require;
+}
+
+void StartExecutionCallbackInfoWithEntryPoint::set_run_entry_point(
+    Local<Function> run_entry_point) {
+  impl_->run_entry_point = run_entry_point;
+}
+
+void StartExecutionCallbackInfoWithEntryPoint::set_data(void* data) {
+  impl_->data = data;
+}
+
+Environment* StartExecutionCallbackInfoWithEntryPoint::env() const {
+  return impl_->env;
+}
+
+Local<Object> StartExecutionCallbackInfoWithEntryPoint::process_object() const {
+  return impl_->process_object;
+}
+
+Local<Function> StartExecutionCallbackInfoWithEntryPoint::native_require()
+    const {
+  return impl_->native_require;
+}
+
+Local<Function> StartExecutionCallbackInfoWithEntryPoint::run_entry_point()
+    const {
+  return impl_->run_entry_point;
+}
+
+void* StartExecutionCallbackInfoWithEntryPoint::data() const {
+  return impl_->data;
+}
+
+struct EntryPointData::Impl {
+  std::string_view source;
+  ModuleFormat format = ModuleFormat::kCommonJS;
+  std::string_view resource_name;
+};
+
+EntryPointData::EntryPointData() : impl_(std::make_unique<Impl>()) {}
+
+EntryPointData::~EntryPointData() = default;
+
+EntryPointData::EntryPointData(EntryPointData&&) = default;
+
+EntryPointData& EntryPointData::operator=(EntryPointData&&) = default;
+
+EntryPointData& EntryPointData::set_source(std::string_view source) {
+  impl_->source = source;
+  return *this;
+}
+
+EntryPointData& EntryPointData::set_format(ModuleFormat format) {
+  impl_->format = format;
+  return *this;
+}
+
+EntryPointData& EntryPointData::set_resource_name(std::string_view name) {
+  impl_->resource_name = name;
+  return *this;
+}
+
+std::string_view EntryPointData::source() const {
+  return impl_->source;
+}
+
+ModuleFormat EntryPointData::format() const {
+  return impl_->format;
+}
+
+std::string_view EntryPointData::resource_name() const {
+  return impl_->resource_name;
+}
+
+struct LegacyEntryPointData {
+  StartExecutionCallback cb;
+  void* callback_data;
+};
+
+MaybeLocal<Value> LoadEnvironment(Environment* env,
+                                  StartExecutionCallback cb,
+                                  EmbedderPreloadCallback preload,
+                                  void* callback_data) {
+  if (cb == nullptr) {
+    return LoadEnvironment(
+        env, StartExecutionCallbackWithEntryPoint{}, std::move(preload));
+  }
+
+  LegacyEntryPointData data{cb, callback_data};
+  return LoadEnvironment(
+      env,
+      [](const StartExecutionCallbackInfoWithEntryPoint& info)
+          -> MaybeLocal<Value> {
+        const LegacyEntryPointData* data =
+            static_cast<const LegacyEntryPointData*>(info.data());
+        StartExecutionCallbackInfo legacy_info{
+            info.process_object(),
+            info.native_require(),
+            info.run_entry_point(),
+            data->callback_data,
+        };
+        return data->cb(legacy_info);
+      },
+      nullptr,
+      &data);
+}
+
+MaybeLocal<Value> RunEntryPoint(
+    const StartExecutionCallbackInfoWithEntryPoint& info) {
+  const EntryPointData* data = static_cast<const EntryPointData*>(info.data());
+  Environment* env = info.env();
+  Local<Context> context = env->context();
+  Isolate* isolate = env->isolate();
+  Local<Value> main_script =
+      ToV8Value(context, data->source()).ToLocalChecked();
+  Local<Value> format =
+      v8::Integer::New(isolate, static_cast<int>(data->format()));
+  Local<Value> resource_name =
+      ToV8Value(context, data->resource_name()).ToLocalChecked();
+  Local<Value> args[] = {main_script, format, resource_name};
+  return info.run_entry_point()->Call(
+      context, Null(isolate), arraysize(args), args);
 }
 
 MaybeLocal<Value> LoadEnvironment(Environment* env,
                                   std::string_view main_script_source_utf8,
                                   EmbedderPreloadCallback preload) {
+  EntryPointData data;
+  data.set_source(main_script_source_utf8)
+      .set_format(ModuleFormat::kCommonJS)
+      .set_resource_name(env->exec_path());
+  return LoadEnvironment(env, &data, std::move(preload));
+}
+
+MaybeLocal<Value> LoadEnvironment(Environment* env,
+                                  const EntryPointData* data,
+                                  EmbedderPreloadCallback preload) {
   // It could be empty when it's used by SEA to load an empty script.
-  CHECK_IMPLIES(main_script_source_utf8.size() > 0,
-                main_script_source_utf8.data());
-  return LoadEnvironment(
-      env,
-      [&](const StartExecutionCallbackInfo& info) -> MaybeLocal<Value> {
-        Local<Value> main_script;
-        if (!ToV8Value(env->context(), main_script_source_utf8)
-                 .ToLocal(&main_script)) {
-          return {};
-        }
-        return info.run_cjs->Call(
-            env->context(), Null(env->isolate()), 1, &main_script);
-      },
-      std::move(preload));
+  CHECK_IMPLIES(data->source().size() > 0, data->source().data());
+  return LoadEnvironment(env,
+                         RunEntryPoint,
+                         std::move(preload),
+                         const_cast<EntryPointData*>(data));
 }
 
 Environment* GetCurrentEnvironment(Local<Context> context) {

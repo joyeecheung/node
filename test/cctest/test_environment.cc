@@ -807,3 +807,127 @@ TEST_F(EnvironmentTest, EmbedderPreload) {
   node::Utf8Value main_ret_str(isolate_, main_ret);
   EXPECT_EQ(std::string(*main_ret_str), "preload");
 }
+
+TEST_F(EnvironmentTest, LoadEnvironmentWithESMEntryPoint) {
+  const v8::HandleScope handle_scope(isolate_);
+  const Argv argv;
+  Env env{handle_scope, argv};
+
+  SetProcessExitHandler(*env, [&](node::Environment* env_, int exit_code) {
+    EXPECT_EQ(*env, env_);
+    EXPECT_EQ(exit_code, 0);
+    node::Stop(*env);
+  });
+
+  node::EntryPointData entry_point;
+  std::string source =
+      "import assert from 'assert';\n"
+      "import path from 'node:path';\n"
+      "assert.strictEqual(typeof path.join, 'function');\n"
+      "export const result = 'esm-loaded';\n";
+  entry_point.set_source(source)
+      .set_format(node::ModuleFormat::kModule)
+      .set_resource_name("/embedded-esm.mjs");
+
+  v8::Local<v8::Value> main_ret =
+      node::LoadEnvironment(*env, &entry_point).ToLocalChecked();
+
+  // The ESM entry point returns the module namespace object.
+  CHECK(main_ret->IsObject());
+  v8::Local<v8::Context> context = isolate_->GetCurrentContext();
+  v8::Local<v8::Value> result_value =
+      main_ret.As<v8::Object>()
+          ->Get(context,
+                v8::String::NewFromUtf8Literal(isolate_, "result"))
+          .ToLocalChecked();
+  CHECK(result_value->IsString());
+  node::Utf8Value result_str(isolate_, result_value);
+  EXPECT_EQ(std::string(*result_str), "esm-loaded");
+}
+
+TEST_F(EnvironmentTest, LoadEnvironmentWithCallbackWithEntryPoint) {
+  const v8::HandleScope handle_scope(isolate_);
+  const Argv argv;
+  Env env{handle_scope, argv};
+
+  v8::Local<v8::Context> context = isolate_->GetCurrentContext();
+  bool called_cb = false;
+
+  node::LoadEnvironment(
+      *env,
+      [&](const node::StartExecutionCallbackInfoWithEntryPoint& info)
+          -> v8::MaybeLocal<v8::Value> {
+        called_cb = true;
+
+        // Verify all accessors work correctly.
+        CHECK_NOT_NULL(info.env());
+        CHECK(info.process_object()->IsObject());
+        CHECK(info.native_require()->IsFunction());
+        CHECK(info.run_entry_point()->IsFunction());
+
+        // Check that we can access process.argv0.
+        v8::Local<v8::Value> argv0 =
+            info.process_object()
+                ->Get(context,
+                      v8::String::NewFromUtf8Literal(isolate_, "argv0"))
+                .ToLocalChecked();
+        CHECK(argv0->IsString());
+
+        // Test running a CJS entry point via run_entry_point.
+        v8::Local<v8::Value> source = v8::String::NewFromUtf8Literal(
+            isolate_, "return { value: 'from-callback' };");
+        // Format defaults to kCommonJS when not specified.
+        v8::Local<v8::Value> args[] = {source};
+        return info.run_entry_point()->Call(
+            context, v8::Null(isolate_), 1, args);
+      },
+      nullptr);
+
+  CHECK(called_cb);
+}
+
+TEST_F(EnvironmentTest, LoadEnvironmentWithCallbackWithEntryPointESM) {
+  const v8::HandleScope handle_scope(isolate_);
+  const Argv argv;
+  Env env{handle_scope, argv};
+
+  SetProcessExitHandler(*env, [&](node::Environment* env_, int exit_code) {
+    EXPECT_EQ(*env, env_);
+    EXPECT_EQ(exit_code, 0);
+    node::Stop(*env);
+  });
+
+  v8::Local<v8::Context> context = isolate_->GetCurrentContext();
+  bool called_cb = false;
+
+  v8::Local<v8::Value> main_ret =
+      node::LoadEnvironment(
+          *env,
+          [&](const node::StartExecutionCallbackInfoWithEntryPoint& info)
+              -> v8::MaybeLocal<v8::Value> {
+            called_cb = true;
+
+            // Test running an ESM entry point via run_entry_point.
+            v8::Local<v8::Value> source = v8::String::NewFromUtf8Literal(
+                isolate_,
+                "import assert from 'assert';\n"
+                "export const loaded = true;\n");
+            // Pass format as kModule (1).
+            v8::Local<v8::Value> format = v8::Integer::New(isolate_, 1);
+            v8::Local<v8::Value> resource_name =
+                v8::String::NewFromUtf8Literal(isolate_, "/test-esm.mjs");
+            v8::Local<v8::Value> args[] = {source, format, resource_name};
+            return info.run_entry_point()->Call(
+                context, v8::Null(isolate_), 3, args);
+          },
+          nullptr)
+          .ToLocalChecked();
+
+  CHECK(called_cb);
+  CHECK(main_ret->IsObject());
+  v8::Local<v8::Value> loaded_value =
+      main_ret.As<v8::Object>()
+          ->Get(context, v8::String::NewFromUtf8Literal(isolate_, "loaded"))
+          .ToLocalChecked();
+  CHECK(loaded_value->IsTrue());
+}

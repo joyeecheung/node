@@ -723,10 +723,54 @@ struct StartExecutionCallbackInfo {
   v8::Local<v8::Object> process_object;
   v8::Local<v8::Function> native_require;
   v8::Local<v8::Function> run_cjs;
+  void* data;
+};
+
+enum class ModuleFormat : uint8_t {
+  kCommonJS,
+  kModule,
+  // TODO(joyeecheung): support TypeScriptModule, TypeScriptCommonJS
+};
+
+// Information passed to embedder callbacks during environment startup.
+// This class is created by Node.js and passed to the embedder's callback.
+// The layout is opaque to allow future additions without breaking ABI.
+class NODE_EXTERN StartExecutionCallbackInfoWithEntryPoint {
+ public:
+  ~StartExecutionCallbackInfoWithEntryPoint();
+
+  Environment* env() const;
+  v8::Local<v8::Object> process_object() const;
+  v8::Local<v8::Function> native_require() const;
+  v8::Local<v8::Function> run_entry_point() const;
+  void* data() const;
+
+  StartExecutionCallbackInfoWithEntryPoint(
+      const StartExecutionCallbackInfoWithEntryPoint&) = delete;
+  StartExecutionCallbackInfoWithEntryPoint& operator=(
+      const StartExecutionCallbackInfoWithEntryPoint&) = delete;
+  StartExecutionCallbackInfoWithEntryPoint(
+      StartExecutionCallbackInfoWithEntryPoint&&);
+  StartExecutionCallbackInfoWithEntryPoint& operator=(
+      StartExecutionCallbackInfoWithEntryPoint&&);
+
+  StartExecutionCallbackInfoWithEntryPoint();
+  void set_env(Environment* env);
+  void set_process_object(v8::Local<v8::Object> process_object);
+  void set_native_require(v8::Local<v8::Function> native_require);
+  void set_run_entry_point(v8::Local<v8::Function> run_entry_point);
+  void set_data(void* data);
+
+ private:
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
 };
 
 using StartExecutionCallback =
     std::function<v8::MaybeLocal<v8::Value>(const StartExecutionCallbackInfo&)>;
+using StartExecutionCallbackWithEntryPoint =
+    std::function<v8::MaybeLocal<v8::Value>(
+        const StartExecutionCallbackInfoWithEntryPoint&)>;
 using EmbedderPreloadCallback =
     std::function<void(Environment* env,
                        v8::Local<v8::Value> process,
@@ -749,11 +793,53 @@ using EmbedderPreloadCallback =
 NODE_EXTERN v8::MaybeLocal<v8::Value> LoadEnvironment(
     Environment* env,
     StartExecutionCallback cb,
-    EmbedderPreloadCallback preload = nullptr);
+    EmbedderPreloadCallback preload = nullptr,
+    void* callback_data = nullptr);
+
+NODE_EXTERN v8::MaybeLocal<v8::Value> LoadEnvironment(
+    Environment* env,
+    StartExecutionCallbackWithEntryPoint cb,
+    EmbedderPreloadCallback preload = nullptr,
+    void* callback_data = nullptr);
+
 NODE_EXTERN v8::MaybeLocal<v8::Value> LoadEnvironment(
     Environment* env,
     std::string_view main_script_source_utf8,
     EmbedderPreloadCallback preload = nullptr);
+
+// Data for specifying an entry point script for LoadEnvironment().
+// This class uses an opaque layout to allow future additions without
+// breaking ABI. Use the setter methods to configure the entry point.
+class NODE_EXTERN EntryPointData {
+ public:
+  EntryPointData();
+  ~EntryPointData();
+
+  // Setters - return *this for chaining
+  EntryPointData& set_source(std::string_view source);
+  EntryPointData& set_format(ModuleFormat format);
+  EntryPointData& set_resource_name(std::string_view name);
+
+  // Getters
+  std::string_view source() const;
+  ModuleFormat format() const;
+  std::string_view resource_name() const;
+
+  EntryPointData(const EntryPointData&) = delete;
+  EntryPointData& operator=(const EntryPointData&) = delete;
+  EntryPointData(EntryPointData&&);
+  EntryPointData& operator=(EntryPointData&&);
+
+ private:
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
+};
+
+NODE_EXTERN v8::MaybeLocal<v8::Value> LoadEnvironment(
+    Environment* env,
+    const EntryPointData* entry_point,
+    EmbedderPreloadCallback preload = nullptr);
+
 NODE_EXTERN void FreeEnvironment(Environment* env);
 
 // Set a callback that is called when process.exit() is called from JS,
