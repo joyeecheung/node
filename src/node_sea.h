@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "node.h"
 #include "node_exit_code.h"
 
 namespace node {
@@ -43,6 +44,7 @@ struct SeaConfig {
   std::string executable_path;
   SeaFlags flags = SeaFlags::kDefault;
   SeaExecArgvExtension exec_argv_extension = SeaExecArgvExtension::kEnv;
+  ModuleFormat main_format = ModuleFormat::kCommonJS;
   std::unordered_map<std::string, std::string> assets;
   std::vector<std::string> exec_argv;
 };
@@ -52,6 +54,7 @@ struct SeaResource {
   SeaExecArgvExtension exec_argv_extension = SeaExecArgvExtension::kEnv;
   std::string_view code_path;
   std::string_view main_code_or_snapshot;
+  ModuleFormat main_code_format = ModuleFormat::kCommonJS;
   std::optional<std::string_view> code_cache;
   std::unordered_map<std::string_view, std::string_view> assets;
   std::vector<std::string_view> exec_argv;

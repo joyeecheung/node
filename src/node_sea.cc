@@ -92,6 +92,11 @@ size_t SeaSerializer::Write(const SeaResource& sea) {
   written_total +=
       WriteStringView(sea.code_path, StringLogMode::kAddressAndContent);
 
+  Debug("Write SEA main code format %u\n",
+        static_cast<uint8_t>(sea.main_code_format));
+  written_total +=
+      WriteArithmetic<uint8_t>(static_cast<uint8_t>(sea.main_code_format));
+
   Debug("Write SEA resource %s %p, size=%zu\n",
         sea.use_snapshot() ? "snapshot" : "code",
         sea.main_code_or_snapshot.data(),
@@ -168,6 +173,10 @@ SeaResource SeaDeserializer::Read() {
   Debug(
       "Read SEA code path %p, size=%zu\n", code_path.data(), code_path.size());
 
+  uint8_t format_value = ReadArithmetic<uint8_t>();
+  ModuleFormat main_code_format = static_cast<ModuleFormat>(format_value);
+  Debug("Read SEA main code format %u\n", format_value);
+
   bool use_snapshot = static_cast<bool>(flags & SeaFlags::kUseSnapshot);
   std::string_view code =
       ReadStringView(use_snapshot ? StringLogMode::kAddressOnly
@@ -219,6 +228,7 @@ SeaResource SeaDeserializer::Read() {
           exec_argv_extension,
           code_path,
           code,
+          main_code_format,
           code_cache,
           assets,
           exec_argv};
@@ -501,6 +511,25 @@ std::optional<SeaConfig> ParseSingleExecutableConfig(
                 config_path);
         return std::nullopt;
       }
+    } else if (key == "mainFormat") {
+      std::string_view format_str;
+      if (field.value().get_string().get(format_str)) {
+        FPrintF(stderr,
+                "\"mainFormat\" field of %s is not a string\n",
+                config_path);
+        return std::nullopt;
+      }
+      if (format_str == "commonjs") {
+        result.main_format = ModuleFormat::kCommonJS;
+      } else if (format_str == "module") {
+        result.main_format = ModuleFormat::kModule;
+      } else {
+        FPrintF(stderr,
+                "\"mainFormat\" field of %s must be one of "
+                "\"commonjs\" or \"module\"\n",
+                config_path);
+        return std::nullopt;
+      }
     }
   }
 
@@ -709,6 +738,7 @@ ExitCode GenerateSingleExecutableBlob(
       builds_snapshot_from_main
           ? std::string_view{snapshot_blob.data(), snapshot_blob.size()}
           : std::string_view{main_script.data(), main_script.size()},
+      config.main_format,
       optional_sv_code_cache,
       assets_view,
       exec_argv_view};
@@ -792,20 +822,25 @@ void GetAssetKeys(const FunctionCallbackInfo<Value>& args) {
 }
 
 MaybeLocal<Value> LoadSingleExecutableApplication(
-    const StartExecutionCallbackInfo& info) {
+    const StartExecutionCallbackInfoWithEntryPoint& info) {
   // Here we are currently relying on the fact that in NodeMainInstance::Run(),
   // env->context() is entered.
-  Local<Context> context = Isolate::GetCurrent()->GetCurrentContext();
-  Environment* env = Environment::GetCurrent(context);
+  Environment* env = info.env();
+  Local<Context> context = env->context();
   SeaResource sea = FindSingleExecutableResource();
 
   CHECK(!sea.use_snapshot());
   // TODO(joyeecheung): this should be an external string. Refactor UnionBytes
   // and make it easy to create one based on static content on the fly.
   Local<Value> main_script =
-      ToV8Value(env->context(), sea.main_code_or_snapshot).ToLocalChecked();
-  return info.run_cjs->Call(
-      env->context(), Null(env->isolate()), 1, &main_script);
+      ToV8Value(context, sea.main_code_or_snapshot).ToLocalChecked();
+  Local<Value> kind =
+      v8::Integer::New(env->isolate(), static_cast<int>(sea.main_code_format));
+  Local<Value> resource_name =
+      ToV8Value(context, env->exec_path()).ToLocalChecked();
+  Local<Value> args[] = {main_script, kind, resource_name};
+  return info.run_entry_point()->Call(
+      env->context(), Null(env->isolate()), arraysize(args), args);
 }
 
 bool MaybeLoadSingleExecutableApplication(Environment* env) {
@@ -821,7 +856,7 @@ bool MaybeLoadSingleExecutableApplication(Environment* env) {
     // this check is just here to guard against the unlikely case where
     // the SEA preparation blob has been manually modified by someone.
     CHECK(!env->snapshot_deserialize_main().IsEmpty());
-    LoadEnvironment(env, StartExecutionCallback{});
+    LoadEnvironment(env, StartExecutionCallbackWithEntryPoint{});
     return true;
   }
 
