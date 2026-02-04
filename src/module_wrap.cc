@@ -98,8 +98,7 @@ std::string ModuleCacheKey::ToString() const {
 }
 
 template <int elements_per_attribute>
-ModuleCacheKey ModuleCacheKey::From(Local<Context> context,
-                                    Local<String> specifier,
+ModuleCacheKey ModuleCacheKey::From(Local<String> specifier,
                                     Local<FixedArray> import_attributes) {
   CHECK_EQ(import_attributes->Length() % elements_per_attribute, 0);
   Isolate* isolate = Isolate::GetCurrent();
@@ -112,8 +111,8 @@ ModuleCacheKey ModuleCacheKey::From(Local<Context> context,
 
   for (int i = 0; i < import_attributes->Length();
        i += elements_per_attribute) {
-    DCHECK(DataIsString(import_attributes->Get(context, i)));
-    DCHECK(DataIsString(import_attributes->Get(context, i + 1)));
+    DCHECK(DataIsString(import_attributes->Get(i)));
+    DCHECK(DataIsString(import_attributes->Get(i + 1)));
 
     Local<String> v8_key = import_attributes->Get(i).As<String>();
     Local<String> v8_value = import_attributes->Get(i + 1).As<String>();
@@ -133,10 +132,8 @@ ModuleCacheKey ModuleCacheKey::From(Local<Context> context,
   return ModuleCacheKey{utf8_specifier.ToString(), attributes, hash};
 }
 
-ModuleCacheKey ModuleCacheKey::From(Local<Context> context,
-                                    Local<ModuleRequest> v8_request) {
-  return From(
-      context, v8_request->GetSpecifier(), v8_request->GetImportAttributes());
+ModuleCacheKey ModuleCacheKey::From(Local<ModuleRequest> v8_request) {
+  return From(v8_request->GetSpecifier(), v8_request->GetImportAttributes());
 }
 
 ModuleWrap::ModuleWrap(Realm* realm,
@@ -600,7 +597,7 @@ static Local<Array> createModuleRequestsContainer(
   LocalVector<Value> requests(isolate, raw_requests->Length());
 
   for (int i = 0; i < raw_requests->Length(); i++) {
-    DCHECK(raw_requests->Get(context, i)->IsModuleRequest());
+    DCHECK(raw_requests->Get(i)->IsModuleRequest());
     Local<ModuleRequest> module_request =
         raw_requests->Get(i).As<ModuleRequest>();
 
@@ -691,7 +688,7 @@ void ModuleWrap::Link(const FunctionCallbackInfo<Value>& args) {
     // This currently doesn't sort the import attributes.
     Local<Value> module_value = modules_vector[i].Get(isolate);
     ModuleCacheKey module_cache_key =
-        ModuleCacheKey::From(context, requests->Get(i).As<ModuleRequest>());
+        ModuleCacheKey::From(requests->Get(i).As<ModuleRequest>());
     auto it = module_request_map.find(module_cache_key);
     if (it == module_request_map.end()) {
       // This is the first request with this identity, record it - any mismatch
