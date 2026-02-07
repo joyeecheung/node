@@ -74,6 +74,11 @@ class PerformanceState {
                    double time_origin_timestamp);
   friend std::ostream& operator<<(std::ostream& o, const SerializeInfo& i);
 
+  // Print current state for snapshot debugging.
+  void PrintForSnapshot() const;
+  // Verify that the state is clean for the built-in snapshot.
+  void CheckDefaultSnapshotIntegrity() const;
+
   AliasedUint8Array root;
   AliasedFloat64Array milestones;
   AliasedUint32Array observers;

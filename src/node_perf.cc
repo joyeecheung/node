@@ -84,7 +84,25 @@ PerformanceState::SerializeInfo PerformanceState::Serialize(
   SerializeInfo info{root.Serialize(context, creator),
                      milestones.Serialize(context, creator),
                      observers.Serialize(context, creator)};
+
   return info;
+}
+
+void PerformanceState::PrintForSnapshot() const {
+  fprintf(stderr, "PerformanceState:\n");
+  milestones.PrintForSnapshot("milestones");
+  observers.PrintForSnapshot("observers");
+}
+
+void PerformanceState::CheckDefaultSnapshotIntegrity() const {
+  // No observers should be registered in built-in snapshot
+  for (size_t i = 0; i < observers.Length(); ++i) {
+    CHECK_EQ(observers[i], 0);
+  }
+  // Milestones should be reset (all -1) after Serialize() calls ResetMilestones
+  for (size_t i = 0; i < milestones.Length(); ++i) {
+    CHECK_EQ(milestones[i], -1);
+  }
 }
 
 void PerformanceState::Initialize(uint64_t time_origin,

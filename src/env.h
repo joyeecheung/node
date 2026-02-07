@@ -372,6 +372,11 @@ class AsyncHooks : public MemoryRetainer {
                           v8::SnapshotCreator* creator);
   void Deserialize(v8::Local<v8::Context> context);
 
+  // Print current state for snapshot debugging.
+  void PrintForSnapshot() const;
+  // Verify that the state is clean for the built-in snapshot.
+  void CheckDefaultSnapshotIntegrity() const;
+
  private:
   friend class Environment;  // So we can call the constructor.
   explicit AsyncHooks(v8::Isolate* isolate, const SerializeInfo* info);
@@ -431,6 +436,11 @@ class ImmediateInfo : public MemoryRetainer {
                           v8::SnapshotCreator* creator);
   void Deserialize(v8::Local<v8::Context> context);
 
+  // Print current state for snapshot debugging.
+  void PrintForSnapshot() const;
+  // Verify that the state is clean for the built-in snapshot.
+  void CheckDefaultSnapshotIntegrity() const;
+
  private:
   friend class Environment;  // So we can call the constructor.
   explicit ImmediateInfo(v8::Isolate* isolate, const SerializeInfo* info);
@@ -462,6 +472,11 @@ class TickInfo : public MemoryRetainer {
   SerializeInfo Serialize(v8::Local<v8::Context> context,
                           v8::SnapshotCreator* creator);
   void Deserialize(v8::Local<v8::Context> context);
+
+  // Print current state for snapshot debugging.
+  void PrintForSnapshot() const;
+  // Verify that the state is clean for the built-in snapshot.
+  void CheckDefaultSnapshotIntegrity() const;
 
  private:
   friend class Environment;  // So we can call the constructor.

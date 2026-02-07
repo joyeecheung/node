@@ -237,6 +237,27 @@ inline size_t AliasedBufferBase<NativeT, V8T>::SelfSize() const {
 ALIASED_BUFFER_LIST(VM)
 #undef VM
 
+template <typename NativeT, typename V8T>
+void AliasedBufferBase<NativeT, V8T>::PrintForSnapshot(
+    const char* name_hint) const {
+  fprintf(stderr, "  %s[%zu]: [ ", name_hint, count_);
+  // Print up to 16 elements, then ellipsis if more
+  size_t print_count = count_ < 16 ? count_ : 16;
+  for (size_t i = 0; i < print_count; ++i) {
+    if (i > 0) fprintf(stderr, ", ");
+    // Use appropriate format based on type
+    if constexpr (std::is_floating_point_v<NativeT>) {
+      fprintf(stderr, "%.2f", static_cast<double>(buffer_[i]));
+    } else if constexpr (std::is_signed_v<NativeT>) {
+      fprintf(stderr, "%" PRId64, static_cast<int64_t>(buffer_[i]));
+    } else {
+      fprintf(stderr, "%" PRIu64, static_cast<uint64_t>(buffer_[i]));
+    }
+  }
+  if (count_ > 16) fprintf(stderr, ", ...");
+  fprintf(stderr, " ]\n");
+}
+
 }  // namespace node
 
 #endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS

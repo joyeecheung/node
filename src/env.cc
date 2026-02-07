@@ -381,6 +381,13 @@ IsolateDataSerializeInfo IsolateData::Serialize(SnapshotCreator* creator) {
   NODE_BINDINGS_WITH_PER_ISOLATE_INIT(VM)
 #undef V
 
+  // Debug logging for MKSNAPSHOT
+  if (per_process::enabled_debug_list.enabled(DebugCategory::MKSNAPSHOT)) {
+    fprintf(stderr, "\nIsolateData:\n");
+    fprintf(stderr, "  primitive_values: %zu\n", info.primitive_values.size());
+    fprintf(stderr, "  template_values: %zu\n", info.template_values.size());
+  }
+
   return info;
 }
 
@@ -1721,6 +1728,17 @@ void ImmediateInfo::MemoryInfo(MemoryTracker* tracker) const {
   tracker->TrackField("fields", fields_);
 }
 
+void ImmediateInfo::PrintForSnapshot() const {
+  fprintf(stderr, "ImmediateInfo:\n");
+  fields_.PrintForSnapshot("fields");
+}
+
+void ImmediateInfo::CheckDefaultSnapshotIntegrity() const {
+  CHECK_EQ(fields_[kCount], 0);
+  CHECK_EQ(fields_[kRefCount], 0);
+  CHECK_EQ(fields_[kHasOutstanding], 0);
+}
+
 TickInfo::SerializeInfo TickInfo::Serialize(Local<Context> context,
                                             SnapshotCreator* creator) {
   return {fields_.Serialize(context, creator)};
@@ -1738,6 +1756,16 @@ std::ostream& operator<<(std::ostream& output,
 
 void TickInfo::MemoryInfo(MemoryTracker* tracker) const {
   tracker->TrackField("fields", fields_);
+}
+
+void TickInfo::PrintForSnapshot() const {
+  fprintf(stderr, "TickInfo:\n");
+  fields_.PrintForSnapshot("fields");
+}
+
+void TickInfo::CheckDefaultSnapshotIntegrity() const {
+  CHECK_EQ(fields_[kHasTickScheduled], 0);
+  CHECK_EQ(fields_[kHasRejectionToWarn], 0);
 }
 
 TickInfo::TickInfo(Isolate* isolate, const SerializeInfo* info)
@@ -1851,6 +1879,40 @@ AsyncHooks::SerializeInfo AsyncHooks::Serialize(Local<Context> context,
   return info;
 }
 
+void AsyncHooks::PrintForSnapshot() const {
+  fprintf(stderr, "AsyncHooks:\n");
+  async_ids_stack_.PrintForSnapshot("async_ids_stack");
+  fields_.PrintForSnapshot("fields");
+  async_id_fields_.PrintForSnapshot("async_id_fields");
+  fprintf(stderr, "  native_execution_async_resources.size(): %zu\n",
+          native_execution_async_resources_.size());
+}
+
+void AsyncHooks::CheckDefaultSnapshotIntegrity() const {
+  // Verification for built-in snapshot (not customized).
+  // The built-in snapshot should have clean/reset async state.
+  // Stack should be cleared (kStackLength = 0)
+  CHECK_EQ(fields_[kStackLength], 0);
+  // No async hooks should be registered
+  CHECK_EQ(fields_[kInit], 0);
+  CHECK_EQ(fields_[kBefore], 0);
+  CHECK_EQ(fields_[kAfter], 0);
+  CHECK_EQ(fields_[kDestroy], 0);
+  CHECK_EQ(fields_[kPromiseResolve], 0);
+  CHECK_EQ(fields_[kTotals], 0);
+  // Execution context should be at root level
+  CHECK_EQ(async_id_fields_[kExecutionAsyncId], 0);
+  CHECK_EQ(async_id_fields_[kTriggerAsyncId], 0);
+  // kDefaultTriggerAsyncId should be -1 (fallback to executionAsyncId)
+  CHECK_EQ(async_id_fields_[kDefaultTriggerAsyncId], -1);
+  // kAsyncIdCounter should be at initial value (1) since no async ops ran
+  // Actually, it might be higher if bootstrap ran some async, so just check
+  // it's positive
+  CHECK_GE(async_id_fields_[kAsyncIdCounter], 1);
+  // No native execution async resources should remain
+  CHECK_EQ(native_execution_async_resources_.size(), 0);
+}
+
 void AsyncHooks::MemoryInfo(MemoryTracker* tracker) const {
   tracker->TrackField("async_ids_stack", async_ids_stack_);
   tracker->TrackField("fields", fields_);
@@ -1956,6 +2018,10 @@ EnvSerializeInfo Environment::Serialize(SnapshotCreator* creator) {
   EnvSerializeInfo info;
   Local<Context> ctx = context();
 
+  const SnapshotConfig* config = isolate_data()->snapshot_config();
+  bool is_default_snapshot =
+      config != nullptr && !config->builder_script_path.has_value();
+
   info.async_hooks = async_hooks_.Serialize(ctx, creator);
   info.immediate_info = immediate_info_.Serialize(ctx, creator);
   info.timeout_info = timeout_info_.Serialize(ctx, creator);
@@ -1967,6 +2033,36 @@ EnvSerializeInfo Environment::Serialize(SnapshotCreator* creator) {
       should_abort_on_uncaught_toggle_.Serialize(ctx, creator);
 
   info.principal_realm = principal_realm_->Serialize(creator);
+
+  // Debug logging for MKSNAPSHOT
+  if (enabled_debug_list()->enabled(DebugCategory::MKSNAPSHOT)) {
+    fprintf(stderr, "\n[MKSNAPSHOT] Environment::Serialize()\n");
+    fprintf(stderr, "Snapshot type: %s\n",
+            is_default_snapshot ? "default (built-in)" : "customized");
+    async_hooks_.PrintForSnapshot();
+    immediate_info_.PrintForSnapshot();
+    tick_info_.PrintForSnapshot();
+    timeout_info_.PrintForSnapshot("timeout_info");
+    exit_info_.PrintForSnapshot("exit_info");
+    stream_base_state_.PrintForSnapshot("stream_base_state");
+    should_abort_on_uncaught_toggle_.PrintForSnapshot(
+        "should_abort_on_uncaught_toggle");
+    performance_state_->PrintForSnapshot();
+  }
+
+  // Verification for built-in (default) snapshot.
+  // The built-in snapshot should have clean/reset state for runtime fields.
+  if (is_default_snapshot) {
+    async_hooks_.CheckDefaultSnapshotIntegrity();
+    immediate_info_.CheckDefaultSnapshotIntegrity();
+    tick_info_.CheckDefaultSnapshotIntegrity();
+    // exit_info: process should not be exiting
+    CHECK_EQ(exit_info_[kExiting], 0);
+    // should_abort_on_uncaught_toggle: default value is 1
+    CHECK_EQ(should_abort_on_uncaught_toggle_[0], 1);
+    performance_state_->CheckDefaultSnapshotIntegrity();
+  }
+
   // For now we only support serialization of the main context.
   // TODO(joyeecheung): support de/serialization of vm contexts.
   CHECK_EQ(contexts_.size(), 1);

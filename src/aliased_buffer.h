@@ -171,6 +171,10 @@ class AliasedBufferBase final : public MemoryRetainer {
   const char* MemoryInfoName() const override;
   void MemoryInfo(MemoryTracker* tracker) const override;
 
+  // Print buffer contents for snapshot debugging.
+  // name_hint is used as the label, e.g. "async_ids_stack".
+  void PrintForSnapshot(const char* name_hint) const;
+
  private:
   bool is_valid() const;
   v8::Isolate* isolate_ = nullptr;

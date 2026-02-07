@@ -129,6 +129,16 @@ RealmSerializeInfo Realm::Serialize(SnapshotCreator* creator) {
   SerializeSnapshotableObjects(this, creator, &info);
 
   info.context = creator->AddData(ctx, ctx);
+
+  // Debug logging for MKSNAPSHOT
+  if (per_process::enabled_debug_list.enabled(DebugCategory::MKSNAPSHOT)) {
+    fprintf(stderr, "\nRealm (%s):\n",
+            kind_ == Kind::kPrincipal ? "principal" : "shadow");
+    fprintf(stderr, "  builtins: %zu\n", info.builtins.size());
+    fprintf(stderr, "  persistent_values: %zu\n", info.persistent_values.size());
+    fprintf(stderr, "  native_objects: %zu\n", info.native_objects.size());
+  }
+
   return info;
 }
 
