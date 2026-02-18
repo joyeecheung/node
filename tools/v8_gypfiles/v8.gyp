@@ -1998,7 +1998,7 @@
       'toolsets': ['host', 'target'],
       'direct_dependent_settings': {
         'sources': [
-          '<!@pymod_do_main(GN-scraper "<(V8_ROOT)/BUILD.gn"  "v8_source_set.\\"cppgc_base.*?sources = ")',
+          '<!@pymod_do_main(GN-scraper "<(V8_ROOT)/BUILD.gn"  "v8_cluster_source_set.\\"cppgc_base.*?sources = ")',
         ],
       },
     },  # cppgc_base
