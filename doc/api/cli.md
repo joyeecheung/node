@@ -1375,6 +1375,26 @@ if (globalThis.gc) {
 }
 ```
 
+### `--fetch-env-proxy`
+
+<!-- YAML
+added: v26.0.0
+-->
+
+> Stability: 1.1 - Active Development
+
+When enabled, Node.js parses the `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY`
+environment variables during startup, and tunnels `fetch()` requests over the
+specified proxy. Unlike [`--use-env-proxy`][], this only affects `fetch()` and
+does not configure the global `http.globalAgent` or `https.globalAgent`.
+
+This is equivalent to setting the [`NODE_FETCH_ENV_PROXY=1`][] environment variable.
+When both are set, `--fetch-env-proxy` takes precedence.
+
+To disable `fetch()` proxy support when [`--use-env-proxy`][] is enabled, use
+`--no-use-env-proxy` (which disables both) rather than `--no-fetch-env-proxy`,
+because `--use-env-proxy` implies `--fetch-env-proxy`.
+
 ### `--force-context-aware`
 
 <!-- YAML
@@ -3201,7 +3221,14 @@ added:
 
 When enabled, Node.js parses the `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY`
 environment variables during startup, and tunnels requests over the
-specified proxy.
+specified proxy. This affects both `fetch()` and the global `http`/`https`
+agents (`http.globalAgent` and `https.globalAgent`).
+
+This is a superset of [`--fetch-env-proxy`][]: enabling `--use-env-proxy`
+also enables `--fetch-env-proxy`. To disable only fetch proxy while keeping
+http/https proxy active, use `--no-fetch-env-proxy`, but note that this has
+no effect when `--use-env-proxy` is set, as `--use-env-proxy` implies
+`--fetch-env-proxy`. Use `--no-use-env-proxy` to disable all proxy support.
 
 This is equivalent to setting the [`NODE_USE_ENV_PROXY=1`][] environment variable.
 When both are set, `--use-env-proxy` takes precedence.
@@ -3721,6 +3748,7 @@ one is included in the list below.
 * `--unhandled-rejections`
 * `--use-bundled-ca`
 * `--use-env-proxy`
+* `--fetch-env-proxy`
 * `--use-largepages`
 * `--use-openssl-ca`
 * `--use-system-ca`
@@ -3865,6 +3893,22 @@ If `value` equals `'0'`, certificate validation is disabled for TLS connections.
 This makes TLS, and HTTPS by extension, insecure. The use of this environment
 variable is strongly discouraged.
 
+### `NODE_FETCH_ENV_PROXY=1`
+
+<!-- YAML
+added: v26.0.0
+-->
+
+> Stability: 1.1 - Active Development
+
+When enabled, Node.js parses the `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY`
+environment variables during startup, and tunnels `fetch()` requests over the
+specified proxy. Unlike [`NODE_USE_ENV_PROXY=1`][], this only affects `fetch()`
+and does not configure the global `http.globalAgent` or `https.globalAgent`.
+
+This can also be enabled using the [`--fetch-env-proxy`][] command-line flag.
+When both are set, `--fetch-env-proxy` takes precedence.
+
 ### `NODE_USE_ENV_PROXY=1`
 
 <!-- YAML
@@ -3877,7 +3921,8 @@ added:
 
 When enabled, Node.js parses the `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY`
 environment variables during startup, and tunnels requests over the
-specified proxy.
+specified proxy. This affects both `fetch()` and the global `http`/`https`
+agents. This is a superset of [`NODE_FETCH_ENV_PROXY=1`][].
 
 This can also be enabled using the [`--use-env-proxy`][] command-line flag.
 When both are set, `--use-env-proxy` takes precedence.
@@ -4229,6 +4274,7 @@ node --stack-trace-limit=12 -p -e "Error.stackTraceLimit" # prints 12
 [`--print`]: #-p---print-script
 [`--redirect-warnings`]: #--redirect-warningsfile
 [`--require`]: #-r---require-module
+[`--fetch-env-proxy`]: #--fetch-env-proxy
 [`--use-env-proxy`]: #--use-env-proxy
 [`--use-system-ca`]: #--use-system-ca
 [`AsyncLocalStorage`]: async_context.md#class-asynclocalstorage
@@ -4237,6 +4283,7 @@ node --stack-trace-limit=12 -p -e "Error.stackTraceLimit" # prints 12
 [`ERR_INVALID_TYPESCRIPT_SYNTAX`]: errors.md#err_invalid_typescript_syntax
 [`ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`]: errors.md#err_unsupported_typescript_syntax
 [`NODE_OPTIONS`]: #node_optionsoptions
+[`NODE_FETCH_ENV_PROXY=1`]: #node_fetch_env_proxy1
 [`NODE_USE_ENV_PROXY=1`]: #node_use_env_proxy1
 [`NO_COLOR`]: https://no-color.org
 [`Web Storage`]: https://developer.mozilla.org/en-US/docs/Web/API/Web_Storage_API

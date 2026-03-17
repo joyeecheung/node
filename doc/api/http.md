@@ -4413,6 +4413,12 @@ When Node.js creates the global agent, if the `NODE_USE_ENV_PROXY` environment v
 set to `1` or `--use-env-proxy` is enabled, the global agent will be constructed
 with `proxyEnv: process.env`, enabling proxy support based on the environment variables.
 
+To enable proxy support for `fetch()` only (without affecting the global
+`http.globalAgent` or `https.globalAgent`), use [`--fetch-env-proxy`][] or set
+`NODE_FETCH_ENV_PROXY=1`. [`--use-env-proxy`][] is a superset of `--fetch-env-proxy`:
+it enables proxy support for both `fetch()` and the `http`/`https` global agents.
+To disable all proxy support, use `--no-use-env-proxy`.
+
 To enable proxy support dynamically and globally, use [`http.setGlobalProxyFromEnv()`][].
 
 Custom agents can also be created with proxy support by passing a
@@ -4589,8 +4595,10 @@ const agent2 = new http.Agent({ proxyEnv: process.env });
 [`'request'`]: #event-request
 [`'response'`]: #event-response
 [`'upgrade'`]: #event-upgrade
+[`--fetch-env-proxy`]: cli.md#--fetch-env-proxy
 [`--insecure-http-parser`]: cli.md#--insecure-http-parser
 [`--max-http-header-size`]: cli.md#--max-http-header-sizesize
+[`--use-env-proxy`]: cli.md#--use-env-proxy
 [`Agent`]: #class-httpagent
 [`Buffer.byteLength()`]: buffer.md#static-method-bufferbytelengthstring-encoding
 [`Duplex`]: stream.md#class-streamduplex

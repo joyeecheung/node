@@ -789,6 +789,14 @@ EnvironmentOptionsParser::EnvironmentOptionsParser() {
             "clients",
             &EnvironmentOptions::use_env_proxy,
             kAllowedInEnvvar);
+  AddOption("--fetch-env-proxy",
+            "parse proxy settings from HTTP_PROXY/HTTPS_PROXY/NO_PROXY "
+            "environment variables and apply the setting in the global fetch() "
+            "dispatcher",
+            &EnvironmentOptions::fetch_env_proxy,
+            kAllowedInEnvvar);
+  Implies("--use-env-proxy", "--fetch-env-proxy");
+  ImpliesNot("--no-use-env-proxy", "--fetch-env-proxy");
   AddOption("--preserve-symlinks",
             "preserve symbolic links when resolving",
             &EnvironmentOptions::preserve_symlinks,
@@ -2165,6 +2173,7 @@ void HandleEnvOptions(std::shared_ptr<EnvironmentOptions> env_options,
       opt_getter("NODE_PRESERVE_SYMLINKS_MAIN") == "1";
 
   env_options->use_env_proxy = opt_getter("NODE_USE_ENV_PROXY") == "1";
+  env_options->fetch_env_proxy = opt_getter("NODE_FETCH_ENV_PROXY") == "1";
 
 #if HAVE_OPENSSL
   env_options->use_system_ca = opt_getter("NODE_USE_SYSTEM_CA") == "1";

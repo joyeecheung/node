@@ -1560,9 +1560,19 @@ See \fBSSL_CERT_DIR\fR and \fBSSL_CERT_FILE\fR.
 .It Fl -use-env-proxy
 When enabled, Node.js parses the \fBHTTP_PROXY\fR, \fBHTTPS_PROXY\fR and \fBNO_PROXY\fR
 environment variables during startup, and tunnels requests over the
-specified proxy.
+specified proxy. This affects both \fBfetch()\fR and the global
+\fBhttp.globalAgent\fR/\fBhttps.globalAgent\fR.
+This is a superset of \fB--fetch-env-proxy\fR.
 This is equivalent to setting the \fBNODE_USE_ENV_PROXY=1\fR environment variable.
 When both are set, \fB--use-env-proxy\fR takes precedence.
+.
+.It Fl -fetch-env-proxy
+When enabled, Node.js parses the \fBHTTP_PROXY\fR, \fBHTTPS_PROXY\fR and \fBNO_PROXY\fR
+environment variables during startup, and tunnels \fBfetch()\fR requests over the
+specified proxy. Unlike \fB--use-env-proxy\fR, this only affects \fBfetch()\fR and
+does not configure the global \fBhttp.globalAgent\fR or \fBhttps.globalAgent\fR.
+This is equivalent to setting the \fBNODE_FETCH_ENV_PROXY=1\fR environment variable.
+When both are set, \fB--fetch-env-proxy\fR takes precedence.
 .
 .It Fl -use-largepages Ns = Ns Ar mode
 Re-map the Node.js static code to large memory pages at startup. If supported on
@@ -2099,6 +2109,8 @@ one is included in the list below.
 .It
 \fB--use-env-proxy\fR
 .It
+\fB--fetch-env-proxy\fR
+.It
 \fB--use-largepages\fR
 .It
 \fB--use-openssl-ca\fR
@@ -2206,9 +2218,20 @@ variable is strongly discouraged.
 
 When enabled, Node.js parses the \fBHTTP_PROXY\fR, \fBHTTPS_PROXY\fR and \fBNO_PROXY\fR
 environment variables during startup, and tunnels requests over the
-specified proxy.
+specified proxy. This affects both \fBfetch()\fR and the global
+\fBhttp.globalAgent\fR/\fBhttps.globalAgent\fR. This is a superset of
+\fBNODE_FETCH_ENV_PROXY=1\fR.
 This can also be enabled using the \fB--use-env-proxy\fR command-line flag.
 When both are set, \fB--use-env-proxy\fR takes precedence.
+.
+.It Ev NODE_FETCH_ENV_PROXY Ar 1
+When enabled, Node.js parses the \fBHTTP_PROXY\fR, \fBHTTPS_PROXY\fR and \fBNO_PROXY\fR
+environment variables during startup, and tunnels \fBfetch()\fR requests over
+the specified proxy. Unlike \fBNODE_USE_ENV_PROXY=1\fR, this only affects
+\fBfetch()\fR and does not configure the global \fBhttp.globalAgent\fR or
+\fBhttps.globalAgent\fR.
+This can also be enabled using the \fB--fetch-env-proxy\fR command-line flag.
+When both are set, \fB--fetch-env-proxy\fR takes precedence.
 .
 .It Ev NODE_USE_SYSTEM_CA Ar 1
 Node.js uses the trusted CA certificates present in the system store along with
