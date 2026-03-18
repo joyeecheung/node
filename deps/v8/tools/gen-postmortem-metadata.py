@@ -303,12 +303,12 @@ consts_misc = [
         'value': 'PropertyDetails::AttributesField::kShift'
     },
     {
-        'name': 'prop_index_mask',
-        'value': 'PropertyDetails::FieldIndexField::kMask'
+        'name': 'prop_offset_mask',
+        'value': 'PropertyDetails::OffsetInWordsField::kMask'
     },
     {
-        'name': 'prop_index_shift',
-        'value': 'PropertyDetails::FieldIndexField::kShift'
+        'name': 'prop_offset_shift',
+        'value': 'PropertyDetails::OffsetInWordsField::kShift'
     },
     {
         'name': 'prop_representation_mask',
