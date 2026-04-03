@@ -40,7 +40,9 @@
 #include "src/deoptimizer/deoptimizer.h"
 #include "src/execution/frames-inl.h"
 #include "src/execution/microtask-queue.h"
+#include "src/objects/js-promise-inl.h"
 #include "src/objects/objects-inl.h"
+#include "src/sandbox/sandboxable-thread.h"
 #include "src/utils/utils.h"
 #include "test/cctest/cctest.h"
 #include "test/cctest/heap/heap-utils.h"
@@ -297,29 +299,29 @@ TEST(DebugInfo) {
   v8::Local<v8::Function> bar =
       CompileFunction(&env, "function bar(){}", "bar");
   // Initially no functions are debugged.
-  CHECK_EQ(0, v8::internal::GetDebuggedFunctions()->length());
+  CHECK_EQ(0u, v8::internal::GetDebuggedFunctions()->length().value());
   CHECK(!HasBreakInfo(foo));
   CHECK(!HasBreakInfo(bar));
   EnableDebugger(env.isolate());
   // One function (foo) is debugged.
   i::DirectHandle<i::BreakPoint> bp1 = SetBreakPoint(foo, 0);
-  CHECK_EQ(1, v8::internal::GetDebuggedFunctions()->length());
+  CHECK_EQ(1u, v8::internal::GetDebuggedFunctions()->length().value());
   CHECK(HasBreakInfo(foo));
   CHECK(!HasBreakInfo(bar));
   // Two functions are debugged.
   i::DirectHandle<i::BreakPoint> bp2 = SetBreakPoint(bar, 0);
-  CHECK_EQ(2, v8::internal::GetDebuggedFunctions()->length());
+  CHECK_EQ(2u, v8::internal::GetDebuggedFunctions()->length().value());
   CHECK(HasBreakInfo(foo));
   CHECK(HasBreakInfo(bar));
   // One function (bar) is debugged.
   ClearBreakPoint(bp1);
-  CHECK_EQ(1, v8::internal::GetDebuggedFunctions()->length());
+  CHECK_EQ(1u, v8::internal::GetDebuggedFunctions()->length().value());
   CHECK(!HasBreakInfo(foo));
   CHECK(HasBreakInfo(bar));
   // No functions are debugged.
   ClearBreakPoint(bp2);
   DisableDebugger(env.isolate());
-  CHECK_EQ(0, v8::internal::GetDebuggedFunctions()->length());
+  CHECK_EQ(0u, v8::internal::GetDebuggedFunctions()->length().value());
   CHECK(!HasBreakInfo(foo));
   CHECK(!HasBreakInfo(bar));
 }
@@ -3422,7 +3424,7 @@ class EmptyExternalStringResource : public v8::String::ExternalStringResource {
  public:
   EmptyExternalStringResource() { empty_[0] = 0; }
   ~EmptyExternalStringResource() override = default;
-  size_t length() const override { return empty_.length(); }
+  size_t length() const override { return empty_.size(); }
   const uint16_t* data() const override { return empty_.begin(); }
 
  private:
@@ -3452,8 +3454,9 @@ TEST(DebugScriptLineEndsAreAscending) {
     instances = debug->GetLoadedScripts();
   }
 
-  CHECK_GT(instances->length(), 0);
-  for (int i = 0; i < instances->length(); i++) {
+  const uint32_t instances_len = instances->length().value();
+  CHECK_GT(instances_len, 0);
+  for (uint32_t i = 0; i < instances_len; i++) {
     DirectHandle<v8::internal::Script> new_script(
         v8::internal::Cast<v8::internal::Script>(instances->get(i)),
         CcTest::i_isolate());
@@ -3461,10 +3464,11 @@ TEST(DebugScriptLineEndsAreAscending) {
     v8::internal::Script::InitLineEnds(CcTest::i_isolate(), new_script);
     v8::internal::Tagged<v8::internal::FixedArray> ends =
         v8::internal::Cast<v8::internal::FixedArray>(new_script->line_ends());
-    CHECK_GT(ends->length(), 0);
+    const uint32_t ends_len = ends->length().value();
+    CHECK_GT(ends_len, 0);
 
     int prev_end = -1;
-    for (int j = 0; j < ends->length(); j++) {
+    for (uint32_t j = 0; j < ends_len; j++) {
       const int curr_end = v8::internal::Smi::ToInt(ends->get(j));
       CHECK_GT(curr_end, prev_end);
       prev_end = curr_end;
@@ -3504,8 +3508,9 @@ class ContextCheckEventListener : public v8::debug::DebugDelegate {
   void CheckContext() {
     v8::Local<v8::Context> context = CcTest::isolate()->GetCurrentContext();
     CHECK_EQ(context, expected_context_global.Get(CcTest::isolate()));
-    CHECK(context->GetEmbedderData(0)->StrictEquals(
-        expected_context_data_global.Get(CcTest::isolate())));
+    CHECK(v8::Local<v8::Value>::Cast(context->GetEmbedderDataV2(0))
+              ->StrictEquals(
+                  expected_context_data_global.Get(CcTest::isolate())));
     event_listener_hit_count++;
   }
 };
@@ -3538,10 +3543,12 @@ TEST(ContextData) {
   // Set and check different data values.
   v8::Local<v8::String> data_1 = v8_str(isolate, "1");
   v8::Local<v8::String> data_2 = v8_str(isolate, "2");
-  context_1->SetEmbedderData(0, data_1);
-  context_2->SetEmbedderData(0, data_2);
-  CHECK(context_1->GetEmbedderData(0)->StrictEquals(data_1));
-  CHECK(context_2->GetEmbedderData(0)->StrictEquals(data_2));
+  context_1->SetEmbedderDataV2(0, data_1);
+  context_2->SetEmbedderDataV2(0, data_2);
+  CHECK(v8::Local<v8::Value>::Cast(context_1->GetEmbedderDataV2(0))
+            ->StrictEquals(data_1));
+  CHECK(v8::Local<v8::Value>::Cast(context_2->GetEmbedderDataV2(0))
+            ->StrictEquals(data_2));
 
   // Simple test function which causes a break.
   const char* source = "function f() { debugger; }";
@@ -3595,8 +3602,9 @@ TEST(EvalContextData) {
 
   // Set and check a data value.
   v8::Local<v8::String> data_1 = v8_str(isolate, "1");
-  context_1->SetEmbedderData(0, data_1);
-  CHECK(context_1->GetEmbedderData(0)->StrictEquals(data_1));
+  context_1->SetEmbedderDataV2(0, data_1);
+  CHECK(v8::Local<v8::Value>::Cast(context_1->GetEmbedderDataV2(0))
+            ->StrictEquals(data_1));
 
   // Simple test function with eval that causes a break.
   const char* source = "function f() { eval('debugger;'); }";
@@ -4143,10 +4151,10 @@ class DebugBreakTriggerTerminate : public v8::debug::DebugDelegate {
   bool terminate_already_fired_ = false;
 };
 
-class TerminationThread : public v8::base::Thread {
+class TerminationThread : public v8::internal::SandboxableThread {
  public:
   explicit TerminationThread(v8::Isolate* isolate)
-      : Thread(Options("terminator")), isolate_(isolate) {}
+      : SandboxableThread(Options("terminator")), isolate_(isolate) {}
 
   void Run() override {
     terminate_requested_semaphore.Wait();
@@ -4157,7 +4165,6 @@ class TerminationThread : public v8::base::Thread {
  private:
   v8::Isolate* isolate_;
 };
-
 
 TEST(DebugBreakOffThreadTerminate) {
   LocalContext env;
@@ -4177,11 +4184,11 @@ TEST(DebugBreakOffThreadTerminate) {
 // V8_EXTERNAL_POINTER_TAG_COUNT.
 constexpr v8::ExternalPointerTypeTag kArchiveRestoreThreadTag = 20;
 
-class ArchiveRestoreThread : public v8::base::Thread,
+class ArchiveRestoreThread : public v8::internal::SandboxableThread,
                              public v8::debug::DebugDelegate {
  public:
   ArchiveRestoreThread(v8::Isolate* isolate, int spawn_count)
-      : Thread(Options("ArchiveRestoreThread")),
+      : SandboxableThread(Options("ArchiveRestoreThread")),
         isolate_(isolate),
         debug_(reinterpret_cast<i::Isolate*>(isolate_)->debug()),
         spawn_count_(spawn_count),
@@ -4189,8 +4196,6 @@ class ArchiveRestoreThread : public v8::base::Thread,
 
   void Run() override {
     {
-      v8::SandboxHardwareSupport::PrepareCurrentThreadForHardwareSandboxing();
-
       v8::Locker locker(isolate_);
       v8::Isolate::Scope i_scope(isolate_);
 
@@ -7019,4 +7024,128 @@ TEST(DebugSetBreakpointWrappedScriptFailCompile) {
   v8::debug::Location location(0, 0);
   delegate.script()->SetBreakpoint(condition, &location, &id);
 }
+
+class PromiseAllExceptionDelegate : public v8::debug::DebugDelegate {
+ public:
+  void ExceptionThrown(v8::Local<v8::Context> paused_context,
+                       v8::Local<v8::Value> exception,
+                       v8::Local<v8::Value> promise, bool is_uncaught,
+                       v8::debug::ExceptionType exception_type) override {
+    exception_count++;
+    if (is_uncaught) uncaught_count++;
+    v8::Isolate* isolate = CcTest::isolate();
+    last_promise.Reset(isolate, promise);
+    if (!exception.IsEmpty() && exception->IsObject()) {
+      v8::Local<v8::Object> exc_obj = exception.As<v8::Object>();
+      v8::MaybeLocal<v8::Value> maybe_msg =
+          exc_obj->Get(paused_context, v8_str(isolate, "message"));
+      if (!maybe_msg.IsEmpty()) {
+        v8::Local<v8::Value> msg = maybe_msg.ToLocalChecked();
+        if (msg->IsString()) {
+          v8::String::Utf8Value utf8(isolate, msg);
+          last_exception_message = std::string(*utf8);
+        }
+      }
+    }
+  }
+
+  int exception_count = 0;
+  int uncaught_count = 0;
+  v8::Global<v8::Value> last_promise;
+  std::string last_exception_message;
+};
+
+static void EmptyPromiseCatchHandler(
+    const v8::FunctionCallbackInfo<v8::Value>&) {}
+
+// This is the C++ equivalent of test/debugger/debug/es6/debug-promises/
+// promise-all-uncaught.js.
+TEST(PerformPromiseAllUncaughtDebug) {
+  LocalContext env;
+  v8::Isolate* isolate = env.isolate();
+  i::Isolate* i_isolate = reinterpret_cast<i::Isolate*>(isolate);
+  v8::HandleScope scope(isolate);
+
+  PromiseAllExceptionDelegate delegate;
+  v8::debug::SetDebugDelegate(isolate, &delegate);
+  ChangeBreakOnException(isolate, false, true);
+
+  v8::Local<v8::Context> context = env.local();
+  v8::Local<v8::Promise::Resolver> resolver =
+      v8::Promise::Resolver::New(context).ToLocalChecked();
+  v8::Local<v8::Promise> p1 = resolver->GetPromise();
+  resolver->Resolve(context, v8::Undefined(isolate)).ToChecked();
+
+  const char* expected_message = "uncaught";
+
+  const char* handler_source =
+      "function handler() { throw new Error('uncaught'); }";
+  v8::Local<v8::Function> throwing_handler =
+      CompileFunction(isolate, handler_source, "handler");
+  v8::Local<v8::Promise> p2 =
+      p1->Then(context, throwing_handler).ToLocalChecked();
+
+  i::Handle<i::JSPromise> i_p2 = v8::Utils::OpenHandle(*p2);
+  i::DirectHandleVector<i::JSPromise> promises(i_isolate);
+  promises.push_back(i_p2);
+  i::Handle<i::JSPromise> aggregate =
+      i::JSPromise::PerformPromiseAll(i_isolate, promises).ToHandleChecked();
+  v8::Local<v8::Promise> v8_aggregate = v8::Utils::ToLocal(aggregate);
+
+  v8::MicrotasksScope::PerformCheckpoint(isolate);
+
+  CHECK_EQ(1, delegate.exception_count);
+  CHECK_EQ(1, delegate.uncaught_count);
+  CHECK_EQ(expected_message, delegate.last_exception_message);
+  CHECK_EQ(v8::Promise::kRejected, v8_aggregate->State());
+
+  v8::debug::SetDebugDelegate(isolate, nullptr);
+}
+
+// This is the C++ equivalent of test/debugger/debug/es6/debug-promises/
+// promise-all-caught.js.
+TEST(PerformPromiseAllCaughtDebug) {
+  LocalContext env;
+  v8::Isolate* isolate = env.isolate();
+  i::Isolate* i_isolate = reinterpret_cast<i::Isolate*>(isolate);
+  v8::HandleScope scope(isolate);
+
+  PromiseAllExceptionDelegate delegate;
+  v8::debug::SetDebugDelegate(isolate, &delegate);
+  ChangeBreakOnException(isolate, true, true);
+
+  const char* expected_message = "caught";
+
+  v8::Local<v8::Context> context = env.local();
+  v8::Local<v8::Promise::Resolver> resolver =
+      v8::Promise::Resolver::New(context).ToLocalChecked();
+  v8::Local<v8::Promise> p1 = resolver->GetPromise();
+
+  const char* handler_source =
+      "function handler() { throw new Error('caught'); }";
+  v8::Local<v8::Function> throwing_handler =
+      CompileFunction(isolate, handler_source, "handler");
+  v8::Local<v8::Promise> p2 =
+      p1->Then(context, throwing_handler).ToLocalChecked();
+  i::Handle<i::JSPromise> i_p2 = v8::Utils::OpenHandle(*p2);
+  i::DirectHandleVector<i::JSPromise> promises(i_isolate);
+  promises.push_back(i_p2);
+  i::Handle<i::JSPromise> aggregate =
+      i::JSPromise::PerformPromiseAll(i_isolate, promises).ToHandleChecked();
+  v8::Local<v8::Promise> v8_aggregate = v8::Utils::ToLocal(aggregate);
+  v8::Local<v8::Function> catch_handler =
+      v8::Function::New(context, EmptyPromiseCatchHandler).ToLocalChecked();
+  USE(v8_aggregate->Catch(context, catch_handler).ToLocalChecked());
+  resolver->Resolve(context, v8::Undefined(isolate)).ToChecked();
+
+  v8::MicrotasksScope::PerformCheckpoint(isolate);
+
+  CHECK_EQ(1, delegate.exception_count);
+  CHECK_EQ(0, delegate.uncaught_count);
+  CHECK_EQ(expected_message, delegate.last_exception_message);
+  CHECK_EQ(v8::Promise::kRejected, v8_aggregate->State());
+
+  v8::debug::SetDebugDelegate(isolate, nullptr);
+}
+
 }  // namespace

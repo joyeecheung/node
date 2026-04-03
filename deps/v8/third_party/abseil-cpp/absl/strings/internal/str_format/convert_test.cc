@@ -24,6 +24,7 @@
 #include <cstring>
 #include <cwctype>
 #include <limits>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -44,7 +45,6 @@
 #include "absl/strings/match.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "absl/types/span.h"
 
 namespace absl {
@@ -282,6 +282,11 @@ NativePrintfTraits VerifyNativeImplementationImpl() {
 const NativePrintfTraits &VerifyNativeImplementation() {
   static NativePrintfTraits native_traits = VerifyNativeImplementationImpl();
   return native_traits;
+}
+
+bool IsNativeHexFloatConversion(char f) { return f == 'a' || f == 'A'; }
+bool IsNativeFloatConversion(char f) {
+  return f == 'f' || f == 'F' || f == 'e' || f == 'E' || f == 'a' || f == 'A';
 }
 
 class FormatConvertTest : public ::testing::Test { };
@@ -588,11 +593,11 @@ TYPED_TEST_P(TypedFormatConvertTest, AllIntsWithFlags) {
 }
 
 template <typename T>
-absl::optional<std::string> StrPrintChar(T c) {
+std::optional<std::string> StrPrintChar(T c) {
   return StrPrint("%c", static_cast<int>(c));
 }
 template <>
-absl::optional<std::string> StrPrintChar(wchar_t c) {
+std::optional<std::string> StrPrintChar(wchar_t c) {
   // musl libc has a bug where ("%lc", 0) writes no characters, and Android
   // doesn't support forcing UTF-8 via setlocale(). Hardcode the expected
   // answers for ASCII inputs to maximize test coverage on these platforms.
@@ -606,7 +611,7 @@ absl::optional<std::string> StrPrintChar(wchar_t c) {
   // call.
   std::string old_locale = setlocale(LC_CTYPE, nullptr);
   if (!setlocale(LC_CTYPE, "en_US.UTF-8")) {
-    return absl::nullopt;
+    return std::nullopt;
   }
   const std::string output = StrPrint("%lc", static_cast<wint_t>(c));
   setlocale(LC_CTYPE, old_locale.c_str());
@@ -661,7 +666,7 @@ TYPED_TEST_P(TypedFormatConvertTest, Char) {
     SCOPED_TRACE(Esc(c));
     const FormatArgImpl args[] = {FormatArgImpl(c)};
     UntypedFormatSpecImpl format("%c");
-    absl::optional<std::string> result = StrPrintChar(c);
+    std::optional<std::string> result = StrPrintChar(c);
     if (result.has_value()) {
       EXPECT_EQ(result.value(), FormatPack(format, absl::MakeSpan(args)));
     }
@@ -799,20 +804,19 @@ void TestWithMultipleFormatsHelper(Floating tested_float) {
                    'e', 'E'}) {
       std::string fmt_str = std::string(fmt) + f;
 
-      if (fmt == absl::string_view("%.5000") && f != 'f' && f != 'F' &&
-          f != 'a' && f != 'A') {
+      if (fmt == absl::string_view("%.5000") && !IsNativeFloatConversion(f)) {
         // This particular test takes way too long with snprintf.
         // Disable for the case we are not implementing natively.
         continue;
       }
 
-      if ((f == 'a' || f == 'A') &&
+      if (IsNativeHexFloatConversion(f) &&
           !native_traits.hex_float_has_glibc_rounding) {
         continue;
       }
 
       if (!native_traits.hex_float_prefers_denormal_repr &&
-          (f == 'a' || f == 'A') &&
+          IsNativeHexFloatConversion(f) &&
           std::fpclassify(tested_float) == FP_SUBNORMAL) {
         continue;
       }
@@ -1059,6 +1063,17 @@ TEST_F(FormatConvertTest, DoubleRound) {
             "0.000000000000000000000000000000000002"
             "25694915357879201529997415146671170141"
             "1837869002408041296803276054561138153076171875");
+
+  // Scientific exponent cases
+  // Round to even with all zeros after round digit
+  EXPECT_EQ(format("%0.13e", 1671075773261250), "1.6710757732612e+15");
+
+  // Rounding where precision is in first digit run
+  EXPECT_EQ(format("%0.1e", -1.93437090148818698e-297), "-1.9e-297");
+  EXPECT_EQ(format("%0.1e", -9.92255780642280927e-298), "-9.9e-298");
+
+  // Rounding large negative exponent first digit
+  EXPECT_EQ(format("%0.1e", -8.956e-294), "-9.0e-294");
 }
 
 TEST_F(FormatConvertTest, DoubleRoundA) {
@@ -1317,14 +1332,13 @@ TEST_F(FormatConvertTest, LongDouble) {
                    'e', 'E'}) {
       std::string fmt_str = std::string(fmt) + 'L' + f;
 
-      if (fmt == absl::string_view("%.5000") && f != 'f' && f != 'F' &&
-          f != 'a' && f != 'A') {
+      if (fmt == absl::string_view("%.5000") && !IsNativeFloatConversion(f)) {
         // This particular test takes way too long with snprintf.
         // Disable for the case we are not implementing natively.
         continue;
       }
 
-      if (f == 'a' || f == 'A') {
+      if (IsNativeHexFloatConversion(f)) {
         if (!native_traits.hex_float_has_glibc_rounding ||
             !native_traits.hex_float_optimizes_leading_digit_bit_count) {
           continue;

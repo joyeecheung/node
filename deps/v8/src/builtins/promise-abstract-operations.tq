@@ -156,6 +156,19 @@ transitioning macro MorphAndEnqueuePromiseReaction(
 transitioning macro TriggerPromiseReactions(
     implicit context: Context)(reactions: Zero|PromiseReaction,
     argument: JSAny, reactionType: constexpr PromiseReactionType): void {
+  // Fast path for 0 or 1 reaction.
+  typeswitch (reactions) {
+    case (Zero): {
+      return;
+    }
+    case (reaction: PromiseReaction): {
+      if (TaggedEqual(reaction.next, kZero)) {
+        MorphAndEnqueuePromiseReaction(reaction, argument, reactionType);
+        return;
+      }
+    }
+  }
+
   // We need to reverse the {reactions} here, since we record them on the
   // JSPromise in the reverse order.
   let current = reactions;
@@ -490,13 +503,17 @@ transitioning macro PerformPromiseThenImpl(
 
 transitioning javascript builtin PerformPromiseThenFunction(
     js-implicit context: NativeContext, receiver: JSAny)(onFulfilled: JSAny,
-    onRejected: JSAny): JSAny {
+    onRejected: JSAny, resultCapability: JSAny): JSAny {
   const jsPromise = Cast<JSPromise>(receiver) otherwise unreachable;
-  const callableOnFulfilled = Cast<Callable>(onFulfilled) otherwise unreachable;
-  const callableOnRejected = Cast<Callable>(onRejected) otherwise unreachable;
+  const callableOnFulfilled =
+      Cast<(Callable | Undefined)>(onFulfilled) otherwise unreachable;
+  const callableOnRejected =
+      Cast<(Callable | Undefined)>(onRejected) otherwise unreachable;
+  const resultPromise =
+      Cast<(JSPromise | Undefined)>(resultCapability) otherwise unreachable;
 
   PerformPromiseThenImpl(
-      jsPromise, callableOnFulfilled, callableOnRejected, Undefined);
+      jsPromise, callableOnFulfilled, callableOnRejected, resultPromise);
   return Undefined;
 }
 

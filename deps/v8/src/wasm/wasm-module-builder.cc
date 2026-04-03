@@ -68,6 +68,10 @@ WasmOpcode FromInitExprOperator(WasmInitExpr::Operator op) {
       return kExprStructNew;
     case WasmInitExpr::kStructNewDefault:
       return kExprStructNewDefault;
+    case WasmInitExpr::kStructNewDesc:
+      return kExprStructNewDesc;
+    case WasmInitExpr::kStructNewDefaultDesc:
+      return kExprStructNewDefaultDesc;
     case WasmInitExpr::kArrayNew:
       return kExprArrayNew;
     case WasmInitExpr::kArrayNewDefault:
@@ -134,6 +138,8 @@ void WriteInitializerExpressionWithoutEnd(ZoneBuffer* buffer,
       break;
     case WasmInitExpr::kStructNew:
     case WasmInitExpr::kStructNewDefault:
+    case WasmInitExpr::kStructNewDesc:
+    case WasmInitExpr::kStructNewDefaultDesc:
     case WasmInitExpr::kArrayNew:
     case WasmInitExpr::kArrayNewDefault: {
       if (init.operands() != nullptr) {
@@ -476,7 +482,7 @@ ModuleTypeIndex WasmModuleBuilder::ForceAddSignature(
     const FunctionSig* sig, bool is_final, ModuleTypeIndex supertype) {
   ModuleTypeIndex index{static_cast<uint32_t>(types_.size())};
   signature_map_.emplace(*sig, index);
-  types_.emplace_back(sig, supertype, is_final, false);
+  types_.emplace_back(sig, supertype, is_final, SharedFlag::kNo);
   return index;
 }
 
@@ -500,14 +506,14 @@ ModuleTypeIndex WasmModuleBuilder::AddStructType(StructType* type,
                                                  bool is_final,
                                                  ModuleTypeIndex supertype) {
   uint32_t index = static_cast<uint32_t>(types_.size());
-  types_.emplace_back(type, supertype, is_final, false);
+  types_.emplace_back(type, supertype, is_final, SharedFlag::kNo);
   return ModuleTypeIndex{index};
 }
 
 ModuleTypeIndex WasmModuleBuilder::AddArrayType(ArrayType* type, bool is_final,
                                                 ModuleTypeIndex supertype) {
   uint32_t index = static_cast<uint32_t>(types_.size());
-  types_.emplace_back(type, supertype, is_final, false);
+  types_.emplace_back(type, supertype, is_final, SharedFlag::kNo);
   return ModuleTypeIndex{index};
 }
 
@@ -597,10 +603,13 @@ void WasmModuleBuilder::SetIndirectFunction(
 
 uint32_t WasmModuleBuilder::AddImport(base::Vector<const char> name,
                                       const FunctionSig* sig,
-                                      base::Vector<const char> module) {
+                                      base::Vector<const char> module,
+                                      bool force_new_sig) {
   DCHECK(adding_imports_allowed_);
+  ModuleTypeIndex sig_index =
+      force_new_sig ? ForceAddSignature(sig, true) : AddSignature(sig, true);
   function_imports_.push_back(
-      {.module = module, .name = name, .sig_index = AddSignature(sig, true)});
+      {.module = module, .name = name, .sig_index = sig_index});
   return static_cast<uint32_t>(function_imports_.size() - 1);
 }
 
@@ -695,7 +704,7 @@ void WasmModuleBuilder::WriteTo(ZoneBuffer* buffer) const {
         buffer->write_u8(kWasmSubtypeCode);
         buffer->write_u8(0);
       }
-      if (type.is_shared) {
+      if (type.is_shared == SharedFlag::kYes) {
         buffer->write_u8(kSharedFlagCode);
       }
       if (type.is_descriptor()) {
@@ -885,6 +894,7 @@ void WasmModuleBuilder::WriteTo(ZoneBuffer* buffer) const {
           buffer->write_size(ex.index);
           break;
         case kExternalTag:
+        case kExternalExactFunction:
           UNREACHABLE();
       }
     }

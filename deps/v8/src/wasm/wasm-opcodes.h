@@ -257,13 +257,14 @@ V8_EXPORT_PRIVATE bool IsJSCompatibleSignature(const CanonicalSig* sig);
   V(I64SExtendI16, 0xc3, l_l, "i64.extend16_s") \
   V(I64SExtendI32, 0xc4, l_l, "i64.extend32_s")
 
-#define FOREACH_WASMFX_OPCODE(V)          \
-  V(ContNew, 0xe0, _, "cont.new")         \
-  V(ContBind, 0xe1, _, "cont.bind")       \
-  V(Suspend, 0xe2, _, "suspend")          \
-  V(Resume, 0xe3, _, "resume")            \
-  V(ResumeThrow, 0xe4, _, "resume_throw") \
-  V(Switch, 0xe5, _, "switch")
+#define FOREACH_WASMFX_OPCODE(V)                 \
+  V(ContNew, 0xe0, _, "cont.new")                \
+  V(ContBind, 0xe1, _, "cont.bind")              \
+  V(Suspend, 0xe2, _, "suspend")                 \
+  V(Resume, 0xe3, _, "resume")                   \
+  V(ResumeThrow, 0xe4, _, "resume_throw")        \
+  V(ResumeThrowRef, 0xe5, _, "resume_throw_ref") \
+  V(Switch, 0xe6, _, "switch")
 
 #define FOREACH_SIMPLE_OPCODE(V)          \
   FOREACH_SIMPLE_EXTENDED_CONST_OPCODE(V) \
@@ -629,6 +630,12 @@ V8_EXPORT_PRIVATE bool IsJSCompatibleSignature(const CanonicalSig* sig);
   FOREACH_SIMD_MEM_1_OPERAND_OPCODE(V) \
   FOREACH_SIMD_CONST_OPCODE(V)
 
+#define FOREACH_NUMERIC_OPCODE_WIDE(V)        \
+  V(I64Add128, 0xfc13, _, "i64.add128")       \
+  V(I64Sub128, 0xfc14, _, "i64.sub128")       \
+  V(I64MulWideS, 0xfc15, _, "i64.mul_wide_s") \
+  V(I64MulWideU, 0xfc16, _, "i64.mul_wide_u")
+
 #define FOREACH_NUMERIC_OPCODE_WITH_SIG(V)                 \
   V(I32SConvertSatF32, 0xfc00, i_f, "i32.trunc_sat_f32_s") \
   V(I32UConvertSatF32, 0xfc01, i_f, "i32.trunc_sat_f32_u") \
@@ -655,8 +662,10 @@ V8_EXPORT_PRIVATE bool IsJSCompatibleSignature(const CanonicalSig* sig);
   /* It's whatever the table type is. */                  \
   V(TableFill, 0xfc11, _, "table.fill")
 
-#define FOREACH_NUMERIC_OPCODE(V) \
-  FOREACH_NUMERIC_OPCODE_WITH_SIG(V) FOREACH_NUMERIC_OPCODE_VARIADIC(V)
+#define FOREACH_NUMERIC_OPCODE(V)    \
+  FOREACH_NUMERIC_OPCODE_WITH_SIG(V) \
+  FOREACH_NUMERIC_OPCODE_WIDE(V)     \
+  FOREACH_NUMERIC_OPCODE_VARIADIC(V)
 
 // kExprName, binary, signature for memory32, wat name, signature for memory64.
 #define FOREACH_ATOMIC_OPCODE(V)                                              \
@@ -770,11 +779,13 @@ V8_EXPORT_PRIVATE bool IsJSCompatibleSignature(const CanonicalSig* sig);
   V(I31GetU, 0xfb1e, _, "i31.get_u")                                           \
   V(RefI31Shared, 0xfb1f, _, "ref.i31_shared")                                 \
   /* Custom Descriptors proposal */                                            \
+  V(StructNewDesc, 0xfb20, _, "struct.new_desc")                               \
+  V(StructNewDefaultDesc, 0xfb21, _, "struct.new_default_desc")                \
   V(RefGetDesc, 0xfb22, _, "ref.get_desc")                                     \
-  V(RefCastDesc, 0xfb23, _, "ref.cast_desc")                                   \
-  V(RefCastDescNull, 0xfb24, _, "ref.cast_desc null")                          \
-  V(BrOnCastDesc, 0xfb25, _, "br_on_cast_desc")                                \
-  V(BrOnCastDescFail, 0xfb26, _, "br_on_cast_desc_fail")                       \
+  V(RefCastDescEq, 0xfb23, _, "ref.cast_desc_eq")                              \
+  V(RefCastDescEqNull, 0xfb24, _, "ref.cast_desc_eq null")                     \
+  V(BrOnCastDescEq, 0xfb25, _, "br_on_cast_desc_eq")                           \
+  V(BrOnCastDescEqFail, 0xfb26, _, "br_on_cast_desc_eq_fail")                  \
   V(RefCastNop, 0xfb4c, _, "ref.cast_nop")                                     \
   /* Stringref proposal. */                                                    \
   V(StringNewUtf8, 0xfb80, _, "string.new_utf8")                               \
@@ -825,6 +836,9 @@ V8_EXPORT_PRIVATE bool IsJSCompatibleSignature(const CanonicalSig* sig);
 
 #define FOREACH_ATOMIC_GC_OPCODE(V) /*          Force 80 columns            */ \
   V(Pause, 0xfe04, _, "pause")                                                 \
+  /* The next two are placeholders, adjust them when the spec defines them. */ \
+  V(StructWait, 0xfe05, _, "struct.wait")                                      \
+  V(StructNotify, 0xfe06, _, "struct.notify")                                  \
   V(StructAtomicGet, 0xfe5c, _, "struct.atomic.get")                           \
   V(StructAtomicGetS, 0xfe5d, _, "struct.atomic.get_s")                        \
   V(StructAtomicGetU, 0xfe5e, _, "struct.atomic.get_u")                        \
@@ -982,25 +996,14 @@ class V8_EXPORT_PRIVATE WasmOpcodes {
                                                            bool is_memory64);
   static constexpr const FunctionSig* AsmjsSignature(WasmOpcode);
   static constexpr bool IsPrefixOpcode(WasmOpcode);
-  static constexpr bool IsControlOpcode(WasmOpcode);
-  static constexpr bool IsExternRefOpcode(WasmOpcode);
-  static constexpr bool IsThrowingOpcode(WasmOpcode);
   static constexpr bool IsRelaxedSimdOpcode(WasmOpcode);
   static constexpr bool IsFP16SimdOpcode(WasmOpcode);
-#if DEBUG
-  static constexpr bool IsMemoryAccessOpcode(WasmOpcode);
-#endif  // DEBUG
-  // Check whether the given opcode always jumps, i.e. all instructions after
-  // this one in the current block are dead. Returns false for |end|.
-  static constexpr bool IsUnconditionalJump(WasmOpcode);
-  static constexpr bool IsBreakable(WasmOpcode);
+  static constexpr bool IsAtomicRmwOpcode(WasmOpcode);
 
-  static constexpr MessageTemplate TrapReasonToMessageId(TrapReason);
-  static constexpr TrapReason MessageIdToTrapReason(MessageTemplate message);
+  static constexpr bool IsBreakable(WasmOpcode);
 
   // Extract the prefix byte (or 0x00) from a {WasmOpcode}.
   static constexpr uint8_t ExtractPrefix(WasmOpcode);
-  static inline const char* TrapReasonMessage(TrapReason);
 };
 
 }  // namespace wasm

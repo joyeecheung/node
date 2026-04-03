@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <list>
 #include <memory>
@@ -75,6 +76,10 @@ class SimulatorData;
 }  // namespace v8
 #endif
 
+#ifdef V8_DUMPLING
+#include "src/dumpling/dumpling-manager.h"
+#endif
+
 namespace v8_inspector {
 class V8Inspector;
 }  // namespace v8_inspector
@@ -111,6 +116,10 @@ namespace maglev {
 class MaglevConcurrentDispatcher;
 }  // namespace maglev
 
+namespace regexp {
+class Stack;
+}  // namespace regexp
+
 class AddressToIndexHashMap;
 class AstStringConstants;
 class Bootstrapper;
@@ -145,7 +154,6 @@ class OptimizingCompileTaskExecutor;
 class PersistentHandles;
 class PersistentHandlesList;
 class ReadOnlyArtifacts;
-class RegExpStack;
 class RootVisitor;
 class SetupIsolateDelegate;
 class SharedStructTypeRegistry;
@@ -198,10 +206,6 @@ class WasmExecutionTimer;
 class WasmCodeLookupCache;
 class WasmOrphanedGlobalHandle;
 }
-
-namespace detail {
-class WaiterQueueNode;
-}  // namespace detail
 
 #define RETURN_FAILURE_IF_EXCEPTION(isolate)         \
   do {                                               \
@@ -773,8 +777,6 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
                : shared_space_isolate()->shared_struct_type_registry_.get();
   }
 
-  Address get_address_from_id(IsolateAddressId id);
-
   // Access to top context (where the current function object was created).
   Tagged<Context> context() const { return thread_local_top()->context_; }
   inline void set_context(Tagged<Context> context);
@@ -879,12 +881,11 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
     return &thread_local_top()->c_function_;
   }
 
-#if defined(DEBUG) || defined(VERIFY_HEAP)
-  // Count the number of active deserializers, so that the heap verifier knows
-  // whether there is currently an active deserialization happening.
-  //
-  // This is needed as the verifier currently doesn't support verifying objects
-  // which are partially deserialized.
+  // Count the number of active deserializers. This is necessary for:
+  // - This is needed as the verifier currently doesn't support verifying
+  //   objects which are partially deserialized.
+  // - The snapshot generator being invoked on GC can trigger DCHECKs where the
+  //   graph is not yet consistent.
   //
   // TODO(leszeks): Make the verifier a bit more deserialization compatible.
   void RegisterDeserializerStarted() { ++num_active_deserializers_; }
@@ -894,11 +895,6 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   bool has_active_deserializer() const {
     return num_active_deserializers_.load(std::memory_order_acquire) > 0;
   }
-#else
-  void RegisterDeserializerStarted() {}
-  void RegisterDeserializerFinished() {}
-  bool has_active_deserializer() const { UNREACHABLE(); }
-#endif
 
   // Bottom JS entry.
   Address js_entry_sp() { return thread_local_top()->js_entry_sp_; }
@@ -953,6 +949,15 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   void PrintStack(StringStream* accumulator,
                   PrintStackMode mode = kPrintStackVerbose);
   void PrintStack(FILE* out, PrintStackMode mode = kPrintStackVerbose);
+
+  // Prints minimal stack trace without allocating on the V8 heap (native
+  // allocations are allowed). Used for printing the JS stack on OOM errors.
+  void PrintMinimalStack(FILE* out);
+  std::string BuildMinimalStack(size_t max_length = SIZE_MAX);
+
+  // Reports the minimal stack trace as a crash key. Used for OOM errors.
+  void ReportStackAsCrashKey();
+
   DirectHandle<String> StackTraceString();
   // Stores a stack trace in a stack-allocated temporary buffer which will
   // end up in the minidump for debugging purposes.
@@ -988,6 +993,14 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   // Walks the JS stack to find the first frame with a valid script id. The
   // inspected frames are the same as for the detailed stack trace.
   int CurrentScriptId();
+  // Walks the JS stack to find the first `frame_data.size()` frames and writes
+  // them into `frame_data` and returns the number of frames written.
+  size_t CurrentScriptIdsAndContexts(
+      v8::MemorySpan<StackTrace::ScriptIdAndContext> frame_data);
+  // Walks the JS stack to find the first `frame_data.size()` frames and writes
+  // them into `frame_data` and returns the number of frames written.
+  size_t CurrentScriptData(v8::MemorySpan<StackTrace::ScriptData> frame_data);
+
   MaybeDirectHandle<Script> CurrentReferrerScript();
   bool GetStackTraceLimit(Isolate* isolate, int* result);
 
@@ -1282,6 +1295,10 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
     return heap()->js_dispatch_table_space();
   }
 
+  inline JSDispatchTable::Space* GetJSDispatchTableSpaceFor(void* owning_slot) {
+    return GetJSDispatchTableSpaceFor(reinterpret_cast<Address>(owning_slot));
+  }
+
   V8_INLINE Address* builtin_table() { return isolate_data_.builtin_table(); }
   V8_INLINE Address* builtin_tier0_table() {
     return isolate_data_.builtin_tier0_table();
@@ -1418,7 +1435,7 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
     builtins_effects_analyzer_ = builtins_effects_analyzer;
   }
 
-  RegExpStack* regexp_stack() const { return regexp_stack_; }
+  regexp::Stack* regexp_stack() const { return regexp_stack_; }
 
   // Either points to jsregexp_static_offsets_vector, or nullptr if the static
   // vector is in use.
@@ -1758,7 +1775,7 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
     }
   }
 
-  // ES#sec-async-module-execution-fulfilled step 10
+  // https://tc39.es/ecma262/#sec-async-module-execution-fulfilled step 10
   //
   // According to the spec, modules that depend on async modules (i.e. modules
   // with top-level await) must be evaluated in order in which their
@@ -1808,6 +1825,13 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   }
   uint32_t GetAndIncNextUniqueSfiId() {
     return next_unique_sfi_id_.fetch_add(1, std::memory_order_relaxed);
+  }
+
+  void InitializeNextUniqueSfiId(uint32_t id) {
+    uint32_t expected = 0;  // Called at most once per Isolate on startup.
+    bool successfully_exchanged = next_unique_sfi_id_.compare_exchange_strong(
+        expected, id, std::memory_order_relaxed, std::memory_order_relaxed);
+    CHECK(successfully_exchanged);
   }
 
 #ifdef V8_ENABLE_JAVASCRIPT_PROMISE_HOOKS
@@ -1887,6 +1911,10 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   BuiltinsConstantsTableBuilder* builtins_constants_table_builder() const {
     return builtins_constants_table_builder_;
   }
+
+#ifdef V8_DUMPLING
+  DumplingManager* dumpling_manager() { return &dumpling_manager_; }
+#endif
 
   // Hashes bits of the Isolate that are relevant for embedded builtins. In
   // particular, the embedded blob requires builtin InstructionStream object
@@ -2024,6 +2052,16 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
     }
   }
 
+  v8::CrashKey AddCrashKeyString(const char key[], CrashKeySize size,
+                                 std::string_view value);
+  void SetCrashKeyString(CrashKey crash_key, std::string_view value);
+
+  void SetCrashKeyStringCallbacks(
+      AllocateCrashKeyStringCallback allocate_callback,
+      SetCrashKeyStringCallback set_callback);
+
+  bool HasCrashKeyStringCallbacks();
+
 #if defined(V8_ENABLE_ETW_STACK_WALKING)
   // Specifies the callback called when an ETW tracing session starts.
 
@@ -2055,6 +2093,7 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
 #endif  // V8_ENABLE_ETW_STACK_WALKING
 
   void SetIsLoading(bool is_loading);
+  void SetIsInputHandling(bool is_input_handling);
 
   void set_code_coverage_mode(debug::CoverageMode coverage_mode) {
     code_coverage_mode_.store(coverage_mode, std::memory_order_relaxed);
@@ -2143,8 +2182,8 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   // before such a mode change to ensure that this cannot happen.
   void CollectSourcePositionsForAllBytecodeArrays();
 
-  void AddCodeMemoryChunk(MutablePageMetadata* chunk);
-  void RemoveCodeMemoryChunk(MutablePageMetadata* chunk);
+  void AddCodeMemoryChunk(MutablePage* chunk);
+  void RemoveCodeMemoryChunk(MutablePage* chunk);
   void AddCodeRange(Address begin, size_t length_in_bytes);
 
   bool RequiresCodeRange() const;
@@ -2231,6 +2270,10 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
     return *isolate_data_.shared_trusted_pointer_table_;
   }
 
+  bool has_shared_trusted_pointer_table() const {
+    return isolate_data_.shared_trusted_pointer_table_ != nullptr;
+  }
+
   TrustedPointerTable::Space* shared_trusted_pointer_space() {
     return shared_trusted_pointer_space_;
   }
@@ -2255,9 +2298,32 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   }
 #endif  // V8_ENABLE_SANDBOX
 
+  JSDispatchTable& js_dispatch_table() {
+    return isolate_data_.js_dispatch_table_;
+  }
+
+  const JSDispatchTable& js_dispatch_table() const {
+    return isolate_data_.js_dispatch_table_;
+  }
+
+  Address js_dispatch_table_base_address() const {
+    return isolate_data_.js_dispatch_table_.base_address();
+  }
+
   Address continuation_preserved_embedder_data_address() {
     return reinterpret_cast<Address>(
         &isolate_data_.continuation_preserved_embedder_data_);
+  }
+
+  Tagged<Object> current_microtask_native_context() const {
+    return isolate_data_.current_microtask_native_context_;
+  }
+  void set_current_microtask_native_context(Tagged<Object> context) {
+    isolate_data_.current_microtask_native_context_ = context;
+  }
+  Address current_microtask_native_context_address() {
+    return reinterpret_cast<Address>(
+        &isolate_data_.current_microtask_native_context_);
   }
 
   struct PromiseHookFields {
@@ -2322,11 +2388,11 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   void SwitchStacks(wasm::StackMemory* from, wasm::StackMemory* to, Address sp,
                     Address fp, Address pc);
 
-  // Retires the stack owned by {continuation}, to be called when returning or
-  // throwing from this continuation.
+  // Retires {stack}, to be called when returning or throwing from this
+  // stack.
   // This updates the {StackMemory} state, removes it from the global
-  // {wasm_stacks_} vector and nulls the EPT entry. This does not update the
-  // {ActiveContinuation} root or the stack limit.
+  // {wasm_stacks_} vector and clears the EPT entry of the {WasmStackObject}.
+  // This does not update the {ActiveContinuation} root or the stack limit.
   void RetireWasmStack(wasm::StackMemory* stack);
 #else
   bool IsOnCentralStack() { return true; }
@@ -2375,9 +2441,6 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
     memory_saver_mode_enabled_ = memory_saver_mode_enabled;
   }
 
-  std::list<std::unique_ptr<detail::WaiterQueueNode>>&
-  async_waiter_queue_nodes();
-
   void ReportExceptionFunctionCallback(
       DirectHandle<JSReceiver> receiver,
       DirectHandle<FunctionTemplateInfo> function,
@@ -2403,14 +2466,6 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
 
   void Freeze(bool is_frozen) {
     is_frozen_ = is_frozen;
-    if (v8_flags.memory_reducer_respects_frozen_state && IsFrozen()) {
-      // We will either finalize an ongoing GC, or simply do a GC to reclaim
-      // any unreachable memory.
-      heap()->FinalizeIncrementalMarkingAtomicallyIfRunning(
-          i::GarbageCollectionReason::kFrozen);
-      heap()->EnsureSweepingCompleted(
-          Heap::SweepingForcedFinalizationMode::kUnifiedHeap);
-    }
   }
 
   static void IterateRegistersAndStackOfSimulator(
@@ -2543,7 +2598,6 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   int stack_trace_nesting_level_ = 0;
   std::atomic<bool> was_locker_ever_used_{false};
   StringStream* incomplete_message_ = nullptr;
-  Address isolate_addresses_[kIsolateAddressCount + 1] = {};
   Bootstrapper* bootstrapper_ = nullptr;
   TieringManager* tiering_manager_ = nullptr;
   CompilationCache* compilation_cache_ = nullptr;
@@ -2580,16 +2634,14 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   Builtins builtins_;
   BuiltinsEffectsAnalyzer* builtins_effects_analyzer_ = nullptr;
   SetupIsolateDelegate* setup_delegate_ = nullptr;
-#if defined(DEBUG) || defined(VERIFY_HEAP)
   std::atomic<int> num_active_deserializers_;
-#endif
 #ifndef V8_INTL_SUPPORT
   unibrow::Mapping<unibrow::Ecma262UnCanonicalize> jsregexp_uncanonicalize_;
   unibrow::Mapping<unibrow::CanonicalizationRange> jsregexp_canonrange_;
   unibrow::Mapping<unibrow::Ecma262Canonicalize>
       regexp_macro_assembler_canonicalize_;
 #endif  // !V8_INTL_SUPPORT
-  RegExpStack* regexp_stack_ = nullptr;
+  regexp::Stack* regexp_stack_ = nullptr;
   std::vector<int> regexp_indices_;
   // Necessary in order to avoid memory leaks in the presence of
   // TerminateExecution exceptions.
@@ -2740,12 +2792,6 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
 
   std::atomic<int> next_optimization_id_ = 0;
 
-  void InitializeNextUniqueSfiId(uint32_t id) {
-    uint32_t expected = 0;  // Called at most once per Isolate on startup.
-    bool successfully_exchanged = next_unique_sfi_id_.compare_exchange_strong(
-        expected, id, std::memory_order_relaxed, std::memory_order_relaxed);
-    CHECK(successfully_exchanged);
-  }
   std::atomic<uint32_t> next_unique_sfi_id_;
 
   unsigned next_module_async_evaluation_ordinal_;
@@ -2824,6 +2870,9 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
 
   base::Mutex managed_ptr_destructors_mutex_;
   ManagedPtrDestructor* managed_ptr_destructors_head_ = nullptr;
+  // This is only maintained by the shared-space isolate, otherwise it is
+  // always null.
+  ManagedPtrDestructor* shared_managed_ptr_destructors_head_ = nullptr;
 
   size_t total_regexp_code_generated_ = 0;
 
@@ -2869,10 +2918,6 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   TrustedPointerTable::Space* shared_trusted_pointer_space_ = nullptr;
 #endif  // V8_ENABLE_SANDBOX
 
-  // List to manage the lifetime of the WaiterQueueNodes used to track async
-  // waiters for JSSynchronizationPrimitives.
-  std::list<std::unique_ptr<detail::WaiterQueueNode>> async_waiter_queue_nodes_;
-
   // Used to track and safepoint all client isolates attached to this shared
   // isolate.
   std::unique_ptr<GlobalSafepoint> global_safepoint_;
@@ -2906,6 +2951,9 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   // in case of a crash.
   AddCrashKeyCallback add_crash_key_callback_ = nullptr;
 
+  AllocateCrashKeyStringCallback allocate_crash_key_string_callback_;
+  SetCrashKeyStringCallback set_crash_key_string_callback_;
+
 #ifdef V8_ENABLE_WASM_SIMD256_REVEC
   compiler::turboshaft::WasmRevecVerifier* wasm_revec_verifier_for_test_ =
       nullptr;
@@ -2914,6 +2962,10 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   // Delete new/delete operators to ensure that Isolate::New() and
   // Isolate::Delete() are used for Isolate creation and deletion.
   void* operator new(size_t, void* ptr) { return ptr; }
+
+#ifdef V8_DUMPLING
+  DumplingManager dumpling_manager_;
+#endif
 
 #if USE_SIMULATOR
   SimulatorData* simulator_data_ = nullptr;

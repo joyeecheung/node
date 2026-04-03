@@ -17,6 +17,8 @@
 #include "src/codegen/signature.h"
 #include "src/wasm/signature-hashing.h"
 #include "src/wasm/value-type.h"
+#include "src/wasm/wasm-opcodes.h"
+#include "src/wasm/wasm-subtyping.h"
 #include "src/zone/zone.h"
 
 namespace v8 {
@@ -30,6 +32,7 @@ struct ModuleWireBytes;
 
 namespace compiler {
 class CallDescriptor;
+enum class TrapId : int32_t;
 
 enum SubtypeCheckExactness : uint8_t {
   kMayBeSubtype,
@@ -59,6 +62,12 @@ struct WasmTypeCheckConfig {
   wasm::ValueType from;
   const wasm::ValueType to;
   SubtypeCheckExactness exactness{kMayBeSubtype};
+
+  bool is_valid() const {
+    return from != wasm::ValueType() && from != wasm::kWasmBottom &&
+           from.is_ref() && to.is_ref() &&
+           wasm::IsSameTypeHierarchy(from.heap_type(), to.heap_type());
+  }
 };
 
 V8_INLINE std::ostream& operator<<(std::ostream& os,
@@ -102,6 +111,8 @@ enum class BoundsCheckResult {
 // a null check.
 enum CheckForNull : bool { kWithoutNullCheck, kWithNullCheck };
 std::ostream& operator<<(std::ostream& os, CheckForNull null_check);
+
+V8_EXPORT_PRIVATE TrapId GetTrapIdForTrap(wasm::TrapReason reason);
 
 base::Vector<const char> GetDebugName(Zone* zone,
                                       const wasm::WasmModule* module,

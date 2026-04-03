@@ -8,6 +8,7 @@
 #include <queue>
 
 #include "src/base/platform/mutex.h"
+#include "src/common/globals.h"
 #include "src/execution/frames.h"
 #include "src/execution/isolate.h"
 #include "src/handles/handles.h"
@@ -93,6 +94,7 @@ MapUpdater::MapUpdater(Isolate* isolate, DirectHandle<Map> old_map)
       old_descriptors_(old_map->instance_descriptors(isolate), isolate_),
       old_nof_(old_map_->NumberOfOwnDescriptors()),
       new_elements_kind_(old_map_->elements_kind()),
+      new_instance_type_(old_map_->instance_type()),
       is_transitionable_fast_elements_kind_(
           IsTransitionableFastElementsKind(new_elements_kind_)) {
   // We shouldn't try to update remote objects.
@@ -239,9 +241,22 @@ DirectHandle<Map> MapUpdater::ReconfigureElementsKind(
   return Update();
 }
 
+DirectHandle<Map> MapUpdater::ChangeInstanceType(
+    InstanceTypeChange instance_type_change) {
+  DCHECK_EQ(kInitialized, state_);
+
+  switch (instance_type_change) {
+    case InstanceTypeChange::kTypedArrayDetaching:
+      CHECK_EQ(old_map_->instance_type(), JS_TYPED_ARRAY_TYPE);
+      new_instance_type_ = JS_DETACHED_TYPED_ARRAY_TYPE;
+      break;
+  }
+
+  return Update();
+}
+
 Handle<Map> MapUpdater::ApplyPrototypeTransition(
     DirectHandle<JSPrototype> prototype) {
-  DCHECK(v8_flags.move_prototype_transitions_first);
   DCHECK_EQ(kInitialized, state_);
   DCHECK_NE(old_map_->prototype(), *prototype);
 
@@ -279,7 +294,8 @@ Handle<Map> MapUpdater::Update() {
 Handle<Map> MapUpdater::UpdateImpl() {
   DCHECK_EQ(kInitialized, state_);
   DCHECK_IMPLIES(new_prototype_.is_null() &&
-                     new_elements_kind_ == old_map_->elements_kind(),
+                     new_elements_kind_ == old_map_->elements_kind() &&
+                     new_instance_type_ == old_map_->instance_type(),
                  old_map_->is_deprecated());
   if (FindRootMap() == kEnd) return result_map_;
   if (FindTargetMap() == kEnd) return result_map_;
@@ -369,8 +385,7 @@ std::optional<Tagged<Map>> MapUpdater::TryUpdateNoLock(Isolate* isolate,
     return constructor->initial_map();
   }
 
-  if (v8_flags.move_prototype_transitions_first &&
-      root_map->prototype() != old_map->prototype()) {
+  if (root_map->prototype() != old_map->prototype()) {
     auto maybe_transition = TransitionsAccessor::GetPrototypeTransition(
         isolate, root_map, old_map->prototype());
     if (!maybe_transition) {
@@ -445,8 +460,8 @@ void MapUpdater::GeneralizeField(DirectHandle<Map> map,
 
 MapUpdater::State MapUpdater::Normalize(const char* reason) {
   result_map_ =
-      Map::Normalize(isolate_, old_map_, new_elements_kind_, new_prototype_,
-                     CLEAR_INOBJECT_PROPERTIES, reason);
+      Map::Normalize(isolate_, old_map_, new_instance_type_, new_elements_kind_,
+                     new_prototype_, CLEAR_INOBJECT_PROPERTIES, reason);
   state_ = kEnd;
   return state_;  // Done.
 }
@@ -597,22 +612,15 @@ MapUpdater::State MapUpdater::FindRootMap() {
   ElementsKind from_kind = root_map_->elements_kind();
   ElementsKind to_kind = new_elements_kind_;
 
-  if (root_map_->is_deprecated()) {
-    state_ = kEnd;
-    result_map_ = handle(
-        Cast<JSFunction>(root_map_->GetConstructor())->initial_map(), isolate_);
-    result_map_ = Map::AsElementsKind(isolate_, result_map_, to_kind);
-    DCHECK(result_map_->is_dictionary_map());
-    return state_;
-  }
+  // Root maps shall not be deprecated.
+  CHECK(!root_map_->is_deprecated());
 
-  // In this first check allow the root map to have the wrong prototype, as we
-  // will deal with prototype transitions later.
+  // In this first check allow the root map to have the wrong prototype and
+  // instance type, as we will deal with these transitions later.
   if (!old_map_->EquivalentToForTransition(
           *root_map_, ConcurrencyMode::kSynchronous,
-          v8_flags.move_prototype_transitions_first
-              ? direct_handle(root_map_->prototype(), isolate_)
-              : DirectHandle<HeapObject>())) {
+          direct_handle(root_map_->prototype(), isolate_),
+          root_map_->instance_type())) {
     return Normalize("Normalize_NotEquivalent");
   } else if (old_map_->is_extensible() != root_map_->is_extensible()) {
     DCHECK(!old_map_->is_extensible());
@@ -671,20 +679,31 @@ MapUpdater::State MapUpdater::FindRootMap() {
   // From here on, use the map with correct elements kind and prototype as root
   // map.
   if (root_map_->prototype() != *new_prototype_) {
-    DCHECK(v8_flags.move_prototype_transitions_first);
     Handle<Map> new_root_map_ =
         Map::TransitionToUpdatePrototype(isolate_, root_map_, new_prototype_);
 
     root_map_ = new_root_map_;
 
+    // Still allow the instance type to be off as we will update that next.
     if (!old_map_->EquivalentToForTransition(
-            *root_map_, ConcurrencyMode::kSynchronous, new_prototype_)) {
+            *root_map_, ConcurrencyMode::kSynchronous, new_prototype_,
+            root_map_->instance_type())) {
       return Normalize("Normalize_NotEquivalent");
     }
   }
   root_map_ = Map::AsElementsKind(isolate_, root_map_, to_kind);
-  DCHECK(old_map_->EquivalentToForTransition(
-      *root_map_, ConcurrencyMode::kSynchronous, new_prototype_));
+
+  if (root_map_->instance_type() != new_instance_type_) {
+    // Currently we can only encounter one special detached array buffer view
+    // transition case.
+    CHECK_EQ(root_map_->instance_type(), JS_TYPED_ARRAY_TYPE);
+    CHECK_EQ(new_instance_type_, JS_DETACHED_TYPED_ARRAY_TYPE);
+    root_map_ = Map::AsDetachedTypedArray(isolate_, root_map_);
+  }
+
+  CHECK(old_map_->EquivalentToForTransition(
+      *root_map_, ConcurrencyMode::kSynchronous, new_prototype_,
+      new_instance_type_));
 
   state_ = kAtRootMap;
   return state_;  // Not done yet.
@@ -824,6 +843,8 @@ DirectHandle<DescriptorArray> MapUpdater::BuildDescriptorArray() {
   int target_nof = target_map_->NumberOfOwnDescriptors();
   DirectHandle<DescriptorArray> target_descriptors(
       target_map_->instance_descriptors(isolate_), isolate_);
+  int in_object_field_count = target_map_->GetInObjectProperties();
+  int target_in_object_start = target_map_->GetInObjectPropertiesStartInWords();
 
   // Allocate a new descriptor array large enough to hold the required
   // descriptors, with minimally the exact same size as the old descriptor
@@ -846,11 +867,13 @@ DirectHandle<DescriptorArray> MapUpdater::BuildDescriptorArray() {
   // the root descriptors are either not modified at all or already more
   // general than we requested. Take |root_nof| entries as is.
   // 0 -> |root_nof|
-  int current_offset = 0;
+  int current_field_index = 0;
   for (InternalIndex i : InternalIndex::Range(root_nof)) {
     PropertyDetails old_details = old_descriptors_->GetDetails(i);
     if (old_details.location() == PropertyLocation::kField) {
-      current_offset += old_details.field_width_in_words();
+      DCHECK_EQ(old_details.is_in_object(),
+                current_field_index < in_object_field_count);
+      current_field_index += old_details.field_width_in_words();
     }
 #ifdef DEBUG
     // Ensuring FindRootMap gave us a compatible root map.
@@ -923,15 +946,24 @@ DirectHandle<DescriptorArray> MapUpdater::BuildDescriptorArray() {
 
       MaybeObjectDirectHandle wrapped_type(Map::WrapFieldType(next_field_type));
       Descriptor d;
+      bool is_in_object = current_field_index < in_object_field_count;
+      int offset_in_words;
+      if (is_in_object) {
+        offset_in_words = target_in_object_start + current_field_index;
+      } else {
+        offset_in_words = PropertyArray::OffsetOfElementAt(
+                              current_field_index - in_object_field_count) /
+                          kTaggedSize;
+      }
       if (next_kind == PropertyKind::kData) {
-        d = Descriptor::DataField(key, current_offset, next_attributes,
-                                  next_constness, next_representation,
-                                  wrapped_type);
+        d = Descriptor::DataField(
+            key, FieldStorageLocation(offset_in_words, is_in_object),
+            next_attributes, next_constness, next_representation, wrapped_type);
       } else {
         // TODO(ishell): mutable accessors are not implemented yet.
         UNIMPLEMENTED();
       }
-      current_offset += d.GetDetails().field_width_in_words();
+      current_field_index += d.GetDetails().field_width_in_words();
       new_descriptors->Set(i, &d);
     } else {
       DCHECK_EQ(PropertyLocation::kDescriptor, next_location);
@@ -969,15 +1001,24 @@ DirectHandle<DescriptorArray> MapUpdater::BuildDescriptorArray() {
 
       MaybeObjectDirectHandle wrapped_type(Map::WrapFieldType(next_field_type));
       Descriptor d;
+      bool is_in_object = current_field_index < in_object_field_count;
+      int offset_in_words;
+      if (is_in_object) {
+        offset_in_words = target_in_object_start + current_field_index;
+      } else {
+        offset_in_words = PropertyArray::OffsetOfElementAt(
+                              current_field_index - in_object_field_count) /
+                          kTaggedSize;
+      }
       if (next_kind == PropertyKind::kData) {
-        d = Descriptor::DataField(key, current_offset, next_attributes,
-                                  next_constness, next_representation,
-                                  wrapped_type);
+        d = Descriptor::DataField(
+            key, FieldStorageLocation(offset_in_words, is_in_object),
+            next_attributes, next_constness, next_representation, wrapped_type);
       } else {
         // TODO(ishell): mutable accessors are not implemented yet.
         UNIMPLEMENTED();
       }
-      current_offset += d.GetDetails().field_width_in_words();
+      current_field_index += d.GetDetails().field_width_in_words();
       new_descriptors->Set(i, &d);
     } else {
       DCHECK_EQ(PropertyLocation::kDescriptor, next_location);
@@ -1113,8 +1154,9 @@ MapUpdater::State MapUpdater::ConstructNewMap() {
       split_map->instance_descriptors(isolate_)
               ->enum_cache()
               ->keys()
-              ->length() > 0 ||
-      old_descriptors_->enum_cache()->keys()->length() > 0;
+              ->ulength()
+              .value() > 0 ||
+      old_descriptors_->enum_cache()->keys()->ulength().value() > 0;
 
   // Deprecated part of the transition tree is no longer reachable, so replace
   // current instance descriptors in the "survived" part of the tree with
@@ -1246,11 +1288,6 @@ void MapUpdater::UpdateFieldType(Isolate* isolate, DirectHandle<Map> map,
     TransitionsAccessor transitions(isolate, current);
     transitions.ForEachTransition(
         &no_gc, [&](Tagged<Map> target) { backlog.push(target); },
-        [&](Tagged<Map> target) {
-          if (v8_flags.move_prototype_transitions_first) {
-            backlog.push(target);
-          }
-        },
         [&](Tagged<Object> target) {
           if (!target.IsSmi() && !Cast<Map>(target)->is_deprecated()) {
             sidestep_transition.push_back(Cast<Map>(target));
@@ -1276,9 +1313,9 @@ void MapUpdater::UpdateFieldType(Isolate* isolate, DirectHandle<Map> map,
 
     DCHECK_IMPLIES(IsClass(*new_type), new_representation.IsHeapObject());
     MaybeObjectDirectHandle wrapped_type(Map::WrapFieldType(new_type));
-    Descriptor d = Descriptor::DataField(
-        name, descriptors->GetFieldIndex(descriptor), details.attributes(),
-        new_constness, new_representation, wrapped_type);
+    Descriptor d = Descriptor::DataField(name, details.storage_location(),
+                                         details.attributes(), new_constness,
+                                         new_representation, wrapped_type);
     DCHECK_EQ(descriptors->GetKey(descriptor), *d.key_);
     descriptors->Replace(descriptor, &d);
   }

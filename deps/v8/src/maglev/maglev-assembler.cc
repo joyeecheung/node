@@ -6,10 +6,14 @@
 
 #include "src/builtins/builtins-inl.h"
 #include "src/codegen/external-reference.h"
+#include "src/codegen/register.h"
 #include "src/codegen/reglist.h"
 #include "src/maglev/maglev-assembler-inl.h"
 #include "src/maglev/maglev-code-generator.h"
 #include "src/numbers/conversions.h"
+#include "src/objects/fixed-array.h"
+#include "src/objects/instance-type.h"
+#include "src/objects/tagged-field.h"
 
 namespace v8 {
 namespace internal {
@@ -197,9 +201,16 @@ void MaglevAssembler::ToBoolean(Register value, CheckType check_type,
                 StaticReadOnlyRoot::kTrueValue);
   CompareInt32AndJumpIf(value, StaticReadOnlyRoot::kTrueValue,
                         kUnsignedLessThan, *is_false);
+#if defined(V8_TARGET_ARCH_LOONG64) || defined(V8_TARGET_ARCH_RISCV64)
+  // LOONG64 and RISCV64 do not support condition flags, and
+  // kMaglevFlagsRegister is not set in CompareInt32AndJumpIf.
+  CompareInt32AndJumpIf(value, StaticReadOnlyRoot::kTrueValue, kEqual,
+                        *is_true);
+#else
   // Reuse the condition flags from the above int32 compare to also check for
   // the true value itself.
   JumpIf(kEqual, *is_true);
+#endif
 #else
   // Check if {{value}} is false.
   JumpIfRoot(value, RootIndex::kFalseValue, *is_false);
@@ -311,76 +322,81 @@ void MaglevAssembler::MaterialiseValueNode(Register dst, ValueNode* value) {
     }
     default:
       break;
-  }
-  DCHECK(!value->regalloc_info()->allocation().IsConstant());
-  DCHECK(value->regalloc_info()->allocation().IsAnyStackSlot());
-  using D = NewHeapNumberDescriptor;
-  DoubleRegister builtin_input_value = D::GetDoubleRegisterParameter(D::kValue);
-  MemOperand src = ToMemOperand(value->regalloc_info()->allocation());
-  switch (value->properties().value_representation()) {
-    case ValueRepresentation::kInt32: {
-      Label done;
-      TemporaryRegisterScope temps(this);
-      Register scratch = temps.AcquireScratch();
-      Move(scratch, src);
-      SmiTagInt32AndJumpIfSuccess(dst, scratch, &done, Label::kNear);
-      // If smi tagging fails, instead of bailing out (deopting), we change
-      // representation to a HeapNumber.
-      Int32ToDouble(builtin_input_value, scratch);
-      CallBuiltin<Builtin::kNewHeapNumber>(builtin_input_value);
-      Move(dst, kReturnRegister0);
-      bind(&done);
-      break;
     }
-    case ValueRepresentation::kUint32: {
-      Label done;
-      TemporaryRegisterScope temps(this);
-      Register scratch = temps.AcquireScratch();
-      Move(scratch, src);
-      SmiTagUint32AndJumpIfSuccess(dst, scratch, &done, Label::kNear);
-      // If smi tagging fails, instead of bailing out (deopting), we change
-      // representation to a HeapNumber.
-      Uint32ToDouble(builtin_input_value, scratch);
-      CallBuiltin<Builtin::kNewHeapNumber>(builtin_input_value);
-      Move(dst, kReturnRegister0);
-      bind(&done);
-      break;
+    DCHECK(!value->regalloc_info()->allocation().IsConstant());
+    DCHECK(value->regalloc_info()->allocation().IsAnyStackSlot());
+    using D = NewHeapNumberDescriptor;
+    DoubleRegister builtin_input_value =
+        D::GetDoubleRegisterParameter(D::kValue);
+    MemOperand src = ToMemOperand(value->regalloc_info()->allocation());
+    switch (value->properties().value_representation()) {
+      case ValueRepresentation::kInt32: {
+        Label done;
+        TemporaryRegisterScope temps(this);
+        Register scratch = temps.AcquireScratch();
+        Move(scratch, src);
+        SmiTagInt32AndJumpIfSuccess(dst, scratch, &done, Label::kNear);
+        // If smi tagging fails, instead of bailing out (deopting), we change
+        // representation to a HeapNumber.
+        Int32ToDouble(builtin_input_value, scratch);
+        CallBuiltin<Builtin::kNewHeapNumber>(builtin_input_value);
+        Move(dst, kReturnRegister0);
+        bind(&done);
+        break;
+      }
+      case ValueRepresentation::kUint32: {
+        Label done;
+        TemporaryRegisterScope temps(this);
+        Register scratch = temps.AcquireScratch();
+        Move(scratch, src);
+        SmiTagUint32AndJumpIfSuccess(dst, scratch, &done, Label::kNear);
+        // If smi tagging fails, instead of bailing out (deopting), we change
+        // representation to a HeapNumber.
+        Uint32ToDouble(builtin_input_value, scratch);
+        CallBuiltin<Builtin::kNewHeapNumber>(builtin_input_value);
+        Move(dst, kReturnRegister0);
+        bind(&done);
+        break;
+      }
+      case ValueRepresentation::kFloat64:
+        LoadFloat64(builtin_input_value, src);
+        CallBuiltin<Builtin::kNewHeapNumber>(builtin_input_value);
+        Move(dst, kReturnRegister0);
+        break;
+      case ValueRepresentation::kHoleyFloat64: {
+        Label load_undefined, done;
+        JumpIfHoleNan(src, &load_undefined, Label::kNear);
+#ifdef V8_ENABLE_UNDEFINED_DOUBLE
+        JumpIfUndefinedNan(src, &load_undefined, Label::kNear);
+#endif
+        LoadFloat64(builtin_input_value, src);
+        CallBuiltin<Builtin::kNewHeapNumber>(builtin_input_value);
+        Move(dst, kReturnRegister0);
+        Jump(&done);
+        bind(&load_undefined);
+        LoadRoot(dst, RootIndex::kUndefinedValue);
+        bind(&done);
+        break;
+      }
+      case ValueRepresentation::kIntPtr: {
+        Label done;
+        TemporaryRegisterScope temps(this);
+        Register scratch = temps.AcquireScratch();
+        Move(scratch, src);
+        SmiTagIntPtrAndJumpIfSuccess(dst, scratch, &done, Label::kNear);
+        // If smi tagging fails, instead of bailing out (deopting), we change
+        // representation to a HeapNumber.
+        IntPtrToDouble(builtin_input_value, scratch);
+        CallBuiltin<Builtin::kNewHeapNumber>(builtin_input_value);
+        Move(dst, kReturnRegister0);
+        bind(&done);
+        break;
+      }
+      case ValueRepresentation::kTagged:
+      case ValueRepresentation::kRawPtr:
+      case ValueRepresentation::kNone:
+        UNREACHABLE();
     }
-    case ValueRepresentation::kFloat64:
-      LoadFloat64(builtin_input_value, src);
-      CallBuiltin<Builtin::kNewHeapNumber>(builtin_input_value);
-      Move(dst, kReturnRegister0);
-      break;
-    case ValueRepresentation::kHoleyFloat64: {
-      Label done, box;
-      JumpIfNotHoleNan(src, &box, Label::kNear);
-      LoadRoot(dst, RootIndex::kUndefinedValue);
-      Jump(&done);
-      bind(&box);
-      LoadFloat64(builtin_input_value, src);
-      CallBuiltin<Builtin::kNewHeapNumber>(builtin_input_value);
-      Move(dst, kReturnRegister0);
-      bind(&done);
-      break;
-    }
-    case ValueRepresentation::kIntPtr: {
-      Label done;
-      TemporaryRegisterScope temps(this);
-      Register scratch = temps.AcquireScratch();
-      Move(scratch, src);
-      SmiTagIntPtrAndJumpIfSuccess(dst, scratch, &done, Label::kNear);
-      // If smi tagging fails, instead of bailing out (deopting), we change
-      // representation to a HeapNumber.
-      IntPtrToDouble(builtin_input_value, scratch);
-      CallBuiltin<Builtin::kNewHeapNumber>(builtin_input_value);
-      Move(dst, kReturnRegister0);
-      bind(&done);
-      break;
-    }
-    case ValueRepresentation::kTagged:
-    case ValueRepresentation::kNone:
-      UNREACHABLE();
-  }
 }
 
 void MaglevAssembler::TestTypeOf(
@@ -530,17 +546,38 @@ void MaglevAssembler::CheckAndEmitDeferredWriteBarrier(
         }
 
         __ PushAll(saved);
+        {
+          MaglevAssembler::TemporaryRegisterScope temp(masm);
 
-        if (object != stub_object_reg) {
-          __ Move(stub_object_reg, object);
-          object = stub_object_reg;
-        }
+          if constexpr (store_mode == kFixedArrayElement) {
+            if (offset == stub_object_reg || offset == slot_reg) {
+              // Move the offset into a scratch register before setting up
+              // stub_object_reg or slot_reg, in case it aliases one of them and
+              // is clobbered by the write to them.
+              // TODO(leszeks): We could instead be smarter in
+              // SetSlotAddressForFixedArrayElement and allow the slot_reg to
+              // alias either object or offset.
+              Register scratch = temp.AcquireScratch();
+              __ Move(scratch, offset);
+              offset = scratch;
+            }
+          }
 
-        if constexpr (store_mode == kElement) {
-          __ SetSlotAddressForFixedArrayElement(slot_reg, object, offset);
-        } else {
-          static_assert(store_mode == kField);
-          __ SetSlotAddressForTaggedField(slot_reg, object, offset);
+          if (object != stub_object_reg) {
+            // Move the object into the right register before setting the slot
+            // address, in case object == slot_reg and overridden by
+            // SetSlotAddress.
+            __ Move(stub_object_reg, object);
+            object = stub_object_reg;
+          }
+
+          if constexpr (store_mode == kFixedArrayElement) {
+            CHECK(!AreAliased(slot_reg, object, offset));
+            __ SetSlotAddressForFixedArrayElement(slot_reg, object, offset);
+          } else {
+            static_assert(store_mode == kField);
+            __ SetSlotAddressForTaggedField(slot_reg, object, offset);
+          }
         }
 
         SaveFPRegsMode const save_fp_mode =
@@ -662,12 +699,21 @@ void MaglevAssembler::StoreFixedArrayElementWithWriteBarrier(
     Register array, Register index, Register value,
     RegisterSnapshot register_snapshot) {
   if (v8_flags.debug_code) {
-    AssertObjectType(array, FIXED_ARRAY_TYPE, AbortReason::kUnexpectedValue);
+    Label ok;
+    // Allow WeakHomomorphicFixedArray down this FixedArray path since it has
+    // the same data start offset.
+    static_assert(OFFSET_OF_DATA_START(FixedArray) ==
+                  OFFSET_OF_DATA_START(WeakHomomorphicFixedArray));
+    JumpIfObjectType(array, WEAK_HOMOMORPHIC_FIXED_ARRAY_TYPE, &ok,
+                     Label::kNear);
+    AssertObjectType(array, FIXED_ARRAY_TYPE,
+                     AbortReason::kUnexpectedInstanceType);
+    bind(&ok);
     CompareInt32AndAssert(index, 0, kGreaterThanEqual,
                           AbortReason::kUnexpectedNegativeValue);
   }
   StoreFixedArrayElementNoWriteBarrier(array, index, value);
-  CheckAndEmitDeferredWriteBarrier<kElement>(
+  CheckAndEmitDeferredWriteBarrier<kFixedArrayElement>(
       array, index, value, register_snapshot, kValueIsDecompressed,
       kValueCanBeSmi);
 }
@@ -715,6 +761,7 @@ void MaglevAssembler::ResetLastYoungAllocation() {
       ExternalReference::last_young_allocation_address(isolate_);
   Move(last_young_allocation_address, 0);
 }
+#undef __
 
 }  // namespace maglev
 }  // namespace internal

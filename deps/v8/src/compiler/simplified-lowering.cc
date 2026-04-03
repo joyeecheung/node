@@ -8,6 +8,7 @@
 #include <optional>
 
 #include "include/v8-fast-api-calls.h"
+#include "src/base/iterator.h"
 #include "src/base/logging.h"
 #include "src/base/platform/platform.h"
 #include "src/base/small-vector.h"
@@ -724,14 +725,13 @@ class RepresentationSelector {
     DCHECK(revisit_queue_.empty());
 
     // Process nodes in reverse post order, with End as the root.
-    for (auto it = traversal_nodes_.crbegin(); it != traversal_nodes_.crend();
-         ++it) {
-      PropagateTruncation(*it);
+    for (Node* node : base::Reversed(traversal_nodes_)) {
+      PropagateTruncation(node);
 
       while (!revisit_queue_.empty()) {
-        Node* node = revisit_queue_.front();
+        Node* revisited_node = revisit_queue_.front();
         revisit_queue_.pop();
-        PropagateTruncation(node);
+        PropagateTruncation(revisited_node);
       }
     }
   }
@@ -1134,11 +1134,13 @@ class RepresentationSelector {
 
   // Helper for no-op node.
   template <Phase T>
-  void VisitNoop(Node* node, Truncation truncation) {
+  void VisitNoop(Node* node, Truncation truncation,
+                 Type restriction_type = Type::Any()) {
     if (truncation.IsUnused()) return VisitUnused<T>(node);
     MachineRepresentation representation =
         GetOutputInfoForPhi(TypeOf(node), truncation);
-    VisitUnop<T>(node, UseInfo(representation, truncation), representation);
+    VisitUnop<T>(node, UseInfo(representation, truncation), representation,
+                 restriction_type);
     if (lower<T>()) DeferReplacement(node, node->InputAt(0));
   }
 
@@ -1219,7 +1221,8 @@ class RepresentationSelector {
       return MachineRepresentation::kNone;
     } else if (type.Is(Type::Signed32()) || type.Is(Type::Unsigned32())) {
       return MachineRepresentation::kWord32;
-    } else if (type.Is(Type::NumberOrOddball()) && use.IsUsedAsWord32()) {
+    } else if (type.Is(Type::NumberOrOddball()) && use.IsUsedAsWord32() &&
+               !use.check_safe_integer()) {
       return MachineRepresentation::kWord32;
     } else if (type.Is(Type::Boolean())) {
       return MachineRepresentation::kBit;
@@ -1426,8 +1429,38 @@ class RepresentationSelector {
 
   template <Phase T>
   void VisitStateValues(Node* node) {
+    // If the StateValues' first input is the receiver, it needs to be converted
+    // to tagged, such that we don't need to allocate when computing stack
+    // traces.
+    // TODO(nicohartmann): This is only relevant for lazy frames, but there is
+    // currently no easy way to tell if a frame is eager or lazy; fix.
+    bool first_input_is_receiver = false;
+    for (Node* use : node->uses()) {
+      if (use->opcode() == IrOpcode::kFrameState) {
+        FrameState frame_state(use);
+        switch (frame_state.frame_state_info().type()) {
+          case FrameStateType::kUnoptimizedFunction:
+          case FrameStateType::kJavaScriptBuiltinContinuation:
+          case FrameStateType::kJavaScriptBuiltinContinuationWithCatch:
+            if (use->InputCount() > FrameState::kFrameStateParametersInput &&
+                use->InputAt(FrameState::kFrameStateParametersInput) == node) {
+              first_input_is_receiver = true;
+              break;
+            }
+            break;
+          default:
+            break;
+        }
+      }
+    }
+
     if (propagate<T>()) {
-      for (int i = 0; i < node->InputCount(); i++) {
+      int i = 0;
+      if (first_input_is_receiver) {
+        EnqueueInput<T>(node, i, UseInfo::AnyTagged());
+        ++i;
+      }
+      for (; i < node->InputCount(); i++) {
         if (IsLargeBigInt(TypeOf(node->InputAt(i)))) {
           // BigInt64s are rematerialized in deoptimization. The other BigInts
           // must be rematerialized before deoptimization. By propagating an
@@ -1447,7 +1480,15 @@ class RepresentationSelector {
       Zone* zone = jsgraph_->zone();
       ZoneVector<MachineType>* types =
           zone->New<ZoneVector<MachineType>>(node->InputCount(), zone);
-      for (int i = 0; i < node->InputCount(); i++) {
+      int i = 0;
+      if (first_input_is_receiver) {
+        Node* receiver = node->InputAt(0);
+        ConvertInput(node, 0, UseInfo::AnyTagged());
+        (*types)[i] = DeoptMachineTypeOf(MachineRepresentation::kTagged,
+                                         TypeOf(receiver));
+        ++i;
+      }
+      for (; i < node->InputCount(); i++) {
         Node* input = node->InputAt(i);
         MachineRepresentation input_rep = GetInfo(input)->representation();
         if (IsLargeBigInt(TypeOf(input))) {
@@ -3954,8 +3995,11 @@ class RepresentationSelector {
       }
       case IrOpcode::kStringToLowerCaseIntl:
       case IrOpcode::kStringToUpperCaseIntl: {
-        VisitUnop<T>(node, UseInfo::AnyTagged(),
-                     MachineRepresentation::kTaggedPointer);
+        ProcessInput<T>(node, 0, UseInfo::AnyTagged());
+        ProcessInput<T>(node, 1, UseInfo::TaggedPointer());
+        ProcessInput<T>(node, 2, UseInfo::TaggedPointer());
+        ProcessRemainingInputs<T>(node, 3);
+        SetOutput<T>(node, MachineRepresentation::kTaggedPointer);
         return;
       }
       case IrOpcode::kCheckBounds:
@@ -4006,7 +4050,7 @@ class RepresentationSelector {
                          MachineRepresentation::kFloat64, output_type);
             if (lower<T>()) DeferReplacement(node, node->InputAt(0));
           } else {
-            VisitNoop<T>(node, truncation);
+            VisitNoop<T>(node, truncation, output_type);
           }
         } else {
           VisitUnop<T>(node, UseInfo::AnyTagged(),
@@ -4895,6 +4939,9 @@ class RepresentationSelector {
       case IrOpcode::kDeadValue:
         ProcessInput<T>(node, 0, UseInfo::Any());
         return SetOutput<T>(node, MachineRepresentation::kNone);
+      case IrOpcode::kMajorGCForCompilerTesting:
+        ProcessRemainingInputs<T>(node, 0);
+        return SetOutput<T>(node, MachineRepresentation::kTagged);
       case IrOpcode::kStaticAssert:
         DCHECK(TypeOf(node->InputAt(0)).Is(Type::Boolean()));
         return VisitUnop<T>(node, UseInfo::Bool(),

@@ -39,6 +39,7 @@
 
 #include <memory>
 
+#include "include/v8config.h"
 #include "src/base/platform/wrappers.h"
 #include "src/codegen/assembler.h"
 #include "src/codegen/source-position-table.h"
@@ -129,44 +130,53 @@ static const char kStringTerminator[] = {'\0'};
 // GetFileMutex().
 int PerfJitLogger::process_id_ = 0;
 uint64_t PerfJitLogger::reference_count_ = 0;
+#if !V8_OS_DARWIN
 void* PerfJitLogger::marker_address_ = nullptr;
+#endif  // !V8_OS_DARWIN
 uint64_t PerfJitLogger::code_index_ = 0;
 FILE* PerfJitLogger::perf_output_handle_ = nullptr;
 
 void PerfJitLogger::OpenJitDumpFile() {
-  // Open the perf JIT dump file.
-  perf_output_handle_ = nullptr;
-
   size_t bufferSize = strlen(v8_flags.perf_prof_path) +
                       sizeof(kFilenameFormatString) + kFilenameBufferPadding;
-  base::ScopedVector<char> perf_dump_name(bufferSize);
-  int size = SNPrintF(perf_dump_name, kFilenameFormatString,
+  auto perf_dump_name = base::OwnedVector<char>::NewForOverwrite(bufferSize);
+  int size = SNPrintF(perf_dump_name.as_vector(), kFilenameFormatString,
                       v8_flags.perf_prof_path.value(), process_id_);
   CHECK_NE(size, -1);
 
-  int fd = open(perf_dump_name.begin(), O_CREAT | O_TRUNC | O_RDWR, 0666);
-  if (fd == -1) return;
+  int fd = open(perf_dump_name.begin(), O_RDWR | O_TRUNC | O_CREAT | O_NOFOLLOW,
+                0640);
+  if (fd == -1) {
+    FATAL("Failure (%s) to open perf-jit file at '%s'", strerror(errno),
+          perf_dump_name.begin());
+  }
 
   // If --perf-prof-delete-file is given, unlink the file right after opening
   // it. This keeps the file handle to the file valid. This only works on Linux,
   // which is the only platform supported for --perf-prof anyway.
-  if (v8_flags.perf_prof_delete_file)
+  if (v8_flags.perf_prof_delete_file) {
     CHECK_EQ(0, unlink(perf_dump_name.begin()));
+  }
 
   // On Linux, call OpenMarkerFile so that perf knows about the file path via
   // an MMAP record.
   // On macOS, don't call OpenMarkerFile because samply has already detected
   // the file path during the call to `open` above (it interposes `open` with
   // a preloaded library), and because the mmap call can be slow.
-#if V8_OS_DARWIN
-  marker_address_ = nullptr;
-#else
-  marker_address_ = OpenMarkerFile(fd);
-  if (marker_address_ == nullptr) return;
-#endif
+#if !V8_OS_DARWIN
+  long page_size = sysconf(_SC_PAGESIZE);  // NOLINT(runtime/int)
+  CHECK_NE(-1, page_size);
+
+  // Mmap the file so that there is a mmap record in the perf_data file.
+  //
+  // The map must be PROT_EXEC to ensure it is not ignored by perf record.
+  marker_address_ =
+      mmap(nullptr, page_size, PROT_READ | PROT_EXEC, MAP_PRIVATE, fd, 0);
+  CHECK_NE(marker_address_, MAP_FAILED);
+#endif  // !V8_OS_DARWIN
 
   perf_output_handle_ = fdopen(fd, "w+");
-  if (perf_output_handle_ == nullptr) return;
+  CHECK_NOT_NULL(perf_output_handle_);
 
   setvbuf(perf_output_handle_, nullptr, _IOFBF, kLogBufferSize);
 }
@@ -175,25 +185,12 @@ void PerfJitLogger::CloseJitDumpFile() {
   if (perf_output_handle_ == nullptr) return;
   base::Fclose(perf_output_handle_);
   perf_output_handle_ = nullptr;
-}
 
-void* PerfJitLogger::OpenMarkerFile(int fd) {
+#if !V8_OS_DARWIN
   long page_size = sysconf(_SC_PAGESIZE);  // NOLINT(runtime/int)
-  if (page_size == -1) return nullptr;
-
-  // Mmap the file so that there is a mmap record in the perf_data file.
-  //
-  // The map must be PROT_EXEC to ensure it is not ignored by perf record.
-  void* marker_address =
-      mmap(nullptr, page_size, PROT_READ | PROT_EXEC, MAP_PRIVATE, fd, 0);
-  return (marker_address == MAP_FAILED) ? nullptr : marker_address;
-}
-
-void PerfJitLogger::CloseMarkerFile(void* marker_address) {
-  if (marker_address == nullptr) return;
-  long page_size = sysconf(_SC_PAGESIZE);  // NOLINT(runtime/int)
-  if (page_size == -1) return;
-  munmap(marker_address, page_size);
+  CHECK_NE(-1, page_size);
+  munmap(marker_address_, page_size);
+#endif  // !V8_OS_DARWIN
 }
 
 PerfJitLogger::PerfJitLogger(Isolate* isolate) : CodeEventLogger(isolate) {
@@ -204,7 +201,6 @@ PerfJitLogger::PerfJitLogger(Isolate* isolate) : CodeEventLogger(isolate) {
   // If this is the first logger, open the file and write the header.
   if (reference_count_ == 1) {
     OpenJitDumpFile();
-    if (perf_output_handle_ == nullptr) return;
     LogWriteHeader();
   }
 }
@@ -240,8 +236,8 @@ void PerfJitLogger::LogRecordedBuffer(
   if (perf_output_handle_ == nullptr) return;
 
   // We only support non-interpreted functions.
-  Tagged<Code> code;
-  if (!TryCast(abstract_code, &code)) return;
+  if (!IsCode(abstract_code)) return;
+  Tagged<Code> code = abstract_code->GetCode();
 
   // Debug info has to be emitted first.
   DirectHandle<SharedFunctionInfo> sfi;
@@ -310,9 +306,9 @@ constexpr size_t kUnknownScriptNameStringLen =
     arraysize(kUnknownScriptNameString) - 1;
 
 namespace {
-base::Vector<const char> GetScriptName(Tagged<Object> maybeScript,
-                                       std::unique_ptr<char[]>* storage,
-                                       const DisallowGarbageCollection& no_gc) {
+base::Vector<const char> GetScriptName(
+    Tagged<Object> maybeScript, std::unique_ptr<char[]>* storage,
+    const DisallowGarbageCollection& no_gc V8_LIFETIME_BOUND) {
   if (IsScript(maybeScript)) {
     Tagged<Object> name_or_url =
         Cast<Script>(maybeScript)->GetNameOrSourceURL();
@@ -364,6 +360,7 @@ void PerfJitLogger::LogWriteDebugInfo(Tagged<Code> code,
   Tagged<Object> last_script = Smi::zero();
   size_t last_script_name_size = 0;
   std::vector<base::Vector<const char>> script_names;
+  std::vector<std::unique_ptr<char[]>> name_storages;
   for (SourcePositionTableIterator iterator(source_position_table);
        !iterator.done(); iterator.Advance()) {
     SourcePositionInfo info(GetSourcePositionInfo(isolate_, code, shared,
@@ -371,7 +368,8 @@ void PerfJitLogger::LogWriteDebugInfo(Tagged<Code> code,
     Tagged<Object> current_script = *info.script;
     if (current_script != last_script) {
       std::unique_ptr<char[]> name_storage;
-      auto name = GetScriptName(raw_shared->script(), &name_storage, no_gc);
+      auto name = GetScriptName(current_script, &name_storage, no_gc);
+      if (name_storage) name_storages.push_back(std::move(name_storage));
       script_names.push_back(name);
       // Add the size of the name after each entry.
       last_script_name_size = name.size() + sizeof(kStringTerminator);

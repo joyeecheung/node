@@ -154,14 +154,14 @@ StaticCanonicalForLoopMatcher::GetIterCountIfStaticCanonicalForLoop(
   // We have: phi(..., ...) cmp_op cmp_cst
   // eg, for (i = ...; i < 42; ...)
   uint64_t phi_cst;
-  if (matcher_.MatchUnsignedIntegralConstant(phi.input(0), &phi_cst)) {
+  if (matcher_.MatchUnsignedIntegralConstant(phi.forward_edge(), &phi_cst)) {
     // We have: phi(phi_cst, ...) cmp_op cmp_cst
     // eg, for (i = 0; i < 42; ...)
     V<Word> left, right;
     BinOp binop_op;
     WordRepresentation binop_rep;
-    if (MatchWordBinop(phi.input(1), &left, &right, &binop_op, &binop_rep) ||
-        MatchCheckedOverflowBinop(phi.input(1), &left, &right, &binop_op,
+    if (MatchWordBinop(phi.back_edge(), &left, &right, &binop_op, &binop_rep) ||
+        MatchCheckedOverflowBinop(phi.back_edge(), &left, &right, &binop_op,
                                   &binop_rep)) {
       // We have: phi(phi_cst, ... binop_op ...) cmp_op cmp_cst
       // eg, for (i = 0; i < 42; i = ... + ...)
@@ -178,12 +178,17 @@ StaticCanonicalForLoopMatcher::GetIterCountIfStaticCanonicalForLoop(
       } else if (right == phi_idx) {
         // We have: phi(phi_cst, ... binop_op phi) cmp_op cmp_cst
         // eg, for (i = 0; i < 42; i = ... + i)
-        uint64_t binop_cst;
-        if (matcher_.MatchUnsignedIntegralConstant(left, &binop_cst)) {
-          // We have: phi(phi_cst, binop_cst binop_op phi) cmp_op cmp_cst
-          // eg, for (i = 0; i < 42; i = 2 + i)
-          return CountIterations(cmp_cst, cmp_op, phi_cst, binop_cst, binop_op,
-                                 binop_rep, loop_if_cond_is);
+
+        // We need the binop to be commutative, because CountIterations will
+        // simulate i = i op cst.
+        if (BinopIsCommutative(binop_op)) {
+          uint64_t binop_cst;
+          if (matcher_.MatchUnsignedIntegralConstant(left, &binop_cst)) {
+            // We have: phi(phi_cst, binop_cst binop_op phi) cmp_op cmp_cst
+            // eg, for (i = 0; i < 42; i = 2 + i)
+            return CountIterations(cmp_cst, cmp_op, phi_cst, binop_cst,
+                                   binop_op, binop_rep, loop_if_cond_is);
+          }
         }
       }
     }
@@ -205,6 +210,22 @@ constexpr bool StaticCanonicalForLoopMatcher::BinopKindIsSupported(
     case WordBinopOp::Kind::kBitwiseXor:
       return true;
     default:
+      return false;
+  }
+}
+
+constexpr bool StaticCanonicalForLoopMatcher::BinopIsCommutative(BinOp op) {
+  switch (op) {
+    case BinOp::kAdd:
+    case BinOp::kMul:
+    case BinOp::kBitwiseAnd:
+    case BinOp::kBitwiseOr:
+    case BinOp::kBitwiseXor:
+    case BinOp::kOverflowCheckedAdd:
+    case BinOp::kOverflowCheckedMul:
+      return true;
+    case BinOp::kSub:
+    case BinOp::kOverflowCheckedSub:
       return false;
   }
 }

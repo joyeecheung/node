@@ -67,14 +67,14 @@ class ValueSerializerTest : public TestWithIsolate {
         [](Local<Name> property, const PropertyCallbackInfo<Value>& info) {
           CHECK(i::ValidateCallbackInfo(info));
           info.GetReturnValue().Set(
-              info.HolderV2()->GetInternalField(0).As<v8::Value>());
+              info.Holder()->GetInternalField(0).As<v8::Value>());
         });
     function_template->InstanceTemplate()->SetNativeDataProperty(
         StringFromUtf8("value2"),
         [](Local<Name> property, const PropertyCallbackInfo<Value>& info) {
           CHECK(i::ValidateCallbackInfo(info));
           info.GetReturnValue().Set(
-              info.HolderV2()->GetInternalField(1).As<v8::Value>());
+              info.Holder()->GetInternalField(1).As<v8::Value>());
         });
     for (Local<Context> context :
          {serialization_context, deserialization_context}) {
@@ -2642,7 +2642,7 @@ class ValueSerializerTestWithSharedArrayBufferClone
       auto i_isolate = reinterpret_cast<i::Isolate*>(isolate());
       auto backing_store = i::BackingStore::AllocateWasmMemory(
           i_isolate, pages, pages, i::WasmMemoryFlag::kWasmMemory32,
-          i::SharedFlag::kShared);
+          i::SharedFlag::kYes);
       memcpy(backing_store->buffer_start(), data, byte_length);
       i::DirectHandle<i::JSArrayBuffer> buffer =
           i_isolate->factory()->NewJSSharedArrayBuffer(
@@ -2765,10 +2765,11 @@ TEST_F(ValueSerializerTestWithSharedArrayBufferClone,
     Context::Scope scope(serialization_context());
     const int32_t kMaxPages = 1;
     i::Isolate* i_isolate = reinterpret_cast<i::Isolate*>(isolate());
-    i::DirectHandle<i::JSArrayBuffer> obj =
+    i::DirectHandle<i::JSArrayBuffer> buffer =
         Utils::OpenDirectHandle(*input_buffer());
-    input = Utils::Convert<i::WasmMemoryObject, Value>(i::WasmMemoryObject::New(
-        i_isolate, obj, kMaxPages, i::wasm::AddressType::kI32));
+    input = Utils::Convert<i::WasmMemoryObject, Value>(
+        i::WasmMemoryObject::New(i_isolate, buffer, buffer->GetBackingStore(),
+                                 kMaxPages, i::wasm::AddressType::kI32));
   }
   RoundTripTest(input);
   ExpectScriptTrue("result instanceof WebAssembly.Memory");
@@ -2802,8 +2803,9 @@ TEST_F(ValueSerializerTestWithSharedArrayBufferClone,
     i::Isolate* i_isolate = reinterpret_cast<i::Isolate*>(isolate());
     i::DirectHandle<i::JSArrayBuffer> buffer =
         Utils::OpenDirectHandle(*input_buffer());
-    i::DirectHandle<i::WasmMemoryObject> wasm_memory = i::WasmMemoryObject::New(
-        i_isolate, buffer, kMaxPages, i::wasm::AddressType::kI32);
+    i::DirectHandle<i::WasmMemoryObject> wasm_memory =
+        i::WasmMemoryObject::New(i_isolate, buffer, buffer->GetBackingStore(),
+                                 kMaxPages, i::wasm::AddressType::kI32);
     i::DirectHandle<i::FixedArray> fixed_array =
         i_isolate->factory()->NewFixedArray(2);
     fixed_array->set(0, *buffer);
@@ -3582,10 +3584,9 @@ TEST_F(ValueSerializerTest, RoundTripError) {
 
   {
     Context::Scope scope(deserialization_context());
-    EXPECT_EQ(error->GetPrototypeV2(),
-              Exception::Error(String::Empty(isolate()))
-                  .As<Object>()
-                  ->GetPrototypeV2());
+    EXPECT_EQ(error->GetPrototype(), Exception::Error(String::Empty(isolate()))
+                                         .As<Object>()
+                                         ->GetPrototype());
   }
   ASSERT_TRUE(error->Get(deserialization_context(), StringFromUtf8("name"))
                   .ToLocal(&name));

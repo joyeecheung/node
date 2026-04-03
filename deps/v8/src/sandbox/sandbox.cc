@@ -7,7 +7,7 @@
 #include "include/v8-internal.h"
 #include "src/base/bits.h"
 #include "src/base/bounded-page-allocator.h"
-#include "src/base/cpu.h"
+#include "src/base/cpu/cpu.h"
 #include "src/base/emulated-virtual-address-subspace.h"
 #include "src/base/lazy-instance.h"
 #include "src/base/sys-info.h"
@@ -17,6 +17,7 @@
 #include "src/flags/flags.h"
 #include "src/sandbox/hardware-support.h"
 #include "src/sandbox/sandboxed-pointer.h"
+#include "src/sandbox/testing.h"
 #include "src/utils/allocation.h"
 
 namespace v8 {
@@ -24,7 +25,7 @@ namespace internal {
 
 #ifdef V8_ENABLE_SANDBOX
 
-bool Sandbox::first_four_gb_of_address_space_are_reserved_ = false;
+bool Sandbox::smi_address_range_reserved_ = false;
 
 #ifdef V8_COMPRESS_POINTERS_IN_MULTIPLE_CAGES
 thread_local Sandbox* Sandbox::current_ = nullptr;
@@ -168,6 +169,15 @@ void Sandbox::Initialize(v8::VirtualAddressSpace* vas) {
         "Failed to reserve the virtual address space for the V8 sandbox");
   }
 
+  if (v8_flags.sandbox_prohibit_insecure_mode) {
+    if (is_partially_reserved() || !smi_address_range_is_inaccessible()) {
+      V8::FatalProcessOutOfMemory(
+          nullptr,
+          "Failed to initialize sandbox in a secure mode which is required by "
+          "--sandbox_prohibit_insecure_mode.");
+    }
+  }
+
 #if V8_ENABLE_WEBASSEMBLY && V8_TRAP_HANDLER_SUPPORTED
   if (trap_handler::RegisterV8Sandbox(base(), size())) {
     trap_handler_initialized_ = true;
@@ -203,8 +213,8 @@ bool Sandbox::Initialize(v8::VirtualAddressSpace* vas, size_t size,
   const size_t kAdditionalTrailingGuardRegionSize = 0;
 #else
   // Worst-case, we currently need 8 (max element size) * 32GB (max ArrayBuffer
-  // size) + 4GB (additional offset for TypedArray access).
-  const size_t kTotalTrailingGuardRegionSize = 260ULL * GB;
+  // size) + 32GB (additional bounded size offset for TypedArray access).
+  const size_t kTotalTrailingGuardRegionSize = 288ULL * GB;
   const size_t kAdditionalTrailingGuardRegionSize =
       kTotalTrailingGuardRegionSize - kSandboxGuardRegionSize;
 #endif
@@ -241,6 +251,12 @@ bool Sandbox::Initialize(v8::VirtualAddressSpace* vas, size_t size,
       vas->AllocateSubspace(hint, true_reservation_size, kSandboxAlignment,
                             kSandboxMaxPermissions, sandbox_pkey);
   if (!address_space_) return false;
+  address_space_->SetName(kSandboxAddressSpaceName);
+#ifdef V8_ENABLE_MEMORY_CORRUPTION_API
+  SandboxTesting::RegisterSafeMemoryRegion(
+      address_space_->base(), address_space_->size(),
+      SandboxTesting::kReadAndWriteAccessIsSafe);
+#endif
 
   reservation_base_ = address_space_->base();
   base_ = reservation_base_ + (use_guard_regions ? kSandboxGuardRegionSize : 0);
@@ -263,12 +279,14 @@ bool Sandbox::Initialize(v8::VirtualAddressSpace* vas, size_t size,
   // Also try to reserve the first 4GB of the process' address space. This
   // mitigates Smi<->HeapObject confusion bugs in which we end up treating a
   // Smi value as a pointer.
-  if (!first_four_gb_of_address_space_are_reserved_) {
-    Address end = 4UL * GB;
+  if (!smi_address_range_reserved_) {
+    // Make the guard region extend a little past the first 4GB to also catch
+    // accesses with an offset into a negative Smi (e.g. [0xfffffffe + offset]).
+    Address end = kSmiAddressRange + kSmiAddressRangePadding;
     size_t step = address_space_->allocation_granularity();
     for (Address start = 0; start <= 1 * MB; start += step) {
       if (vas->AllocateGuardRegion(start, end - start)) {
-        first_four_gb_of_address_space_are_reserved_ = true;
+        smi_address_range_reserved_ = true;
         break;
       }
     }
@@ -378,6 +396,10 @@ void Sandbox::TearDown() {
       trap_handler_initialized_ = false;
     }
 #endif  // V8_ENABLE_WEBASSEMBLY && V8_TRAP_HANDLER_SUPPORTED
+
+#ifdef V8_ENABLE_MEMORY_CORRUPTION_API
+    SandboxTesting::UnregisterSafeMemoryRegion(address_space_->base());
+#endif
 
     // This destroys the sub space and frees the underlying reservation.
     address_space_.reset();

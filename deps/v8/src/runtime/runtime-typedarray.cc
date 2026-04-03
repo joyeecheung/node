@@ -35,7 +35,7 @@ RUNTIME_FUNCTION(Runtime_ArrayBufferDetach) {
 RUNTIME_FUNCTION(Runtime_ArrayBufferSetDetachKey) {
   HandleScope scope(isolate);
   DCHECK_EQ(2, args.length());
-  Handle<Object> argument = args.at(0);
+  DirectHandle<Object> argument = args.at(0);
   DirectHandle<Object> key = args.at(1);
   // This runtime function is exposed in ClusterFuzz and as such has to
   // support arbitrary arguments.
@@ -44,7 +44,7 @@ RUNTIME_FUNCTION(Runtime_ArrayBufferSetDetachKey) {
         isolate, NewTypeError(MessageTemplate::kNotTypedArray));
   }
   auto array_buffer = Cast<JSArrayBuffer>(argument);
-  array_buffer->set_detach_key(*key);
+  JSArrayBuffer::SetDetachKey(array_buffer, key, isolate);
   return ReadOnlyRoots(isolate).undefined_value();
 }
 
@@ -138,10 +138,9 @@ RUNTIME_FUNCTION(Runtime_TypedArraySortFast) {
   std::vector<uint8_t> offheap_copy;
   void* data_copy_ptr = nullptr;
   if (copy_data) {
-    if (byte_length <= static_cast<unsigned>(
-                           ByteArray::LengthFor(kMaxRegularHeapObjectSize))) {
+    if (byte_length <= ByteArray::LengthFor(kMaxRegularHeapObjectSize)) {
       array_copy =
-          isolate->factory()->NewByteArray(static_cast<int>(byte_length));
+          isolate->factory()->NewByteArray(static_cast<uint32_t>(byte_length));
       data_copy_ptr = array_copy->begin();
     } else {
       // Allocate copy in C++ heap.

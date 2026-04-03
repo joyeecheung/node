@@ -21,8 +21,11 @@ namespace v8::internal::compiler::turboshaft {
 //     CASE(V<Number>, num): { ... use num ... }
 //     CASE(V<BigInt>, bi):  { ... use bi  ... }
 //     CASE(V<String>, str): { ... use str ... }
-//     CASE(V<Union<Undefined, Symbol>>, oth): {
-//       ... use oth ...
+//     CASE(V<Union<Undefined, Symbol>>, u_or_s): {
+//       ... use u_or_s ...
+//     }
+//     DEFAULT: {
+//       ... remaining cases ...
 //     }
 //   }
 //
@@ -44,8 +47,9 @@ namespace v8::internal::compiler::turboshaft {
 // at the very end. While the above handles types would not reach this case,
 // this is exaplicitly allowed as a "all others"-case.
 //
-// There is no default case and exhaustiveness is not enforced, so if you need
-// this, a CASE(V<Object>, other) is the way to achieve this.
+// Notice, that the switch has to be exhaustive and all unhandled cases will
+// lead to an Unreachable trigger. You can use a DEFAULT label to (not) handle
+// the rest of the possibilities.
 //
 // Now for the actual matching: As checking for different object types is most
 // efficient using different means (e.g. checking the map, comparing instance
@@ -234,9 +238,43 @@ template <>
 struct MatchCase<Undefined> {
   template <typename AssemblerT>
   static void Match(AssemblerT& Asm, MatchState& state, Block* target) {
-    __ GotoIf(__ TaggedEqual(state.map(Asm),
-                             __ HeapConstant(Asm.factory()->undefined_map())),
+    __ GotoIf(__ TaggedEqual(state.value(),
+                             __ HeapConstant(Asm.factory()->undefined_value())),
               target);
+  }
+};
+
+template <>
+struct MatchCase<Boolean> {
+  template <typename AssemblerT>
+  static void Match(AssemblerT& Asm, MatchState& state, Block* target) {
+#if V8_STATIC_ROOTS_BOOL
+    V<Word32> map_int32 = __ TruncateWordPtrToWord32(
+        __ BitcastHeapObjectToWordPtr(state.map(Asm)));
+    __ GotoIf(__ Word32Equal(map_int32, StaticReadOnlyRoot::kBooleanMap),
+              target);
+#else
+    __ GotoIf(__ TaggedEqual(state.map(Asm),
+                             __ HeapConstant(Asm.factory()->boolean_map())),
+              target);
+#endif
+  }
+};
+
+template <>
+struct MatchCase<Null> {
+  template <typename AssemblerT>
+  static void Match(AssemblerT& Asm, MatchState& state, Block* target) {
+#if V8_STATIC_ROOTS_BOOL
+    V<Word32> value_int32 = __ TruncateWordPtrToWord32(
+        __ BitcastHeapObjectToWordPtr(state.value()));
+    __ GotoIf(__ Word32Equal(value_int32, StaticReadOnlyRoot::kNullValue),
+              target);
+#else
+    __ GotoIf(__ TaggedEqual(state.value(),
+                             __ HeapConstant(Asm.factory()->null_value())),
+              target);
+#endif
   }
 };
 
@@ -250,6 +288,35 @@ struct MatchCase<BigInt> {
   }
 };
 
+template <>
+struct MatchCase<JSCallable> {
+  template <typename AssemblerT>
+  static void Match(AssemblerT& Asm, MatchState& state, Block* target) {
+    __ GotoIf(__ template IsSetWord32<Map::Bits1::IsCallableBit>(__ LoadField(
+                  state.map(Asm), AccessBuilderTS::ForMapBitField())),
+              target);
+  }
+};
+
+template <>
+struct MatchCase<JSAny> {
+  static constexpr bool kIsSmiCase = true;
+  static_assert(
+      std::is_same_v<JSAny, Union<Smi, HeapNumber, BigInt, String, Symbol,
+                                  Boolean, Null, Undefined, JSReceiver>>);
+  template <typename AssemblerT>
+  static void Match(AssemblerT& Asm, MatchState& state, Block* target) {
+    // TODO(nicohartmann): Look into some ways to be a bit smarter about that.
+    MatchCase<Smi>::Match(Asm, state, target);
+    MatchCase<HeapNumber>::Match(Asm, state, target);
+    MatchCase<BigInt>::Match(Asm, state, target);
+    MatchCase<String>::Match(Asm, state, target);
+    MatchCase<Symbol>::Match(Asm, state, target);
+    MatchCase<Oddball>::Match(Asm, state, target);
+    MatchCase<JSReceiver>::Match(Asm, state, target);
+  }
+};
+
 template <typename... Ts>
 struct MatchCase<Union<Ts...>> {
   static constexpr bool kIsSmiCase = (detail::TestIsSmiCase<Ts>::value || ...);
@@ -260,6 +327,20 @@ struct MatchCase<Union<Ts...>> {
   }
 };
 
+namespace detail {
+template <typename T>
+struct TypesOf {
+  using type = base::tmp::list<T>;
+};
+
+template <typename... Ts>
+struct TypesOf<Union<Ts...>> {
+  using type = base::tmp::list<Ts...>;
+};
+
+template <typename T>
+using IsObjectSubtype = is_subtype<T, Object>;
+}  // namespace detail
 
 template <typename AssemblerT>
 class TypeswitchBuilder {
@@ -277,20 +358,18 @@ class TypeswitchBuilder {
   template <typename T>
   TypeswitchBuilder(assembler_t& assembler, PipelineData* data, V<T> value)
       : assembler_(assembler), data_(data), value_(value) {
-    if constexpr (std::is_base_of_v<HeapObject, T>) {
-      state_ = MatchState::FromValue(value);
-      can_be_smi_ = false;
-    } else if constexpr (std::is_same_v<Object, T>) {
-      // `value` can be a Smi, and we will emit the code to check and handle
-      // that, but we invoke MatchCase specializations only for `HeapObject`, so
-      // we initialize the `state_` for this.
-      state_ = MatchState::FromValue(V<HeapObject>::Cast(value));
-      can_be_smi_ = true;
-    } else {
-      static_assert(std::is_base_of_v<HeapObject, T>,
-                    "Cannot TYPESWITCH over this type");
-    }
+    using types = detail::TypesOf<T>::type;
+    static_assert(base::tmp::all_of_v<types, detail::IsObjectSubtype>,
+                  "Cannot TYPESWITCH over this type");
+    state_ = MatchState::FromValue(V<HeapObject>::Cast(value));
+    can_be_smi_ = base::tmp::contains_v<types, Smi> ||
+                  base::tmp::contains_v<types, Object>;
   }
+
+  template <typename T, typename A>
+  TypeswitchBuilder(assembler_t& assembler, PipelineData* data,
+                    const ScopedVar<T, A>& var)
+      : TypeswitchBuilder(assembler, data, var.Get()) {}
 
   // BeginCase is invoked multiple times by the builder for each case (case_ref
   // here is a unique identification for the specific case). The builder's
@@ -342,10 +421,41 @@ class TypeswitchBuilder {
     UNREACHABLE();
   }
 
+  // BeginDefault is invoked similarly to BeginCase but for the DEFAULT label.
+  bool BeginDefault() {
+    switch (control_state_) {
+      case ControlState::kUninitialized:
+      case ControlState::kDone:
+        UNREACHABLE();
+      case ControlState::kCollectCases:
+        DCHECK_NULL(default_block_);
+        default_block_ = assembler_.NewBlock();
+        return false;
+      case ControlState::kEmitBranches:
+        // Nothing to do here, the goto is emitted by NextState.
+        return false;
+      case ControlState::kEmitCases: {
+        DCHECK_NOT_NULL(default_block_);
+        const bool bound = assembler_.Bind(default_block_);
+        if (!bound) FATAL("DEFAULT of TYPESWITCH is unreachable");
+        return true;
+      }
+    }
+    UNREACHABLE();
+  }
+
   // EndCase is invoked for a CASE when we have emitted that case's code and if
   // the case is not terminated unconditionally, we set control flow to continue
   // after the TYPESWITCH.
   void EndCase(int case_ref) {
+    DCHECK_NOT_NULL(exit_block_);
+    if (!assembler_.generating_unreachable_operations()) {
+      assembler_.Goto(exit_block_);
+    }
+  }
+
+  // EndDefault is invoked similarly to EndCase but for the DEFAULT label.
+  void EndDefault() {
     DCHECK_NOT_NULL(exit_block_);
     if (!assembler_.generating_unreachable_operations()) {
       assembler_.Goto(exit_block_);
@@ -365,17 +475,25 @@ class TypeswitchBuilder {
 
         // We explicitly handle smi case here if applicable.
         if (can_be_smi_) {
-          if (!smi_target_) smi_target_ = exit_block_;
+          if (!smi_target_) {
+            CHECK(default_block_);
+            smi_target_ = default_block_;
+          }
           assembler_.GotoIf(assembler_.IsSmi(value_), smi_target_);
         }
         return true;
       }
       case ControlState::kEmitCases: {
         // Now we are emitting the code for the cases. Before the first case,
-        // though, we emit a jump to the exit block, so that we jump to after
-        // the TYPESWITCH for all types that are not handled.
+        // though, we emit a jump to the default block, so that we jump to that
+        // for all types that are not handled. If the implementation didn't
+        // provide a default block, we assume that it's unreachable.
         if (!assembler_.generating_unreachable_operations()) {
-          assembler_.Goto(exit_block_);
+          if (default_block_) {
+            assembler_.Goto(default_block_);
+          } else {
+            assembler_.Unreachable();
+          }
         }
         return true;
       }
@@ -399,6 +517,7 @@ class TypeswitchBuilder {
   base::SmallMap<std::map<int, Block*>, 8> cases_;
   Block* smi_target_ = nullptr;
   Block* exit_block_ = nullptr;
+  Block* default_block_ = nullptr;
 };
 
 #include "src/compiler/turboshaft/undef-assembler-macros.inc"

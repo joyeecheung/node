@@ -12,6 +12,7 @@
 
 namespace v8 {
 namespace internal {
+namespace regexp {
 
 class V8_EXPORT_PRIVATE RegExpMacroAssemblerIA32
     : public NativeRegExpMacroAssembler {
@@ -19,7 +20,6 @@ class V8_EXPORT_PRIVATE RegExpMacroAssemblerIA32
   RegExpMacroAssemblerIA32(Isolate* isolate, Zone* zone, Mode mode,
                            int registers_to_save);
   ~RegExpMacroAssemblerIA32() override;
-  int stack_limit_slack_slot_count() override;
   void AdvanceCurrentPosition(int by) override;
   void AdvanceRegister(int reg, int by) override;
   void Backtrack() override;
@@ -61,11 +61,11 @@ class V8_EXPORT_PRIVATE RegExpMacroAssemblerIA32
   // Checks whether the given offset from the current position is before
   // the end of the string.
   void CheckPosition(int cp_offset, Label* on_outside_input) override;
-  bool CheckSpecialClassRanges(StandardCharacterSet type,
+  void CheckSpecialClassRanges(StandardCharacterSet type,
                                Label* on_no_match) override;
   void Fail() override;
-  DirectHandle<HeapObject> GetCode(DirectHandle<String> source,
-                                   RegExpFlags flags) override;
+  DirectHandle<HeapObject> GetCode(DirectHandle<RegExpData> re_data,
+                                   Flags flags) override;
   void GoTo(Label* label) override;
   void IfRegisterGE(int reg, int comparand, Label* if_ge) override;
   void IfRegisterLT(int reg, int comparand, Label* if_lt) override;
@@ -183,9 +183,6 @@ class V8_EXPORT_PRIVATE RegExpMacroAssemblerIA32
   // name to the register.
   static constexpr Register backtrack_stackpointer() { return ecx; }
 
-  // Byte size of chars in the string to match (decided by the Mode argument)
-  inline int char_size() const { return static_cast<int>(mode_); }
-
   // Equivalent to an unconditional branch to the label, unless the label
   // is nullptr, in which case it is a Backtrack.
   void BranchOrBacktrack(Label* to);
@@ -222,9 +219,6 @@ class V8_EXPORT_PRIVATE RegExpMacroAssemblerIA32
   const std::unique_ptr<MacroAssembler> masm_;
   const NoRootArrayScope no_root_array_scope_;
 
-  // Which mode to generate code for (LATIN1 or UC16).
-  const Mode mode_;
-
   // One greater than maximal register index actually used.
   int num_registers_;
 
@@ -243,6 +237,7 @@ class V8_EXPORT_PRIVATE RegExpMacroAssemblerIA32
   Label fallback_label_;
 };
 
+}  // namespace regexp
 }  // namespace internal
 }  // namespace v8
 

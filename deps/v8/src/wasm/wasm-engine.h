@@ -19,11 +19,11 @@
 #include "src/base/platform/condition-variable.h"
 #include "src/base/platform/mutex.h"
 #include "src/compiler/wasm-call-descriptors.h"
-#include "src/tasks/cancelable-task.h"
 #include "src/tasks/operations-barrier.h"
 #include "src/wasm/canonical-types.h"
 #include "src/wasm/stacks.h"
 #include "src/wasm/wasm-code-manager.h"
+#include "src/wasm/wasm-engine-globals.h"
 #include "src/wasm/wasm-tier.h"
 #include "src/zone/accounting-allocator.h"
 
@@ -52,6 +52,8 @@ struct ModuleWireBytes;
 class StreamingDecoder;
 class WasmEnabledFeatures;
 class WasmOrphanedGlobalHandle;
+class WasmImportWrapperCache;
+class WasmStackEntryWrapperCache;
 
 class V8_EXPORT_PRIVATE CompilationResultResolver {
  public:
@@ -216,8 +218,7 @@ class V8_EXPORT_PRIVATE WasmEngine {
                         MaybeDirectHandle<JSReceiver> imports);
 
   std::shared_ptr<StreamingDecoder> StartStreamingCompilation(
-      Isolate* isolate, WasmEnabledFeatures enabled,
-      CompileTimeImports compile_imports, DirectHandle<Context> context,
+      WasmEnabledFeatures enabled, CompileTimeImports compile_imports,
       const char* api_method_name,
       std::shared_ptr<CompilationResultResolver> resolver);
 
@@ -252,8 +253,6 @@ class V8_EXPORT_PRIVATE WasmEngine {
 
   // Prints the gathered compilation statistics, then resets them.
   void DumpAndResetTurboStatistics();
-  // Prints the gathered compilation statistics (without resetting them).
-  void DumpTurboStatistics();
 
   // Used to redirect tracing output from {stdout} to a file.
   CodeTracer* GetCodeTracer();
@@ -390,8 +389,11 @@ class V8_EXPORT_PRIVATE WasmEngine {
 
   // Free dead code.
   using DeadCodeMap = std::unordered_map<NativeModule*, std::vector<WasmCode*>>;
-  void FreeDeadCode(const DeadCodeMap&, std::vector<WasmCode*>&);
-  void FreeDeadCodeLocked(const DeadCodeMap&, std::vector<WasmCode*>&);
+  void FreeDeadCode(const DeadCodeMap&, std::vector<WasmCode*>& import_wrappers,
+                    std::vector<WasmCode*>& stack_wrappers);
+  void FreeDeadCodeLocked(const DeadCodeMap&,
+                          std::vector<WasmCode*>& import_wrappers,
+                          std::vector<WasmCode*>& stack_wrappers);
 
   DirectHandle<Script> GetOrCreateScript(Isolate*,
                                          const std::shared_ptr<NativeModule>&,
@@ -452,10 +454,8 @@ class V8_EXPORT_PRIVATE WasmEngine {
   struct NativeModuleInfo;
 
   AsyncCompileJob* CreateAsyncCompileJob(
-      Isolate* isolate, WasmEnabledFeatures enabled,
-      CompileTimeImports compile_imports,
-      base::OwnedVector<const uint8_t> bytes, DirectHandle<Context> context,
-      const char* api_method_name,
+      WasmEnabledFeatures enabled, CompileTimeImports compile_imports,
+      base::OwnedVector<const uint8_t> bytes, const char* api_method_name,
       std::shared_ptr<CompilationResultResolver> resolver, int compilation_id);
 
   void TriggerCodeGC_Locked(size_t dead_code_limit);
@@ -481,7 +481,7 @@ class V8_EXPORT_PRIVATE WasmEngine {
   // fails because of memory constraints.
   static std::atomic<bool> had_nondeterminism_;
 
-  AccountingAllocator allocator_;
+  TracingAccountingAllocator allocator_{/* isolate */ nullptr};
 
 #ifdef V8_ENABLE_WASM_GDB_REMOTE_DEBUGGING
   // Implements a GDB-remote stub for WebAssembly debugging.
@@ -547,18 +547,6 @@ class V8_EXPORT_PRIVATE WasmEngine {
   // End of fields protected by {mutex_}.
   //////////////////////////////////////////////////////////////////////////////
 };
-
-// Returns a reference to the WasmEngine shared by the entire process.
-V8_EXPORT_PRIVATE WasmEngine* GetWasmEngine();
-
-// Returns a reference to the WasmCodeManager shared by the entire process.
-V8_EXPORT_PRIVATE WasmCodeManager* GetWasmCodeManager();
-
-// Returns a reference to the WasmImportWrapperCache shared by the entire
-// process.
-V8_EXPORT_PRIVATE WasmImportWrapperCache* GetWasmImportWrapperCache();
-
-V8_EXPORT_PRIVATE CanonicalTypeNamesProvider* GetCanonicalTypeNamesProvider();
 
 }  // namespace wasm
 }  // namespace internal

@@ -91,9 +91,6 @@ class MarkingVisitorBase : public ConcurrentHeapVisitor<ConcreteVisitor> {
                                            MaybeObjectSize);
   V8_INLINE size_t VisitFixedArray(Tagged<Map> map, Tagged<FixedArray> object,
                                    MaybeObjectSize);
-  V8_INLINE size_t VisitJSArrayBuffer(Tagged<Map> map,
-                                      Tagged<JSArrayBuffer> object,
-                                      MaybeObjectSize);
   V8_INLINE size_t VisitJSFunction(Tagged<Map> map, Tagged<JSFunction> object,
                                    MaybeObjectSize);
   V8_INLINE size_t VisitJSWeakRef(Tagged<Map> map, Tagged<JSWeakRef> object,
@@ -155,6 +152,8 @@ class MarkingVisitorBase : public ConcurrentHeapVisitor<ConcreteVisitor> {
                                      IndirectPointerSlot slot) final;
 
   void VisitJSDispatchTableEntry(Tagged<HeapObject> host,
+                                 JSDispatchHandle handle) override;
+  void VisitJSDispatchTableEntry(Tagged<InstructionStream> host,
                                  JSDispatchHandle handle) override;
 
   V8_INLINE void VisitProtectedPointer(Tagged<TrustedObject> host,

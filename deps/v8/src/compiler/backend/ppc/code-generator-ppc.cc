@@ -13,7 +13,7 @@
 #include "src/compiler/backend/gap-resolver.h"
 #include "src/compiler/node-matchers.h"
 #include "src/compiler/osr.h"
-#include "src/heap/mutable-page-metadata.h"
+#include "src/heap/mutable-page.h"
 
 #if V8_ENABLE_WEBASSEMBLY
 #include "src/wasm/wasm-linkage.h"
@@ -279,6 +279,38 @@ class OutOfLineRecordWrite final : public OutOfLineCode {
   Zone* zone_;
 };
 
+#if V8_ENABLE_WEBASSEMBLY
+class OutOfLineTrap final : public OutOfLineCode {
+ public:
+  OutOfLineTrap(CodeGenerator* gen, Instruction* instr)
+      : OutOfLineCode(gen), instr_(instr), gen_(gen) {}
+
+  void Generate() final {
+    PPCOperandConverter i(gen_, instr_);
+    TrapId trap_id =
+        static_cast<TrapId>(i.InputInt32(instr_->InputCount() - 1));
+    GenerateCallToTrap(trap_id);
+  }
+
+ private:
+  void GenerateCallToTrap(TrapId trap_id) {
+    gen_->AssembleSourcePosition(instr_);
+    // A direct call to a wasm runtime stub defined in this module.
+    // Just encode the stub index. This will be patched when the code
+    // is added to the native module and copied into wasm code space.
+    __ Call(static_cast<Address>(trap_id), RelocInfo::WASM_STUB_CALL);
+    ReferenceMap* reference_map = gen_->zone()->New<ReferenceMap>(gen_->zone());
+    gen_->RecordSafepoint(reference_map);
+    if (v8_flags.debug_code) {
+      __ stop();
+    }
+  }
+
+  Instruction* instr_;
+  CodeGenerator* gen_;
+};
+#endif  // V8_ENABLE_WEBASSEMBLY
+
 Condition FlagsConditionToCondition(FlagsCondition condition, ArchOpcode op) {
   switch (condition) {
     case kEqual:
@@ -439,15 +471,6 @@ Condition FlagsConditionToCondition(FlagsCondition condition, ArchOpcode op) {
     const CRegister cr = cr0;                                             \
     __ cmp_instr(i.InputDoubleRegister(0), i.InputDoubleRegister(1), cr); \
     DCHECK_EQ(SetRC, i.OutputRCBit());                                    \
-  } while (0)
-
-#define ASSEMBLE_MODULO(div_instr, mul_instr)                        \
-  do {                                                               \
-    const Register scratch = kScratchReg;                            \
-    __ div_instr(scratch, i.InputRegister(0), i.InputRegister(1));   \
-    __ mul_instr(scratch, scratch, i.InputRegister(1));              \
-    __ sub(i.OutputRegister(), i.InputRegister(0), scratch, LeaveOE, \
-           i.OutputRCBit());                                         \
   } while (0)
 
 #define ASSEMBLE_FLOAT_MODULO()                                             \
@@ -823,14 +846,12 @@ void CodeGenerator::AssembleCodeStartRegisterCheck() {
   __ Assert(eq, AbortReason::kWrongFunctionCodeStart);
 }
 
-#ifdef V8_ENABLE_LEAPTIERING
 void CodeGenerator::AssembleDispatchHandleRegisterCheck() {
   CHECK(!V8_JS_LINKAGE_INCLUDES_DISPATCH_HANDLE_BOOL);
 }
-#endif  // V8_ENABLE_LEAPTIERING
 
-void CodeGenerator::BailoutIfDeoptimized() {
-  __ BailoutIfDeoptimized(kScratchReg);
+void CodeGenerator::AssertNotDeoptimized() {
+  __ AssertNotDeoptimized(kScratchReg);
 }
 
 // Assembles an instruction after register allocation, producing machine code.
@@ -958,10 +979,10 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
             }
           } else {
             JSDispatchHandle dispatch_handle = function->dispatch_handle();
-            size_t expected =
-                IsolateGroup::current()->js_dispatch_table()->GetParameterCount(
-                    dispatch_handle);
+            size_t expected = isolate()->js_dispatch_table().GetParameterCount(
+                dispatch_handle);
             if (num_arguments >= expected) {
+              __ RecordJSDispatchHandle(dispatch_handle, expected);
               __ CallJSDispatchEntry(dispatch_handle, expected);
             } else {
               __ AssertUnreachable(AbortReason::kJSSignatureMismatch);
@@ -1048,7 +1069,6 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       bool isWasmCapiFunction =
           linkage()->GetIncomingDescriptor()->IsWasmCapiFunction();
       if (isWasmCapiFunction) {
-        __ mflr(r0);
         __ LoadPC(kScratchReg);
         __ bind(&start_call);
         start_pc_offset = __ pc_offset();
@@ -1059,7 +1079,6 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
         __ addi(kScratchReg, kScratchReg, Operand::Zero());
         __ StoreU64(kScratchReg,
                     MemOperand(fp, WasmExitFrameConstants::kCallingPCOffset));
-        __ mtlr(r0);
         set_isolate_data_slots = SetIsolateDataSlots::kNo;
       }
 #endif  // V8_ENABLE_WEBASSEMBLY
@@ -1153,6 +1172,11 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       __ b(exit->label());
       break;
     }
+#if V8_ENABLE_WEBASSEMBLY
+    case kArchTrap:
+      __ b(zone()->New<OutOfLineTrap>(this, instr)->entry());
+      break;
+#endif  // V8_ENABLE_WEBASSEMBLY
     case kArchRet:
       AssembleReturn(instr->InputAt(0));
       DCHECK_EQ(LeaveRC, i.OutputRCBit());
@@ -1520,32 +1544,16 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       ASSEMBLE_FLOAT_BINOP_RC(fdiv, MiscField::decode(instr->opcode()));
       break;
     case kPPC_Mod32:
-      if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
-        __ modsw(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1));
-      } else {
-        ASSEMBLE_MODULO(divw, mullw);
-      }
+      __ modsw(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1));
       break;
     case kPPC_Mod64:
-      if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
-        __ modsd(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1));
-      } else {
-        ASSEMBLE_MODULO(divd, mulld);
-      }
+      __ modsd(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1));
       break;
     case kPPC_ModU32:
-      if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
-        __ moduw(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1));
-      } else {
-        ASSEMBLE_MODULO(divwu, mullw);
-      }
+      __ moduw(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1));
       break;
     case kPPC_ModU64:
-      if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
-        __ modud(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1));
-      } else {
-        ASSEMBLE_MODULO(divdu, mulld);
-      }
+      __ modud(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1));
       break;
     case kPPC_ModDouble:
       // TODO(bmeurer): We should really get rid of this special instruction,
@@ -2973,36 +2981,6 @@ void CodeGenerator::AssembleArchJumpRegardlessOfAssemblyOrder(
 #if V8_ENABLE_WEBASSEMBLY
 void CodeGenerator::AssembleArchTrap(Instruction* instr,
                                      FlagsCondition condition) {
-  class OutOfLineTrap final : public OutOfLineCode {
-   public:
-    OutOfLineTrap(CodeGenerator* gen, Instruction* instr)
-        : OutOfLineCode(gen), instr_(instr), gen_(gen) {}
-
-    void Generate() final {
-      PPCOperandConverter i(gen_, instr_);
-      TrapId trap_id =
-          static_cast<TrapId>(i.InputInt32(instr_->InputCount() - 1));
-      GenerateCallToTrap(trap_id);
-    }
-
-   private:
-    void GenerateCallToTrap(TrapId trap_id) {
-      gen_->AssembleSourcePosition(instr_);
-      // A direct call to a wasm runtime stub defined in this module.
-      // Just encode the stub index. This will be patched when the code
-      // is added to the native module and copied into wasm code space.
-      __ Call(static_cast<Address>(trap_id), RelocInfo::WASM_STUB_CALL);
-      ReferenceMap* reference_map =
-          gen_->zone()->New<ReferenceMap>(gen_->zone());
-      gen_->RecordSafepoint(reference_map);
-      if (v8_flags.debug_code) {
-        __ stop();
-      }
-    }
-
-    Instruction* instr_;
-    CodeGenerator* gen_;
-  };
   auto ool = zone()->New<OutOfLineTrap>(this, instr);
   Label* tlabel = ool->entry();
   Label end;
@@ -3245,9 +3223,10 @@ void CodeGenerator::AssembleConstructFrame() {
         __ MultiPush(regs_to_save);
         DoubleRegList fp_regs_to_save;
         for (auto reg : wasm::kFpParamRegisters) fp_regs_to_save.set(reg);
-        __ MultiPushF64AndV128(fp_regs_to_save,
-                               Simd128RegList::FromBits(fp_regs_to_save.bits()),
-                               ip, r0);
+        Simd128RegList simd128_regs_to_save;
+        for (auto reg : wasm::kSimd128ParamRegisters)
+          simd128_regs_to_save.set(reg);
+        __ MultiPushF64AndV128(fp_regs_to_save, simd128_regs_to_save, ip, r0);
         __ mov(WasmHandleStackOverflowDescriptor::GapRegister(),
                Operand(required_slots * kSystemPointerSize));
         __ AddS64(
@@ -3265,9 +3244,7 @@ void CodeGenerator::AssembleConstructFrame() {
         // safepoint here.
         ReferenceMap* reference_map = zone()->New<ReferenceMap>(zone());
         RecordSafepoint(reference_map);
-        __ MultiPopF64AndV128(fp_regs_to_save,
-                              Simd128RegList::FromBits(fp_regs_to_save.bits()),
-                              ip, r0);
+        __ MultiPopF64AndV128(fp_regs_to_save, simd128_regs_to_save, ip, r0);
         __ MultiPop(regs_to_save);
       } else {
         __ Call(static_cast<intptr_t>(Builtin::kWasmStackOverflow),
@@ -3377,18 +3354,16 @@ void CodeGenerator::AssembleReturn(InstructionOperand* additional_pop_count) {
     __ MultiPush(regs_to_save);
     DoubleRegList fp_regs_to_save;
     for (auto reg : wasm::kFpParamRegisters) fp_regs_to_save.set(reg);
-    __ MultiPushF64AndV128(fp_regs_to_save,
-                           Simd128RegList::FromBits(fp_regs_to_save.bits()), ip,
-                           r0);
+    Simd128RegList simd128_regs_to_save;
+    for (auto reg : wasm::kSimd128ParamRegisters) simd128_regs_to_save.set(reg);
+    __ MultiPushF64AndV128(fp_regs_to_save, simd128_regs_to_save, ip, r0);
     __ Move(kCArgRegs[0], ExternalReference::isolate_address());
     __ PrepareCallCFunction(1, r0);
     __ CallCFunction(ExternalReference::wasm_shrink_stack(), 1);
     // Restore old FP. We don't need to restore old SP explicitly, because
     // it will be restored from FP in LeaveFrame before return.
     __ mr(fp, kReturnRegister0);
-    __ MultiPopF64AndV128(fp_regs_to_save,
-                          Simd128RegList::FromBits(fp_regs_to_save.bits()), ip,
-                          r0);
+    __ MultiPopF64AndV128(fp_regs_to_save, simd128_regs_to_save, ip, r0);
     __ MultiPop(regs_to_save);
     __ bind(&done);
   }
@@ -3549,8 +3524,14 @@ void CodeGenerator::MoveTempLocationTo(InstructionOperand* dest,
   if (!IsFloatingPoint(rep) ||
       ((IsFloatingPoint(rep) &&
         !move_cycle_.pending_double_scratch_register_use))) {
-    int scratch_reg_code =
-        !IsFloatingPoint(rep) ? kScratchReg.code() : kScratchDoubleReg.code();
+    int scratch_reg_code;
+    if (IsSimd128(rep)) {
+      scratch_reg_code = kScratchSimd128Reg.code();
+    } else if (IsFloatingPoint(rep)) {
+      scratch_reg_code = kScratchDoubleReg.code();
+    } else {
+      scratch_reg_code = kScratchReg.code();
+    }
     AllocatedOperand scratch(LocationOperand::REGISTER, rep, scratch_reg_code);
     DCHECK(!AreAliased(kScratchReg, r0, ip));
     AssembleMove(&scratch, dest);

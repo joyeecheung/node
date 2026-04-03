@@ -176,6 +176,14 @@ Reduction SimplifiedOperatorReducer::Reduce(Node* node) {
       }
       break;
     }
+    case IrOpcode::kCheckedTaggedSignedToInt32: {
+      if (node->InputAt(0)->opcode() ==
+          IrOpcode::kConvertTaggedHoleToUndefined) {
+        node->ReplaceInput(0, node->InputAt(0)->InputAt(0));
+        return Changed(node);
+      }
+      break;
+    }
     case IrOpcode::kCheckedTaggedToTaggedPointer: {
       Node* const input = node->InputAt(0);
       switch (DecideObjectIsSmi(input)) {
@@ -319,11 +327,11 @@ Reduction SimplifiedOperatorReducer::ReplaceInt32(int32_t value) {
 }
 
 Reduction SimplifiedOperatorReducer::ReplaceNumber(double value) {
-  return Replace(jsgraph()->ConstantNoHole(value));
+  return Replace(jsgraph()->ConstantMaybeHole(value));
 }
 
 Reduction SimplifiedOperatorReducer::ReplaceNumber(Float64 value) {
-  return Replace(jsgraph()->ConstantNoHole(value));
+  return Replace(jsgraph()->ConstantMaybeHole(value));
 }
 
 Reduction SimplifiedOperatorReducer::ReplaceNumber(int32_t value) {

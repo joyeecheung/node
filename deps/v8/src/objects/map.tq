@@ -10,7 +10,7 @@ bitfield struct MapBitFields1 extends uint8 {
   is_undetectable: bool: 1 bit;
   is_access_check_needed: bool: 1 bit;
   is_constructor: bool: 1 bit;
-  has_prototype_slot: bool: 1 bit;
+  reserved_for_map_extensions: bool: 1 bit;
 }
 
 bitfield struct MapBitFields2 extends uint8 {
@@ -46,8 +46,20 @@ extern class Map extends HeapObject {
       case (info: PrototypeInfo): {
         return info;
       }
-      case (Map | TransitionArray): {
+      case (Map | TransitionArray | PrototypeSharedClosureInfo): {
         goto HasNoPrototypeInfo;
+      }
+    }
+  }
+
+  macro PrototypeSharedClosureInfo():
+      PrototypeSharedClosureInfo labels HasNoPrototypeSharedClosureInfo {
+    typeswitch (this.transitions_or_prototype_info) {
+      case (info: PrototypeSharedClosureInfo): {
+        return info;
+      }
+      case (Map | Weak<Map>| TransitionArray | PrototypeInfo | Zero): {
+        goto HasNoPrototypeSharedClosureInfo;
       }
     }
   }
@@ -82,12 +94,19 @@ extern class Map extends HeapObject {
 
   prototype_validity_cell: Zero|Cell;
   transitions_or_prototype_info: Map|Weak<Map>|TransitionArray|PrototypeInfo|
-      Zero;
+      PrototypeSharedClosureInfo|Zero;
 }
 
 @export
 macro LoadMapPrototypeInfo(m: Map): PrototypeInfo labels HasNoPrototypeInfo {
   return m.PrototypeInfo() otherwise HasNoPrototypeInfo;
+}
+
+@export
+macro LoadMapPrototypeSharedClosureInfo(m: Map):
+    PrototypeSharedClosureInfo labels HasNoPrototypeSharedClosureInfo {
+  return m.PrototypeSharedClosureInfo()
+      otherwise HasNoPrototypeSharedClosureInfo;
 }
 
 // Returns true if the map corresponds to non-special fast or dictionary

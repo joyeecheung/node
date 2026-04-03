@@ -702,6 +702,8 @@ inline uint16_t ExtractPrefixedOpcodeBytes(WasmOpcode opcode) {
 #define WASM_RESUME_THROW(cont, exc, count, ...)                           \
   kExprResumeThrow, static_cast<uint8_t>(cont), static_cast<uint8_t>(exc), \
       U32V_1(count), ##__VA_ARGS__
+#define WASM_RESUME_THROW_REF(cont, count, ...) \
+  kExprResumeThrowRef, static_cast<uint8_t>(cont), U32V_1(count), ##__VA_ARGS__
 #define WASM_SUSPEND(index) kExprSuspend, static_cast<uint8_t>(index)
 #define WASM_SWITCH(cont, tag) \
   kExprSwitch, static_cast<uint8_t>(cont), ToByte(tag)
@@ -1173,14 +1175,16 @@ inline uint16_t ExtractPrefixedOpcodeBytes(WasmOpcode opcode) {
 #define WASM_SIMD_LOAD_OP_ALIGNMENT(opcode, index, alignment) \
   index, WASM_SIMD_OP(opcode), alignment, ZERO_OFFSET
 
-// Load a Simd lane from a numeric pointer. We need this because lanes are
-// reversed in big endian. Note: a Simd value has {kSimd128Size / sizeof(*ptr)}
-// lanes.
+// Load a Simd lane from a numeric pointer or array. We need this because lanes
+// are reversed in big endian. Note: a Simd value has
+// {kSimd128Size / sizeof(ptr[0])} lanes.
 #ifdef V8_TARGET_BIG_ENDIAN
-#define LANE(ptr, index) ptr[kSimd128Size / sizeof(*ptr) - (index)-1]
+#define LANE(ptr, index) ptr[kSimd128Size / sizeof(ptr[0]) - (index) - 1]
 #else
 #define LANE(ptr, index) ptr[index]
 #endif
+
+#define ULANE(ptr, index) base::bits::Unsigned(LANE(ptr, index))
 
 // WasmGC type definitions.
 #define FIELD_COUNT(count) U32V_1(count)

@@ -8,6 +8,7 @@
 #include <initializer_list>
 
 #include "src/base/logging.h"
+#include "src/codegen/bailout-reason.h"
 #include "src/common/scoped-modification.h"
 #include "src/deoptimizer/deoptimize-reason.h"
 #include "src/maglev/maglev-basic-block.h"
@@ -47,15 +48,58 @@ class MaglevGraphOptimizer {
   NODE_BASE_LIST(DECLARE_PROCESS)
 #undef DECLARE_PROCESS
 
+  bool is_tracing() const {
+    return v8_flags.trace_maglev_graph_optimizer &&
+           reducer_.graph()->compilation_info()->is_tracing_enabled();
+  }
+
   KnownNodeAspects& known_node_aspects() {
     return kna_processor_.known_node_aspects();
   }
 
   DeoptFrame* GetDeoptFrameForEagerDeopt() {
+    DCHECK(current_node()->properties().has_eager_deopt_info());
     return &current_node()->eager_deopt_info()->top_frame();
   }
 
+  std::tuple<DeoptFrame*, interpreter::Register, int> GetDeoptFrameForLazyDeopt(
+      bool can_throw) {
+    DCHECK(current_node()->properties().can_lazy_deopt());
+    LazyDeoptInfo* info = current_node()->lazy_deopt_info();
+    return std::make_tuple(&info->top_frame(), info->result_location(),
+                           info->result_size());
+  }
+
+  void AttachExceptionHandlerInfo(NodeBase* node) {
+    DCHECK(node->properties().can_throw());
+    DCHECK(current_node()->properties().can_throw());
+    DCHECK(!node->Is<CallKnownJSFunction>());
+    ExceptionHandlerInfo* info = current_node()->exception_handler_info();
+    if (info->ShouldLazyDeopt()) {
+      new (node->exception_handler_info())
+          ExceptionHandlerInfo(ExceptionHandlerInfo::kLazyDeopt);
+    } else if (!info->HasExceptionHandler()) {
+      new (node->exception_handler_info()) ExceptionHandlerInfo();
+    } else {
+      new (node->exception_handler_info())
+          ExceptionHandlerInfo(info->catch_block(), info->depth());
+    }
+  }
+
   ReduceResult EmitUnconditionalDeopt(DeoptimizeReason);
+  ReduceResult EmitThrow(Throw::Function function, ValueNode* input);
+
+  ProcessResult DeoptAndTruncate(DeoptimizeReason reason) {
+    ReduceResult result = EmitUnconditionalDeopt(reason);
+    CHECK(result.IsDoneWithAbort());
+    return ProcessResult::kTruncateBlock;
+  }
+  ProcessResult ThrowAndTruncate(Throw::Function function,
+                                 ValueNode* input = nullptr) {
+    ReduceResult result = EmitThrow(function, input);
+    CHECK(result.IsDoneWithAbort());
+    return ProcessResult::kTruncateBlock;
+  }
 
  private:
   MaglevReducer<MaglevGraphOptimizer> reducer_;
@@ -72,11 +116,15 @@ class MaglevGraphOptimizer {
   compiler::JSHeapBroker* broker() const;
 
   std::optional<Range> GetRange(ValueNode* node);
+  bool IsRangeLessEqual(ValueNode* lhs, ValueNode* rhs);
 
   // Iterates the deopt frames unwrapping its inputs, ie, removing Identity or
   // ReturnedValue nodes.
   void UnwrapDeoptFrames();
   void UnwrapInputs();
+
+  template <typename NodeT>
+  ValueNode* TrySmiTag(Input input);
 
   ValueNode* GetConstantWithRepresentation(
       ValueNode* node, UseRepresentation repr,
@@ -84,7 +132,7 @@ class MaglevGraphOptimizer {
 
   // Returns a variant of the node with the value representation given. It
   // returns nullptr if we need to emit a tagged conversion.
-  ValueNode* GetUntaggedValueWithRepresentation(
+  MaybeReduceResult GetUntaggedValueWithRepresentation(
       ValueNode* node, UseRepresentation repr,
       std::optional<TaggedToFloat64ConversionType> conversion_type);
 
@@ -116,6 +164,12 @@ class MaglevGraphOptimizer {
 
   template <typename NodeT>
   ProcessResult ProcessLoadContextSlot(NodeT* node);
+  template <typename NodeT>
+  ProcessResult ProcessCheckMaps(NodeT* node, ValueNode* object_map = nullptr);
+
+  MaybeReduceResult EnsureType(
+      ValueNode* node, NodeType type,
+      DeoptimizeReason reason = DeoptimizeReason::kWrongValue);
 };
 
 }  // namespace maglev

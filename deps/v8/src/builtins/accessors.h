@@ -8,6 +8,7 @@
 #include "include/v8-local-handle.h"
 #include "src/base/bit-field.h"
 #include "src/common/globals.h"
+#include "src/objects/internal-index.h"
 #include "src/objects/property-details.h"
 #include "src/utils/allocation.h"
 
@@ -42,6 +43,8 @@ class JavaScriptFrame;
     kHasSideEffectToReceiver)                                                  \
   V(_, function_prototype, FunctionPrototype, kHasNoSideEffect,                \
     kHasSideEffectToReceiver)                                                  \
+  V(_, module_namespace_property, ModuleNamespaceEntry, kHasNoSideEffect,      \
+    kHasSideEffectToReceiver)                                                  \
   V(_, string_length, StringLength, kHasNoSideEffect,                          \
     kHasSideEffectToReceiver)                                                  \
   V(_, value_unavailable, ValueUnavailable, kHasNoSideEffect,                  \
@@ -49,10 +52,14 @@ class JavaScriptFrame;
   V(_, wrapped_function_length, WrappedFunctionLength, kHasNoSideEffect,       \
     kHasSideEffectToReceiver)                                                  \
   V(_, wrapped_function_name, WrappedFunctionName, kHasNoSideEffect,           \
+    kHasSideEffectToReceiver)                                                  \
+  V(_, lazy_closure, InstantiateLazyClosure, kHasNoSideEffect,                 \
     kHasSideEffectToReceiver)
 
-#define ACCESSOR_GETTER_LIST(V) V(ModuleNamespaceEntryGetter)
+// The list of getters not mentioned in ACCESSOR_INFO_LIST_GENERATOR.
+#define ACCESSOR_GETTER_LIST(V) /* The list is currently empty. */
 
+// The list of all setters.
 #define ACCESSOR_SETTER_LIST(V) \
   V(ArrayLengthSetter)          \
   V(FunctionPrototypeSetter)    \
@@ -98,17 +105,14 @@ class Accessors : public AllStatic {
       ACCESSOR_INFO_LIST_GENERATOR(COUNT_ACCESSOR, /* not used */);
 
   static constexpr int kAccessorGetterCount =
-      ACCESSOR_GETTER_LIST(COUNT_ACCESSOR);
+      0 ACCESSOR_GETTER_LIST(COUNT_ACCESSOR);
 
   static constexpr int kAccessorSetterCount =
-      ACCESSOR_SETTER_LIST(COUNT_ACCESSOR);
+      0 ACCESSOR_SETTER_LIST(COUNT_ACCESSOR);
 
   static constexpr int kAccessorCallbackCount =
       ACCESSOR_CALLBACK_LIST_GENERATOR(COUNT_ACCESSOR, /* not used */);
 #undef COUNT_ACCESSOR
-
-  static DirectHandle<AccessorInfo> MakeModuleNamespaceEntryInfo(
-      Isolate* isolate, DirectHandle<String> name);
 
   // Accessor function called directly from the runtime system. Returns the
   // newly materialized arguments object for the given {frame}. Note that for
@@ -127,13 +131,12 @@ class Accessors : public AllStatic {
 
   // Returns true for properties that are accessors to object fields.
   // If true, the matching FieldIndex is returned through |field_index|.
-  static bool IsJSObjectFieldAccessor(Isolate* isolate, DirectHandle<Map> map,
-                                      DirectHandle<Name> name,
-                                      FieldIndex* field_index);
+  static bool IsJSObjectFieldAccessor(
+      Isolate* isolate, DirectHandle<Map> map, DirectHandle<Name> name,
+      FieldIndex* field_index, InternalIndex* fake_descriptor_index = nullptr);
 
   static MaybeDirectHandle<Object> ReplaceAccessorWithDataProperty(
-      Isolate* isolate, DirectHandle<JSAny> receiver,
-      DirectHandle<JSObject> holder, DirectHandle<Name> name,
+      Isolate* isolate, DirectHandle<JSObject> holder, DirectHandle<Name> name,
       DirectHandle<Object> value);
 
   // Create an AccessorInfo. The setter is optional (can be nullptr).
@@ -149,7 +152,7 @@ class Accessors : public AllStatic {
                const PropertyCallbackInfo<v8::Boolean>& info);
 
   V8_EXPORT_PRIVATE static DirectHandle<AccessorInfo> MakeAccessor(
-      Isolate* isolate, DirectHandle<Name> name,
+      Isolate* isolate, DirectHandle<Name> name_for_cpu_profiler,
       AccessorNameGetterCallback getter,
       AccessorNameBooleanSetterCallback setter);
 

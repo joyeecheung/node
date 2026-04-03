@@ -16,7 +16,6 @@
 #include "src/objects/heap-number.h"
 #include "src/objects/string.h"
 #include "src/wasm/object-access.h"
-#include "src/wasm/wasm-engine.h"
 #include "src/wasm/wasm-linkage.h"
 #include "src/wasm/wasm-objects.h"
 #include "src/wasm/wasm-subtyping.h"
@@ -722,10 +721,10 @@ Reduction WasmGCLowering::ReduceWasmStructSet(Node* node) {
 
   Node* store =
       implicit_null_check
-          ? gasm_.StoreTrapOnNull({field_type.machine_representation(),
-                                   field_type.is_reference() ? kFullWriteBarrier
-                                                             : kNoWriteBarrier},
-                                  object, offset, value)
+          ? gasm_.StoreTrapOnNull(
+                {field_type.machine_representation(),
+                 field_type.is_ref() ? kFullWriteBarrier : kNoWriteBarrier},
+                object, offset, value)
       : info.type->mutability(info.field_index)
           ? gasm_.StoreToObject(ObjectAccessForGCStores(field_type), object,
                                 offset, value)

@@ -90,7 +90,7 @@ DirectHandle<JSObject> JSCollator::ResolvedOptions(
   DirectHandle<JSObject> options =
       isolate->factory()->NewJSObject(isolate->object_function());
 
-  icu::Collator* icu_collator = collator->icu_collator()->raw();
+  Managed<icu::Collator>::Ptr icu_collator = collator->icu_collator()->ptr();
   DCHECK_NOT_NULL(icu_collator);
 
   UErrorCode status = U_ZERO_ERROR;
@@ -168,7 +168,7 @@ DirectHandle<JSObject> JSCollator::ResolvedOptions(
       // Search is disallowed as a collation value per spec. Let's
       // use `default`, instead.
       //
-      // https://tc39.github.io/ecma402/#sec-properties-of-intl-collator-instances
+      // https://tc39.es/ecma402/#sec-properties-of-intl-collator-instances
       collation = "default";
 
       // We clone the icu::Locale because we don't want the
@@ -188,6 +188,18 @@ DirectHandle<JSObject> JSCollator::ResolvedOptions(
       locale = Intl::ToLanguageTag(icu_locale).FromJust();
     }
   } else {
+    // Find the default collator of the locale
+    status = U_ZERO_ERROR;
+    std::unique_ptr<icu::StringEnumeration> enumeration(
+        icu::Collator::getKeywordValuesForLocale("collation", icu_locale, true,
+                                                 status));
+    if (U_SUCCESS(status)) {
+      const char* item = enumeration->next(nullptr, status);
+      if (U_SUCCESS(status) && std::strcmp(item, "standard") != 0) {
+        collation_value = item;
+        collation = collation_value.c_str();
+      }
+    }
     locale = Intl::ToLanguageTag(icu_locale).FromJust();
   }
 
@@ -358,7 +370,7 @@ MaybeHandle<JSCollator> JSCollator::New(Isolate* isolate, DirectHandle<Map> map,
   CaseFirst case_first = maybe_case_first.FromJust();
 
   // The relevant unicode extensions accepted by Collator as specified here:
-  // https://tc39.github.io/ecma402/#sec-intl-collator-internal-slots
+  // https://tc39.es/ecma402/#sec-intl-collator-internal-slots
   //
   // 16. Let relevantExtensionKeys be %Collator%.[[RelevantExtensionKeys]].
 
@@ -381,7 +393,8 @@ MaybeHandle<JSCollator> JSCollator::New(Isolate* isolate, DirectHandle<Map> map,
   if (maybe_collation.FromJust()) {
     auto co_extension_it = r.extensions.find("co");
     if (co_extension_it != r.extensions.end() &&
-        co_extension_it->second != collation_stdstr) {
+        co_extension_it->second != collation_stdstr &&
+        Intl::IsValidCollation(icu_locale, collation_stdstr)) {
       icu_locale.setUnicodeKeywordValue("co", nullptr, status);
       DCHECK(U_SUCCESS(status));
     }
@@ -396,22 +409,26 @@ MaybeHandle<JSCollator> JSCollator::New(Isolate* isolate, DirectHandle<Map> map,
   //
   // The Intl spec doesn't allow us to use "search" as an extension
   // value for collation as per:
-  // https://tc39.github.io/ecma402/#sec-intl-collator-internal-slots
+  // https://tc39.es/ecma402/#sec-intl-collator-internal-slots
   //
   // But the only way to pass the value "search" for collation from
   // the options object to ICU is to use the 'co' extension keyword.
   //
   // This will need to be filtered out when creating the
   // resolvedOptions object.
+  icu::Locale data_locale(icu_locale);
   if (usage == Usage::SEARCH) {
     UErrorCode set_status = U_ZERO_ERROR;
-    icu_locale.setUnicodeKeywordValue("co", "search", set_status);
+    data_locale.setUnicodeKeywordValue("co", "search", set_status);
     DCHECK(U_SUCCESS(set_status));
   } else {
     if (maybe_collation.FromJust() &&
         Intl::IsValidCollation(icu_locale, collation_stdstr)) {
-      icu_locale.setUnicodeKeywordValue("co", collation_stdstr, status);
-      DCHECK(U_SUCCESS(status));
+      data_locale.setUnicodeKeywordValue("co", collation_stdstr, status);
+      if (r.extensions.find("co") == r.extensions.end()) {
+        icu_locale.setUnicodeKeywordValue("co", collation_stdstr, status);
+        DCHECK(U_SUCCESS(status));
+      }
     }
   }
 
@@ -423,11 +440,11 @@ MaybeHandle<JSCollator> JSCollator::New(Isolate* isolate, DirectHandle<Map> map,
   // demand, as part of Intl.Collator.prototype.resolvedOptions.
 
   std::unique_ptr<icu::Collator> icu_collator(
-      icu::Collator::createInstance(icu_locale, status));
+      icu::Collator::createInstance(data_locale, status));
   if (U_FAILURE(status) || icu_collator == nullptr) {
     status = U_ZERO_ERROR;
     // Remove extensions and try again.
-    icu::Locale no_extension_locale(icu_locale.getBaseName());
+    icu::Locale no_extension_locale(data_locale.getBaseName());
     icu_collator.reset(
         icu::Collator::createInstance(no_extension_locale, status));
 
@@ -447,10 +464,15 @@ MaybeHandle<JSCollator> JSCollator::New(Isolate* isolate, DirectHandle<Map> map,
   // then we use it. Otherwise, we check if the numeric value is
   // passed in through the unicode extensions.
   status = U_ZERO_ERROR;
+  auto kn_extension_it = r.extensions.find("kn");
   if (found_numeric.FromJust()) {
     SetNumericOption(icu_collator.get(), numeric);
+    if (kn_extension_it != r.extensions.end() &&
+        (kn_extension_it->second == "false") == numeric) {
+      icu_locale.setUnicodeKeywordValue("kn", nullptr, status);
+      DCHECK(U_SUCCESS(status));
+    }
   } else {
-    auto kn_extension_it = r.extensions.find("kn");
     if (kn_extension_it != r.extensions.end()) {
       SetNumericOption(icu_collator.get(), (kn_extension_it->second == "true"));
     }
@@ -462,10 +484,15 @@ MaybeHandle<JSCollator> JSCollator::New(Isolate* isolate, DirectHandle<Map> map,
   // If the caseFirst value is passed in through the options object,
   // then we use it. Otherwise, we check if the caseFirst value is
   // passed in through the unicode extensions.
+  auto kf_extension_it = r.extensions.find("kf");
   if (case_first != CaseFirst::kUndefined) {
     SetCaseFirstOption(icu_collator.get(), case_first);
+    if (kf_extension_it != r.extensions.end() &&
+        case_first != ToCaseFirst(kf_extension_it->second.c_str())) {
+      icu_locale.setUnicodeKeywordValue("kf", nullptr, status);
+      DCHECK(U_SUCCESS(status));
+    }
   } else {
-    auto kf_extension_it = r.extensions.find("kf");
     if (kf_extension_it != r.extensions.end()) {
       SetCaseFirstOption(icu_collator.get(),
                          ToCaseFirst(kf_extension_it->second.c_str()));
@@ -547,10 +574,11 @@ MaybeHandle<JSCollator> JSCollator::New(Isolate* isolate, DirectHandle<Map> map,
   DirectHandle<Managed<icu::Collator>> managed_collator =
       Managed<icu::Collator>::From(isolate, 0, std::move(icu_collator));
 
-  // We only need to do so if it is different from the collator would return.
+  Maybe<std::string> maybe_locale_str = Intl::ToLanguageTag(icu_locale);
+  MAYBE_RETURN(maybe_locale_str, MaybeHandle<JSCollator>());
   DirectHandle<String> locale_str =
       isolate->factory()->NewStringFromAsciiChecked(
-          (collator_locale != icu_locale) ? r.locale.c_str() : "");
+          maybe_locale_str.FromJust().c_str());
   // Now all properties are ready, so we can allocate the result object.
   Handle<JSCollator> collator =
       Cast<JSCollator>(isolate->factory()->NewFastOrSlowJSObjectFromMap(map));

@@ -45,9 +45,10 @@ TEST(Run_WasmModule_Buffer_Externalized_Regression_UseAfterFree) {
     Isolate* isolate = CcTest::InitIsolateOnce();
     HandleScope scope(isolate);
     MaybeDirectHandle<WasmMemoryObject> result = WasmMemoryObject::New(
-        isolate, 1, 1, SharedFlag::kNotShared, wasm::AddressType::kI32);
+        isolate, 1, 1, SharedFlag::kNo, wasm::AddressType::kI32);
     DirectHandle<WasmMemoryObject> memory_object = result.ToHandleChecked();
-    Handle<JSArrayBuffer> buffer(memory_object->array_buffer(), isolate);
+    DirectHandle<JSArrayBuffer> buffer =
+        WasmMemoryObject::GetArrayBuffer(isolate, memory_object);
 
     {
       // Embedder requests contents.
@@ -62,7 +63,7 @@ TEST(Run_WasmModule_Buffer_Externalized_Regression_UseAfterFree) {
 
     // Make sure the memory object has a new buffer that can be written to.
     uint32_t* int_buffer = reinterpret_cast<uint32_t*>(
-        memory_object->array_buffer()->backing_store());
+        memory_object->backing_store()->buffer_start());
     int_buffer[0] = 0;
   }
   heap::InvokeMemoryReducingMajorGCs(CcTest::heap());
@@ -74,7 +75,7 @@ TEST(BackingStore_Reclaim) {
   Isolate* isolate = CcTest::InitIsolateOnce();
   for (int i = 0; i < 256; ++i) {
     auto backing_store = BackingStore::AllocateWasmMemory(
-        isolate, 1, 1, WasmMemoryFlag::kWasmMemory32, SharedFlag::kNotShared);
+        isolate, 1, 1, WasmMemoryFlag::kWasmMemory32, SharedFlag::kNo);
     CHECK(backing_store);
   }
 }

@@ -5,6 +5,8 @@
 #ifndef V8_OBJECTS_TEMPLATES_H_
 #define V8_OBJECTS_TEMPLATES_H_
 
+#include <stdint.h>
+
 #include <optional>
 #include <string_view>
 
@@ -25,7 +27,18 @@ class StructBodyDescriptor;
 
 namespace internal {
 
+class FunctionTemplateRareData;
+
 #include "torque-generated/src/objects/templates-tq.inc"
+
+struct CFunctionWithSignature {
+  static constexpr ExternalPointerTag kManagedTag = kCFunctionWithSignatureTag;
+  const Address address;
+  const CFunctionInfo* signature;
+
+  CFunctionWithSignature(const Address address, const CFunctionInfo* signature)
+      : address(address), signature(signature) {}
+};
 
 class TemplateInfo
     : public TorqueGeneratedTemplateInfo<TemplateInfo, HeapObject> {
@@ -99,16 +112,76 @@ class TemplateInfoWithProperties
 };
 
 // Contains data members that are rarely set on a FunctionTemplateInfo.
-class FunctionTemplateRareData
-    : public TorqueGeneratedFunctionTemplateRareData<FunctionTemplateRareData,
-                                                     Struct> {
+V8_OBJECT class FunctionTemplateRareData : public StructLayout {
  public:
+  inline Tagged<UnionOf<Undefined, ObjectTemplateInfo>> prototype_template()
+      const;
+  inline void set_prototype_template(
+      Tagged<UnionOf<Undefined, ObjectTemplateInfo>> value,
+      WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
+
+  inline Tagged<UnionOf<Undefined, FunctionTemplateInfo>>
+  prototype_provider_template() const;
+  inline void set_prototype_provider_template(
+      Tagged<UnionOf<Undefined, FunctionTemplateInfo>> value,
+      WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
+
+  inline Tagged<UnionOf<Undefined, FunctionTemplateInfo>> parent_template()
+      const;
+  inline void set_parent_template(
+      Tagged<UnionOf<Undefined, FunctionTemplateInfo>> value,
+      WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
+
+  inline Tagged<UnionOf<Undefined, InterceptorInfo>> named_property_handler()
+      const;
+  inline void set_named_property_handler(
+      Tagged<UnionOf<Undefined, InterceptorInfo>> value,
+      WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
+
+  inline Tagged<UnionOf<Undefined, InterceptorInfo>> indexed_property_handler()
+      const;
+  inline void set_indexed_property_handler(
+      Tagged<UnionOf<Undefined, InterceptorInfo>> value,
+      WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
+
+  inline Tagged<UnionOf<Undefined, ObjectTemplateInfo>> instance_template()
+      const;
+  inline void set_instance_template(
+      Tagged<UnionOf<Undefined, ObjectTemplateInfo>> value,
+      WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
+
+  inline Tagged<UnionOf<Undefined, FunctionTemplateInfo>>
+  instance_call_handler() const;
+  inline void set_instance_call_handler(
+      Tagged<UnionOf<Undefined, FunctionTemplateInfo>> value,
+      WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
+
+  inline Tagged<UnionOf<Undefined, AccessCheckInfo>> access_check_info() const;
+  inline void set_access_check_info(
+      Tagged<UnionOf<Undefined, AccessCheckInfo>> value,
+      WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
+
+  inline Tagged<FixedArray> c_function_overloads() const;
+  inline void set_c_function_overloads(
+      Tagged<FixedArray> value, WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
+
+  DECL_PRINTER(FunctionTemplateRareData)
   DECL_VERIFIER(FunctionTemplateRareData)
 
   using BodyDescriptor = StructBodyDescriptor;
 
-  TQ_OBJECT_CONSTRUCTORS(FunctionTemplateRareData)
-};
+ public:
+  TaggedMember<UnionOf<Undefined, ObjectTemplateInfo>> prototype_template_;
+  TaggedMember<UnionOf<Undefined, FunctionTemplateInfo>>
+      prototype_provider_template_;
+  TaggedMember<UnionOf<Undefined, FunctionTemplateInfo>> parent_template_;
+  TaggedMember<UnionOf<Undefined, InterceptorInfo>> named_property_handler_;
+  TaggedMember<UnionOf<Undefined, InterceptorInfo>> indexed_property_handler_;
+  TaggedMember<UnionOf<Undefined, ObjectTemplateInfo>> instance_template_;
+  TaggedMember<UnionOf<Undefined, FunctionTemplateInfo>> instance_call_handler_;
+  TaggedMember<UnionOf<Undefined, AccessCheckInfo>> access_check_info_;
+  TaggedMember<FixedArray> c_function_overloads_;
+} V8_OBJECT_END;
 
 // See the api-exposed FunctionTemplate for more information.
 class FunctionTemplateInfo
@@ -243,23 +316,19 @@ class FunctionTemplateInfo
   static std::optional<Tagged<Name>> TryGetCachedPropertyName(
       Isolate* isolate, Tagged<Object> getter);
   // Fast API overloads.
-  int GetCFunctionsCount() const;
-  Address GetCFunction(Isolate* isolate, int index) const;
-  const CFunctionInfo* GetCSignature(Isolate* isolate, int index) const;
-
-  // CFunction data for a set of overloads is stored into a FixedArray, as
-  // [address_0, signature_0, ... address_n-1, signature_n-1].
-  static const int kFunctionOverloadEntrySize = 2;
+  uint32_t GetCFunctionsCount() const;
+  CFunctionWithSignature GetCFunction(uint32_t index) const;
 
   // Bit position in the flag, from least significant bit position.
   DEFINE_TORQUE_GENERATED_FUNCTION_TEMPLATE_INFO_FLAGS()
 
-  // This is a wrapper around |maybe_redirected_callback| accessor which
-  // returns/accepts C function and converts the value from and to redirected
-  // pointer.
-  DECL_EXTERNAL_POINTER_ACCESSORS_MAYBE_READ_ONLY_HOST(callback, Address)
-  inline void init_callback_redirection(i::IsolateForSandbox isolate);
-  inline void remove_callback_redirection(i::IsolateForSandbox isolate);
+  // C function pointer that can be called from native code.
+  DECL_REDIRECTED_CALLBACK_ACCESSORS_MAYBE_READ_ONLY_HOST(callback, Address)
+
+  inline void RemoveCallbackRedirectionForSerialization(
+      IsolateForSandbox isolate);
+  inline void RestoreCallbackRedirectionAfterDeserialization(
+      IsolateForSandbox isolate);
 
   template <class IsolateT>
   inline bool has_callback(IsolateT* isolate) const;
@@ -269,16 +338,6 @@ class FunctionTemplateInfo
   class BodyDescriptor;
 
  private:
-  // When simulator is enabled the field stores the "redirected" address of the
-  // C function (the one that's callabled from simulated compiled code), in
-  // this case the original address of the C function has to be taken from the
-  // redirection.
-  // For native builds the field contains the address of the C function.
-  // This field is initialized implicitly via respective |callback|-related
-  // methods.
-  DECL_EXTERNAL_POINTER_ACCESSORS_MAYBE_READ_ONLY_HOST(
-      maybe_redirected_callback, Address)
-
   // For ease of use of the BITFIELD macro.
   inline int32_t relaxed_flag() const;
   inline void set_relaxed_flag(int32_t flags);

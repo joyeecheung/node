@@ -24,8 +24,7 @@ std::string StringLiteralQuote(const std::string& s);
 
 // Decodes "file://" URIs into file paths which can then be used
 // with the standard stream API.
-V8_EXPORT_PRIVATE std::optional<std::string> FileUriDecode(
-    const std::string& s);
+V8_EXPORT_PRIVATE std::optional<std::string> FileUriDecode(std::string_view s);
 
 struct TorqueMessage {
   enum class Kind { kError, kLint };
@@ -73,7 +72,7 @@ class V8_EXPORT_PRIVATE MessageBuilder {
 struct TorqueAbortCompilation {};
 
 template <class... Args>
-static MessageBuilder Message(TorqueMessage::Kind kind, Args&&... args) {
+MessageBuilder Message(TorqueMessage::Kind kind, Args&&... args) {
   return MessageBuilder(ToString(std::forward<Args>(args)...), kind);
 }
 
@@ -86,10 +85,10 @@ MessageBuilder Lint(Args&&... args) {
   return Message(TorqueMessage::Kind::kLint, std::forward<Args>(args)...);
 }
 
-bool IsLowerCamelCase(const std::string& s);
-bool IsUpperCamelCase(const std::string& s);
+bool IsLowerCamelCase(std::string_view s);
+bool IsUpperCamelCase(std::string_view s);
 bool IsSnakeCase(const std::string& s);
-bool IsValidNamespaceConstName(const std::string& s);
+bool IsValidNamespaceConstName(std::string_view s);
 bool IsValidTypeName(const std::string& s);
 
 template <class... Args>

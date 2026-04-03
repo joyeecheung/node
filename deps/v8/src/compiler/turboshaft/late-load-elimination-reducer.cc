@@ -100,7 +100,7 @@ void LateLoadEliminationAnalyzer::Run() {
       total_use_counts[load_idx] += graph_.Get(load_idx).saturated_use_count;
       // Check if all uses we know so far, are all truncating uses.
       if (total_use_counts[load_idx].IsSaturated() ||
-          total_use_counts[load_idx].Get() > truncations.size()) {
+          total_use_counts[load_idx].GetUnsaturated() > truncations.size()) {
         // We do know that we cannot int32-truncate this load, so eliminate
         // it from the candidates.
         int32_truncated_loads_.erase(it++);
@@ -145,8 +145,8 @@ void LateLoadEliminationAnalyzer::Run() {
   // information.
   for (const auto& [load_idx, int32_truncations] : int32_truncated_loads_) {
     if (int32_truncations.empty()) continue;
-    if (!total_use_counts[load_idx].IsSaturated() &&
-        total_use_counts[load_idx].Get() == int32_truncations.size()) {
+    if (total_use_counts[load_idx].Is(
+            static_cast<int>(int32_truncations.size()))) {
       // All uses of this load are int32-truncating loads, so we replace them.
       DCHECK(GetReplacement(load_idx).IsNone() ||
              GetReplacement(load_idx).IsTaggedLoadToInt32Load());
@@ -181,6 +181,13 @@ void LateLoadEliminationAnalyzer::ProcessBlock(const Block& block,
     if (ShouldSkipOptimizationStep()) continue;
     if (ShouldSkipOperation(op)) continue;
     switch (op.opcode) {
+#if V8_ENABLE_SANDBOX
+      case Opcode::kLoadTrustedPointer:
+        if (v8_flags.turboshaft_trusted_load_elimination) {
+          ProcessTrustedLoad(op_idx, op.Cast<LoadTrustedPointerOp>());
+        }
+        break;
+#endif
       case Opcode::kLoad:
         // Eliminate load or update state
         ProcessLoad(op_idx, op.Cast<LoadOp>());
@@ -217,6 +224,7 @@ void LateLoadEliminationAnalyzer::ProcessBlock(const Block& block,
       case Opcode::kComparison:
 #ifdef V8_ENABLE_WEBASSEMBLY
       case Opcode::kTrapIf:
+      case Opcode::kWasmTrap:
 #endif
         // We explicitly break for these opcodes so that we don't call
         // InvalidateAllNonAliasingInputs on their inputs, since they don't
@@ -244,6 +252,9 @@ void LateLoadEliminationAnalyzer::ProcessBlock(const Block& block,
       case Opcode::kCheckException:
       case Opcode::kAtomicWord32Pair:
       case Opcode::kMemoryBarrier:
+#ifdef V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
+      case Opcode::kSwitchSandboxMode:
+#endif
       case Opcode::kParameter:
       case Opcode::kDebugBreak:
       case Opcode::kJSStackCheck:
@@ -257,6 +268,7 @@ void LateLoadEliminationAnalyzer::ProcessBlock(const Block& block,
       case Opcode::kMemoryCopy:
       case Opcode::kMemoryFill:
       case Opcode::kWasmIncCoverageCounter:
+      case Opcode::kWasmFXArgBuffer:
 #endif  // V8_ENABLE_WEBASSEMBLY
         // We explicitly break for those operations that have can_write effects
         // but don't actually write, or cannot interfere with load elimination.
@@ -381,6 +393,33 @@ void LateLoadEliminationAnalyzer::ProcessLoad(OpIndex op_idx,
   memory_.Insert(load, op_idx);
 }
 
+#if V8_ENABLE_SANDBOX
+void LateLoadEliminationAnalyzer::ProcessTrustedLoad(
+    OpIndex op_idx, const LoadTrustedPointerOp& load) {
+  TRACE("> ProcessTrustedLoad(" << op_idx << ")");
+
+  // We need to insert the load into the truncation mapping as a key, because
+  // all loads need to be revisited during processing.
+  int32_truncated_loads_[op_idx];
+
+  if (OpIndex existing = memory_.Find(load); existing.valid()) {
+    const Operation& replacement = graph_.Get(existing);
+    USE(replacement);
+    // All trusted loads have the same representation and they can't alias with
+    // any other loads.
+    DCHECK_EQ(replacement.outputs_rep(), load.outputs_rep());
+    TRACE(">> Found replacement at offset " << existing);
+    replacements_[op_idx] = Replacement::LoadElimination(existing);
+    return;
+  }
+  // Reset the replacement of {op_idx} to Invalid, in case a previous visit of a
+  // loop has set it to something else.
+  replacements_[op_idx] = Replacement::None();
+
+  memory_.Insert(load, op_idx);
+}
+#endif
+
 void LateLoadEliminationAnalyzer::ProcessStore(OpIndex op_idx,
                                                const StoreOp& store) {
   TRACE("> ProcessStore(" << op_idx << ")");
@@ -395,7 +434,7 @@ void LateLoadEliminationAnalyzer::ProcessStore(OpIndex op_idx,
     TRACE(
         ">> Raw base or maybe inner pointer ==> Invalidating whole "
         "maybe-aliasing memory");
-    memory_.InvalidateMaybeAliasing();
+    memory_.InvalidateMaybeAliasing(store.base());
   }
 
   if (!store.kind.load_eliminable) {
@@ -445,7 +484,7 @@ void LateLoadEliminationAnalyzer::ProcessAtomicRMW(OpIndex op_idx,
     return;
   }
   TRACE(">> Invalidating whole maybe-aliasing memory");
-  memory_.InvalidateMaybeAliasing();
+  memory_.InvalidateMaybeAliasing(store.base());
 #endif
 }
 
@@ -476,25 +515,6 @@ void LateLoadEliminationAnalyzer::ProcessCall(OpIndex op_idx,
   }
 
   auto builtin_id = TryGetBuiltinId(callee.TryCast<ConstantOp>(), broker_);
-
-  if (builtin_id) {
-    switch (*builtin_id) {
-      // TODO(dmercadier): extend this list.
-      case Builtin::kCopyFastSmiOrObjectElements:
-        // This function just replaces the Elements array of an object.
-        // It doesn't invalidate any alias or any other memory than this
-        // Elements array.
-        TRACE(
-            ">> Call is CopyFastSmiOrObjectElements, invalidating only "
-            "Elements for "
-            << op.arguments()[0]);
-        memory_.Invalidate(op.arguments()[0], OpIndex::Invalid(),
-                           JSObject::kElementsOffset);
-        return;
-      default:
-        break;
-    }
-  }
 
   // Not a builtin call, or not a builtin that we know doesn't invalidate
   // memory.
@@ -605,7 +625,7 @@ bool IsInt32TruncatedLoadPattern(const Graph& graph, OpIndex change_idx,
   // generalized by allowing multiple int32-truncating uses, but that is more
   // expensive to detect and it is very unlikely that we ever see such a case
   // (e.g. because of GVN).
-  if (!bitcast->saturated_use_count.IsOne()) return false;
+  if (!bitcast->saturated_use_count.Is(1)) return false;
   const LoadOp* load = graph.Get(bitcast->input()).TryCast<LoadOp>();
   if (load == nullptr) return false;
   if (load->loaded_rep.SizeInBytesLog2() !=
@@ -773,5 +793,7 @@ bool LateLoadEliminationAnalyzer::BeginBlock(const Block* block) {
 template bool LateLoadEliminationAnalyzer::BeginBlock<true>(const Block* block);
 template bool LateLoadEliminationAnalyzer::BeginBlock<false>(
     const Block* block);
+
+#undef TRACE
 
 }  // namespace v8::internal::compiler::turboshaft

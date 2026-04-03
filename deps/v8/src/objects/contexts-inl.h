@@ -30,8 +30,11 @@ namespace internal {
 
 #include "torque-generated/src/objects/contexts-tq-inl.inc"
 
+// TODO(375937549): Convert to uint32_t.
 int ScriptContextTable::length(AcquireLoadTag) const {
-  return length_.Acquire_Load().value();
+  int len = length_.Acquire_Load().value();
+  DCHECK_GE(len, 0);
+  return len;
 }
 void ScriptContextTable::set_length(int value, ReleaseStoreTag) {
   length_.Release_Store(this, Smi::FromInt(value));
@@ -56,8 +59,6 @@ Tagged<Context> ScriptContextTable::get(int i, AcquireLoadTag tag) const {
   return Super::get(i, tag);
 }
 
-TQ_OBJECT_CONSTRUCTORS_IMPL(Context)
-
 RELAXED_SMI_ACCESSORS(Context, length, kLengthOffset)
 
 bool Context::IsElementTheHole(int index) {
@@ -78,8 +79,7 @@ Tagged<Object> Context::GetNoCell(int index) {
 template <typename MemoryTag>
 void Context::SetNoCell(int index, Tagged<Object> value, MemoryTag tag,
                         WriteBarrierMode mode) {
-  DCHECK(IsAnyHole(get(index, kRelaxedLoad)) ||
-         !Is<ContextCell>(get(index, kRelaxedLoad)));
+  DCHECK(!Is<ContextCell>(get(index, kRelaxedLoad)));
   set(index, value, mode, tag);
 }
 
@@ -172,6 +172,14 @@ Tagged<NativeContext> Context::native_context() const {
   return this->map()->native_context();
 }
 
+Tagged<JSGlobalObject> Context::global_object() const {
+  return native_context()->global_object();
+}
+
+Tagged<JSGlobalProxy> Context::global_proxy() const {
+  return native_context()->global_proxy();
+}
+
 bool Context::IsFunctionContext() const {
   return map()->instance_type() == FUNCTION_CONTEXT_TYPE;
 }
@@ -215,10 +223,6 @@ inline bool Context::HasContextCells() const {
 bool Context::HasSameSecurityTokenAs(Tagged<Context> that) const {
   return this->native_context()->security_token() ==
          that->native_context()->security_token();
-}
-
-bool Context::IsDetached(Isolate* isolate) const {
-  return global_object()->IsDetached(isolate);
 }
 
 #define NATIVE_CONTEXT_FIELD_ACCESSORS(index, type, name)          \
@@ -310,6 +314,26 @@ EXTERNAL_POINTER_ACCESSORS(NativeContext, microtask_queue, MicrotaskQueue*,
                            kMicrotaskQueueOffset,
                            kNativeContextMicrotaskQueueTag)
 
+Tagged<JSGlobalProxy> NativeContext::global_proxy() const {
+  return global_proxy_object();
+}
+
+bool NativeContext::IsDetached() const { return global_object()->IsDetached(); }
+
+Tagged<JSGlobalObject> NativeContext::global_object() const {
+  return Cast<JSGlobalObject>(extension());
+}
+
+// Caution, hack: this getter ignores the AcquireLoadTag. The global_object
+// slot is safe to read concurrently since it is immutable after
+// initialization.  This function should *not* be used from anywhere other
+// than heap-refs.cc.
+// TODO(jgruber): Remove this function after NativeContextRef is actually
+// never serialized and BROKER_NATIVE_CONTEXT_FIELDS is removed.
+Tagged<JSGlobalObject> NativeContext::global_object(AcquireLoadTag) const {
+  return global_object();
+}
+
 void NativeContext::synchronized_set_script_context_table(
     Tagged<ScriptContextTable> script_context_table) {
   set(SCRIPT_CONTEXT_TABLE_INDEX, script_context_table, UPDATE_WRITE_BARRIER,
@@ -344,8 +368,6 @@ Tagged<Map> NativeContext::TypedArrayElementsKindToRabGsabCtorMap(
   DCHECK(InstanceTypeChecker::IsJSTypedArray(map));
   return map;
 }
-
-OBJECT_CONSTRUCTORS_IMPL(NativeContext, Context)
 
 inline std::ostream& operator<<(std::ostream& os, ContextCell::State state) {
   switch (state) {

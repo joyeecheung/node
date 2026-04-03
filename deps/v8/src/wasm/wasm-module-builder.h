@@ -19,6 +19,7 @@
 #include "src/wasm/leb-helper.h"
 #include "src/wasm/local-decl-encoder.h"
 #include "src/wasm/value-type.h"
+#include "src/wasm/wasm-init-expr.h"
 #include "src/wasm/wasm-module.h"
 #include "src/wasm/wasm-opcodes.h"
 #include "src/wasm/wasm-result.h"
@@ -41,12 +42,6 @@ class ZoneBuffer : public ZoneObject {
   void write_u8(uint8_t x) {
     EnsureSpace(1);
     *(pos_++) = x;
-  }
-
-  void write_u16(uint16_t x) {
-    EnsureSpace(2);
-    base::WriteLittleEndianValue<uint16_t>(reinterpret_cast<Address>(pos_), x);
-    pos_ += 2;
   }
 
   void write_u32(uint32_t x) {
@@ -101,8 +96,8 @@ class ZoneBuffer : public ZoneObject {
   }
 
   void write_string(base::Vector<const char> name) {
-    write_size(name.length());
-    write(reinterpret_cast<const uint8_t*>(name.begin()), name.length());
+    write_size(name.size());
+    write(reinterpret_cast<const uint8_t*>(name.begin()), name.size());
   }
 
   size_t reserve_u32v() {
@@ -191,7 +186,6 @@ class V8_EXPORT_PRIVATE WasmFunctionBuilder : public ZoneObject {
   void EmitI64Const(int64_t val);
   void EmitF32Const(float val);
   void EmitF64Const(double val);
-  void EmitS128Const(Simd128 val);
   void EmitWithU8(WasmOpcode opcode, const uint8_t immediate);
   void EmitWithU8U8(WasmOpcode opcode, const uint8_t imm1, const uint8_t imm2);
   void EmitWithI32V(WasmOpcode opcode, int32_t immediate);
@@ -325,7 +319,8 @@ class V8_EXPORT_PRIVATE WasmModuleBuilder : public ZoneObject {
 
   // Building methods.
   uint32_t AddImport(base::Vector<const char> name, const FunctionSig* sig,
-                     base::Vector<const char> module = {});
+                     base::Vector<const char> module = {},
+                     bool force_new_sig = false);
   WasmFunctionBuilder* AddFunction(const FunctionSig* sig = nullptr);
   WasmFunctionBuilder* AddFunction(ModuleTypeIndex sig_index);
   uint32_t AddGlobal(ValueType type, bool mutability, WasmInitExpr init);
@@ -453,6 +448,13 @@ class V8_EXPORT_PRIVATE WasmModuleBuilder : public ZoneObject {
 
   ModuleTypeIndex GetSuperType(uint32_t index) {
     return types_[index].supertype;
+  }
+
+  bool HasDescriptor(ModuleTypeIndex index) {
+    return types_[index.index].has_descriptor();
+  }
+  ModuleTypeIndex GetDescriptor(ModuleTypeIndex index) {
+    return types_[index.index].descriptor;
   }
 
   WasmFunctionBuilder* GetFunction(uint32_t index) { return functions_[index]; }

@@ -103,10 +103,28 @@ class V8_EXPORT Template : public Data {
    */
   void SetNativeDataProperty(
       Local<Name> name, AccessorNameGetterCallback getter,
-      AccessorNameSetterCallback setter = nullptr,
-      Local<Value> data = Local<Value>(), PropertyAttribute attribute = None,
+      AccessorNameSetterCallbackV2 setter, Local<Value> data = Local<Value>(),
+      PropertyAttribute attribute = None,
       SideEffectType getter_side_effect_type = SideEffectType::kHasSideEffect,
       SideEffectType setter_side_effect_type = SideEffectType::kHasSideEffect);
+  void SetNativeDataProperty(
+      Local<Name> name, AccessorNameGetterCallback getter,
+      AccessorNameSetterCallback setter, Local<Value> data = Local<Value>(),
+      PropertyAttribute attribute = None,
+      SideEffectType getter_side_effect_type = SideEffectType::kHasSideEffect,
+      SideEffectType setter_side_effect_type = SideEffectType::kHasSideEffect);
+  // TODO(https://crbug.com/348660658): remove once AccessorNameSetterCallback
+  // is removed.
+  void SetNativeDataProperty(
+      Local<Name> name, AccessorNameGetterCallback getter,
+      nullptr_t setter = nullptr, Local<Value> data = Local<Value>(),
+      PropertyAttribute attribute = None,
+      SideEffectType getter_side_effect_type = SideEffectType::kHasSideEffect,
+      SideEffectType setter_side_effect_type = SideEffectType::kHasSideEffect) {
+    SetNativeDataProperty(
+        name, getter, static_cast<AccessorNameSetterCallbackV2>(setter), data,
+        attribute, getter_side_effect_type, setter_side_effect_type);
+  }
 
   /**
    * Like SetNativeDataProperty, but V8 will replace the native data property
@@ -135,11 +153,14 @@ class V8_EXPORT Template : public Data {
 /**
  * Interceptor callbacks use this value to indicate whether the request was
  * intercepted or not.
+ *
+ * The values for constants and type are chosen this way for better
+ * performance.
  */
-enum class Intercepted : uint8_t { kNo = 0, kYes = 1 };
+enum class Intercepted : uint32_t { kNo = 1, kYes = 0 };
 
 /**
- * Interceptor for get requests on an object.
+ * Interceptor for [[Get]] requests on an object.
  *
  * If the interceptor handles the request (i.e. the property should not be
  * looked up beyond the interceptor or in case an exception was thrown) it
@@ -153,8 +174,8 @@ enum class Intercepted : uint8_t { kNo = 0, kYes = 1 };
  * \param property The name of the property for which the request was
  * intercepted.
  * \param info Information about the intercepted request, such as
- * isolate, receiver, return value, or whether running in `'use strict'` mode.
- * See `PropertyCallbackInfo`.
+ * isolate, object holding the property, return value. See
+ * `PropertyCallbackInfo`.
  *
  * \code
  *  Intercepted GetterCallback(
@@ -183,17 +204,20 @@ enum class Intercepted : uint8_t { kNo = 0, kYes = 1 };
  */
 using NamedPropertyGetterCallback = Intercepted (*)(
     Local<Name> property, const PropertyCallbackInfo<Value>& info);
-// This variant will be deleted soon.
-using GenericNamedPropertyGetterCallback V8_DEPRECATED(
-    "Use NamedPropertyGetterCallback instead") =
-    void (*)(Local<Name> property, const PropertyCallbackInfo<Value>& info);
 
 /**
- * Interceptor for set requests on an object.
+ * Interceptor for [[Set]] requests on an object.
  *
  * If the interceptor handles the request (i.e. the property should not be
  * looked up beyond the interceptor or in case an exception was thrown) it
- * should return `Intercepted::kYes`.
+ * should
+ *  - use `info.GetReturnValue().Set(false)` to indicate that the operation
+ *    failed,
+ *  - (optionally) upon operation failure and info.ShouldThrowOnError()
+ *    is true (indicating execution in `'use strict'` mode) the callback can
+ *    throw TypeError if the error message needs to include more details than
+ *    a TypeError thrown by V8 in this case,
+ *  - return `Intercepted::kYes`.
  * If the interceptor does not handle the request it must return
  * `Intercepted::kNo` and it must not produce side effects.
  *
@@ -202,24 +226,23 @@ using GenericNamedPropertyGetterCallback V8_DEPRECATED(
  * \param value The value which the property will have if the request
  * is not intercepted.
  * \param info Information about the intercepted request, such as
- * isolate, receiver, return value, or whether running in `'use strict'` mode.
- * See `PropertyCallbackInfo`.
+ * isolate, object holding the property, return value, or whether running in
+ * `'use strict'` mode. See `PropertyCallbackInfo`.
  *
  * See also `ObjectTemplate::SetHandler.`
  */
+using NamedPropertySetterCallbackV2 =
+    Intercepted (*)(Local<Name> property, Local<Value> value,
+                    const PropertyCallbackInfo<Boolean>& info);
+// TODO(https://crbug.com/348660658): deprecate and remove.
 using NamedPropertySetterCallback =
     Intercepted (*)(Local<Name> property, Local<Value> value,
                     const PropertyCallbackInfo<void>& info);
-// This variant will be deleted soon.
-using GenericNamedPropertySetterCallback V8_DEPRECATED(
-    "Use NamedPropertySetterCallback instead") =
-    void (*)(Local<Name> property, Local<Value> value,
-             const PropertyCallbackInfo<Value>& info);
 
 /**
- * Intercepts all requests that query the attributes of the
- * property, e.g., getOwnPropertyDescriptor(), propertyIsEnumerable(), and
- * defineProperty().
+ * Intercepts all requests that query the attributes of the property,
+ * e.g. [[GetOwnProperty]], [[DefineOwnProperty]], [[Set]] and derived ones
+ * like Object.prototype.propertyIsEnumerable() and similar.
  *
  * If the interceptor handles the request (i.e. the property should not be
  * looked up beyond the interceptor or in case an exception was thrown) it
@@ -244,19 +267,19 @@ using GenericNamedPropertySetterCallback V8_DEPRECATED(
  */
 using NamedPropertyQueryCallback = Intercepted (*)(
     Local<Name> property, const PropertyCallbackInfo<Integer>& info);
-// This variant will be deleted soon.
-using GenericNamedPropertyQueryCallback V8_DEPRECATED(
-    "Use NamedPropertyQueryCallback instead") =
-    void (*)(Local<Name> property, const PropertyCallbackInfo<Integer>& info);
 
 /**
- * Interceptor for delete requests on an object.
+ * Interceptor for [[Delete]] requests on an object.
  *
  * If the interceptor handles the request (i.e. the property should not be
  * looked up beyond the interceptor or in case an exception was thrown) it
  * should
- *  - (optionally) use `info.GetReturnValue().Set()` to set to a Boolean value
- *    indicating whether the property deletion was successful or not,
+ *  - use `info.GetReturnValue().Set(false)` to indicate that the operation
+ *    failed,
+ *  - (optionally) upon operation failure and info.ShouldThrowOnError()
+ *    is true (indicating execution in `'use strict'` mode) the callback can
+ *    throw TypeError if the error message needs to include more details than
+ *    a TypeError thrown by V8 in this case,
  *  - return `Intercepted::kYes`.
  * If the interceptor does not handle the request it must return
  * `Intercepted::kNo` and it must not produce side effects.
@@ -264,21 +287,13 @@ using GenericNamedPropertyQueryCallback V8_DEPRECATED(
  * \param property The name of the property for which the request was
  * intercepted.
  * \param info Information about the intercepted request, such as
- * isolate, receiver, return value, or whether running in `'use strict'` mode.
- * See `PropertyCallbackInfo`.
- *
- * \note If you need to mimic the behavior of `delete`, i.e., throw in strict
- * mode instead of returning false, use `info.ShouldThrowOnError()` to determine
- * if you are in strict mode.
+ * isolate, object holding the property, return value, or whether running in
+ * `'use strict'` mode. See `PropertyCallbackInfo`.
  *
  * See also `ObjectTemplate::SetHandler.`
  */
 using NamedPropertyDeleterCallback = Intercepted (*)(
     Local<Name> property, const PropertyCallbackInfo<Boolean>& info);
-// This variant will be deleted soon.
-using GenericNamedPropertyDeleterCallback V8_DEPRECATED(
-    "Use NamedPropertyDeleterCallback instead") =
-    void (*)(Local<Name> property, const PropertyCallbackInfo<Boolean>& info);
 
 /**
  * Returns an array containing the names of the properties the named
@@ -288,18 +303,20 @@ using GenericNamedPropertyDeleterCallback V8_DEPRECATED(
  */
 using NamedPropertyEnumeratorCallback =
     void (*)(const PropertyCallbackInfo<Array>& info);
-// This variant will be deleted soon.
-// This is just a renaming of the typedef.
-using GenericNamedPropertyEnumeratorCallback V8_DEPRECATED(
-    "Use NamedPropertyEnumeratorCallback instead") =
-    NamedPropertyEnumeratorCallback;
 
 /**
- * Interceptor for defineProperty requests on an object.
+ * Interceptor for [[DefineOwnProperty]] requests on an object.
  *
  * If the interceptor handles the request (i.e. the property should not be
  * looked up beyond the interceptor or in case an exception was thrown) it
- * should return `Intercepted::kYes`.
+ * should
+ *  - use `info.GetReturnValue().Set(false)` to indicate that the operation
+ *    failed,
+ *  - (optionally) upon operation failure and info.ShouldThrowOnError()
+ *    is true (indicating execution in `'use strict'` mode) the callback can
+ *    throw TypeError if the error message needs to include more details than
+ *    a TypeError thrown by V8 in this case,
+ *  - return `Intercepted::kYes`.
  * If the interceptor does not handle the request it must return
  * `Intercepted::kNo` and it must not produce side effects.
  *
@@ -308,22 +325,21 @@ using GenericNamedPropertyEnumeratorCallback V8_DEPRECATED(
  * \param desc The property descriptor which is used to define the
  * property if the request is not intercepted.
  * \param info Information about the intercepted request, such as
- * isolate, receiver, return value, or whether running in `'use strict'` mode.
- * See `PropertyCallbackInfo`.
+ * isolate, object holding the property, return value, or whether running in
+ * `'use strict'` mode. See `PropertyCallbackInfo`.
  *
  * See also `ObjectTemplate::SetHandler`.
  */
+using NamedPropertyDefinerCallbackV2 =
+    Intercepted (*)(Local<Name> property, const PropertyDescriptor& desc,
+                    const PropertyCallbackInfo<Boolean>& info);
+// TODO(https://crbug.com/348660658): deprecate and remove.
 using NamedPropertyDefinerCallback =
     Intercepted (*)(Local<Name> property, const PropertyDescriptor& desc,
                     const PropertyCallbackInfo<void>& info);
-// This variant will be deleted soon.
-using GenericNamedPropertyDefinerCallback V8_DEPRECATED(
-    "Use NamedPropertyDefinerCallback instead") =
-    void (*)(Local<Name> property, const PropertyDescriptor& desc,
-             const PropertyCallbackInfo<Value>& info);
 
 /**
- * Interceptor for getOwnPropertyDescriptor requests on an object.
+ * Interceptor for [[GetOwnProperty]] requests on an object.
  *
  * If the interceptor handles the request (i.e. the property should not be
  * looked up beyond the interceptor or in case an exception was thrown) it
@@ -341,62 +357,44 @@ using GenericNamedPropertyDefinerCallback V8_DEPRECATED(
  * isolate, receiver, return value, or whether running in `'use strict'` mode.
  * See `PropertyCallbackInfo`.
  *
- * \note If GetOwnPropertyDescriptor is intercepted, it will
- * always return true, i.e., indicate that the property was found.
- *
  * See also `ObjectTemplate::SetHandler`.
  */
 using NamedPropertyDescriptorCallback = Intercepted (*)(
     Local<Name> property, const PropertyCallbackInfo<Value>& info);
-// This variant will be deleted soon.
-using GenericNamedPropertyDescriptorCallback V8_DEPRECATED(
-    "Use NamedPropertyDescriptorCallback instead") =
-    void (*)(Local<Name> property, const PropertyCallbackInfo<Value>& info);
-
-// TODO(ishell): Rename IndexedPropertyXxxCallbackV2 back to
-// IndexedPropertyXxxCallback once the old IndexedPropertyXxxCallback is
-// removed.
 
 /**
  * See `v8::NamedPropertyGetterCallback`.
  */
-using IndexedPropertyGetterCallbackV2 =
+using IndexedPropertyGetterCallback =
     Intercepted (*)(uint32_t index, const PropertyCallbackInfo<Value>& info);
-// This variant will be deleted soon.
-using IndexedPropertyGetterCallback V8_DEPRECATED(
-    "Use IndexedPropertyGetterCallbackV2 instead") =
-    void (*)(uint32_t index, const PropertyCallbackInfo<Value>& info);
+// TODO(https://crbug.com/348660658): deprecate and remove.
+using IndexedPropertyGetterCallbackV2 = IndexedPropertyGetterCallback;
 
 /**
  * See `v8::NamedPropertySetterCallback`.
  */
+using IndexedPropertySetterCallback =
+    Intercepted (*)(uint32_t index, Local<Value> value,
+                    const PropertyCallbackInfo<Boolean>& info);
+// TODO(https://crbug.com/348660658): deprecate and remove.
 using IndexedPropertySetterCallbackV2 = Intercepted (*)(
     uint32_t index, Local<Value> value, const PropertyCallbackInfo<void>& info);
-// This variant will be deleted soon.
-using IndexedPropertySetterCallback V8_DEPRECATED(
-    "Use IndexedPropertySetterCallbackV2 instead") =
-    void (*)(uint32_t index, Local<Value> value,
-             const PropertyCallbackInfo<Value>& info);
 
 /**
  * See `v8::NamedPropertyQueryCallback`.
  */
-using IndexedPropertyQueryCallbackV2 =
+using IndexedPropertyQueryCallback =
     Intercepted (*)(uint32_t index, const PropertyCallbackInfo<Integer>& info);
-// This variant will be deleted soon.
-using IndexedPropertyQueryCallback V8_DEPRECATED(
-    "Use IndexedPropertyQueryCallbackV2 instead") =
-    void (*)(uint32_t index, const PropertyCallbackInfo<Integer>& info);
+// TODO(https://crbug.com/348660658): deprecate and remove.
+using IndexedPropertyQueryCallbackV2 = IndexedPropertyQueryCallback;
 
 /**
  * See `v8::NamedPropertyDeleterCallback`.
  */
-using IndexedPropertyDeleterCallbackV2 =
+using IndexedPropertyDeleterCallback =
     Intercepted (*)(uint32_t index, const PropertyCallbackInfo<Boolean>& info);
-// This variant will be deleted soon.
-using IndexedPropertyDeleterCallback V8_DEPRECATED(
-    "Use IndexedPropertyDeleterCallbackV2 instead") =
-    void (*)(uint32_t index, const PropertyCallbackInfo<Boolean>& info);
+// TODO(https://crbug.com/348660658): deprecate and remove.
+using IndexedPropertyDeleterCallbackV2 = IndexedPropertyDeleterCallback;
 
 /**
  * Returns an array containing the indices of the properties the indexed
@@ -410,24 +408,28 @@ using IndexedPropertyEnumeratorCallback =
 /**
  * See `v8::NamedPropertyDefinerCallback`.
  */
+using IndexedPropertyDefinerCallback =
+    Intercepted (*)(uint32_t index, const PropertyDescriptor& desc,
+                    const PropertyCallbackInfo<Boolean>& info);
+// TODO(https://crbug.com/348660658): deprecate and remove.
 using IndexedPropertyDefinerCallbackV2 =
     Intercepted (*)(uint32_t index, const PropertyDescriptor& desc,
                     const PropertyCallbackInfo<void>& info);
-// This variant will be deleted soon.
-using IndexedPropertyDefinerCallback V8_DEPRECATED(
-    "Use IndexedPropertyDefinerCallbackV2 instead") =
-    void (*)(uint32_t index, const PropertyDescriptor& desc,
-             const PropertyCallbackInfo<Value>& info);
 
 /**
  * See `v8::NamedPropertyDescriptorCallback`.
  */
-using IndexedPropertyDescriptorCallbackV2 =
+using IndexedPropertyDescriptorCallback =
     Intercepted (*)(uint32_t index, const PropertyCallbackInfo<Value>& info);
-// This variant will be deleted soon.
-using IndexedPropertyDescriptorCallback V8_DEPRECATED(
-    "Use IndexedPropertyDescriptorCallbackV2 instead") =
-    void (*)(uint32_t index, const PropertyCallbackInfo<Value>& info);
+// TODO(https://crbug.com/348660658): deprecate and remove.
+using IndexedPropertyDescriptorCallbackV2 = IndexedPropertyDescriptorCallback;
+
+/**
+ * Experimental API, do not use!
+ */
+using IndexedPropertyIndexOfCallback =
+    uint32_t (*)(Local<Value> value, uint32_t start_index, uint32_t end_index,
+                 uint32_t* out_length, const PropertyCallbackInfo<void>& info);
 
 /**
  * Returns true if the given context should be allowed to access the given
@@ -597,7 +599,7 @@ class V8_EXPORT FunctionTemplate : public Template {
    * API call, see the comment above the class declaration.
    */
   void SetCallHandler(
-      FunctionCallback callback, Local<Value> data = Local<Value>(),
+      FunctionCallback callback, Local<Data> data = {},
       SideEffectType side_effect_type = SideEffectType::kHasSideEffect,
       const MemorySpan<const CFunction>& c_function_overloads = {});
 
@@ -746,37 +748,76 @@ struct NamedPropertyHandlerConfiguration {
             PropertyHandlerFlags::kInternalNewCallbacksSignatures));
   }
 
+  static NamedPropertySetterCallbackV2 ConvertSetter(nullptr_t) {
+    return nullptr;
+  }
+  static NamedPropertySetterCallbackV2 ConvertSetter(
+      NamedPropertySetterCallbackV2 value) {
+    return value;
+  }
+  static NamedPropertySetterCallbackV2 ConvertSetter(
+      NamedPropertySetterCallback value) {
+    return NamedPropertySetterCallbackV2(value);
+  }
+
+  static NamedPropertyDefinerCallbackV2 ConvertDefiner(nullptr_t) {
+    return nullptr;
+  }
+  static NamedPropertyDefinerCallbackV2 ConvertDefiner(
+      NamedPropertyDefinerCallbackV2 value) {
+    return value;
+  }
+  static NamedPropertyDefinerCallbackV2 ConvertDefiner(
+      NamedPropertyDefinerCallback value) {
+    return NamedPropertyDefinerCallbackV2(value);
+  }
+
  public:
+  // TODO(https://crbug.com/348660658): cleanup once migration to
+  // NamedPropertySetterCallbackV2/NamedPropertyDefinerCallbackV2 is done.
+  template <typename TSetter = nullptr_t, typename TDefiner = nullptr_t>
+    requires((std::is_same_v<TSetter, nullptr_t> ||
+              std::is_same_v<TSetter, NamedPropertySetterCallback> ||
+              std::is_same_v<TSetter, NamedPropertySetterCallbackV2>) &&
+             (std::is_same_v<TDefiner, nullptr_t> ||
+              std::is_same_v<TDefiner, NamedPropertyDefinerCallback> ||
+              std::is_same_v<TDefiner, NamedPropertyDefinerCallbackV2>))
   NamedPropertyHandlerConfiguration(
       NamedPropertyGetterCallback getter,          //
-      NamedPropertySetterCallback setter,          //
+      TSetter setter,                              //
       NamedPropertyQueryCallback query,            //
       NamedPropertyDeleterCallback deleter,        //
       NamedPropertyEnumeratorCallback enumerator,  //
-      NamedPropertyDefinerCallback definer,        //
+      TDefiner definer,                            //
       NamedPropertyDescriptorCallback descriptor,  //
       Local<Value> data = Local<Value>(),
       PropertyHandlerFlags flags = PropertyHandlerFlags::kNone)
       : getter(getter),
-        setter(setter),
+        setter(ConvertSetter(setter)),
         query(query),
         deleter(deleter),
         enumerator(enumerator),
-        definer(definer),
+        definer(ConvertDefiner(definer)),
         descriptor(descriptor),
         data(data),
         flags(flags) {}
 
+  // TODO(https://crbug.com/348660658): cleanup once migration to
+  // NamedPropertySetterCallbackV2/NamedPropertyDefinerCallbackV2 is done.
+  template <typename TSetter = nullptr_t>
+    requires(std::is_same_v<TSetter, nullptr_t> ||
+             std::is_same_v<TSetter, NamedPropertySetterCallback> ||
+             std::is_same_v<TSetter, NamedPropertySetterCallbackV2>)
   explicit NamedPropertyHandlerConfiguration(
-      NamedPropertyGetterCallback getter,
-      NamedPropertySetterCallback setter = nullptr,
-      NamedPropertyQueryCallback query = nullptr,
-      NamedPropertyDeleterCallback deleter = nullptr,
-      NamedPropertyEnumeratorCallback enumerator = nullptr,
+      NamedPropertyGetterCallback getter,                    //
+      TSetter setter = nullptr,                              //
+      NamedPropertyQueryCallback query = nullptr,            //
+      NamedPropertyDeleterCallback deleter = nullptr,        //
+      NamedPropertyEnumeratorCallback enumerator = nullptr,  //
       Local<Value> data = Local<Value>(),
       PropertyHandlerFlags flags = PropertyHandlerFlags::kNone)
       : getter(getter),
-        setter(setter),
+        setter(ConvertSetter(setter)),
         query(query),
         deleter(deleter),
         enumerator(enumerator),
@@ -785,31 +826,40 @@ struct NamedPropertyHandlerConfiguration {
         data(data),
         flags(flags) {}
 
+  // TODO(https://crbug.com/348660658): cleanup once migration to
+  // NamedPropertySetterCallbackV2/NamedPropertyDefinerCallbackV2 is done.
+  template <typename TSetter = nullptr_t, typename TDefiner = nullptr_t>
+    requires((std::is_same_v<TSetter, nullptr_t> ||
+              std::is_same_v<TSetter, NamedPropertySetterCallback> ||
+              std::is_same_v<TSetter, NamedPropertySetterCallbackV2>) &&
+             (std::is_same_v<TDefiner, nullptr_t> ||
+              std::is_same_v<TDefiner, NamedPropertyDefinerCallback> ||
+              std::is_same_v<TDefiner, NamedPropertyDefinerCallbackV2>))
   NamedPropertyHandlerConfiguration(
       NamedPropertyGetterCallback getter,          //
-      NamedPropertySetterCallback setter,          //
+      TSetter setter,                              //
       NamedPropertyDescriptorCallback descriptor,  //
       NamedPropertyDeleterCallback deleter,        //
       NamedPropertyEnumeratorCallback enumerator,  //
-      NamedPropertyDefinerCallback definer,        //
+      TDefiner definer,                            //
       Local<Value> data = Local<Value>(),
       PropertyHandlerFlags flags = PropertyHandlerFlags::kNone)
       : getter(getter),
-        setter(setter),
+        setter(ConvertSetter(setter)),
         query(nullptr),
         deleter(deleter),
         enumerator(enumerator),
-        definer(definer),
+        definer(ConvertDefiner(definer)),
         descriptor(descriptor),
         data(data),
         flags(flags) {}
 
   NamedPropertyGetterCallback getter;
-  NamedPropertySetterCallback setter;
+  NamedPropertySetterCallbackV2 setter;
   NamedPropertyQueryCallback query;
   NamedPropertyDeleterCallback deleter;
   NamedPropertyEnumeratorCallback enumerator;
-  NamedPropertyDefinerCallback definer;
+  NamedPropertyDefinerCallbackV2 definer;
   NamedPropertyDescriptorCallback descriptor;
   Local<Value> data;
   PropertyHandlerFlags flags;
@@ -825,37 +875,76 @@ struct IndexedPropertyHandlerConfiguration {
             PropertyHandlerFlags::kInternalNewCallbacksSignatures));
   }
 
+  static IndexedPropertySetterCallback ConvertSetter(nullptr_t) {
+    return nullptr;
+  }
+  static IndexedPropertySetterCallback ConvertSetter(
+      IndexedPropertySetterCallback value) {
+    return value;
+  }
+  static IndexedPropertySetterCallback ConvertSetter(
+      IndexedPropertySetterCallbackV2 value) {
+    return IndexedPropertySetterCallback(value);
+  }
+
+  static IndexedPropertyDefinerCallback ConvertDefiner(nullptr_t) {
+    return nullptr;
+  }
+  static IndexedPropertyDefinerCallback ConvertDefiner(
+      IndexedPropertyDefinerCallback value) {
+    return value;
+  }
+  static IndexedPropertyDefinerCallback ConvertDefiner(
+      IndexedPropertyDefinerCallbackV2 value) {
+    return IndexedPropertyDefinerCallback(value);
+  }
+
  public:
+  // TODO(https://crbug.com/348660658): cleanup once migration to
+  // IndexedPropertySetterCallback/IndexedPropertyDefinerCallback is done.
+  template <typename TSetter = nullptr_t, typename TDefiner = nullptr_t>
+    requires((std::is_same_v<TSetter, nullptr_t> ||
+              std::is_same_v<TSetter, IndexedPropertySetterCallback> ||
+              std::is_same_v<TSetter, IndexedPropertySetterCallbackV2>) &&
+             (std::is_same_v<TDefiner, nullptr_t> ||
+              std::is_same_v<TDefiner, IndexedPropertyDefinerCallback> ||
+              std::is_same_v<TDefiner, IndexedPropertyDefinerCallbackV2>))
   IndexedPropertyHandlerConfiguration(
-      IndexedPropertyGetterCallbackV2 getter,          //
-      IndexedPropertySetterCallbackV2 setter,          //
-      IndexedPropertyQueryCallbackV2 query,            //
-      IndexedPropertyDeleterCallbackV2 deleter,        //
-      IndexedPropertyEnumeratorCallback enumerator,    //
-      IndexedPropertyDefinerCallbackV2 definer,        //
-      IndexedPropertyDescriptorCallbackV2 descriptor,  //
+      IndexedPropertyGetterCallback getter,          //
+      TSetter setter,                                //
+      IndexedPropertyQueryCallback query,            //
+      IndexedPropertyDeleterCallback deleter,        //
+      IndexedPropertyEnumeratorCallback enumerator,  //
+      TDefiner definer,                              //
+      IndexedPropertyDescriptorCallback descriptor,  //
       Local<Value> data = Local<Value>(),
       PropertyHandlerFlags flags = PropertyHandlerFlags::kNone)
       : getter(getter),
-        setter(setter),
+        setter(ConvertSetter(setter)),
         query(query),
         deleter(deleter),
         enumerator(enumerator),
-        definer(definer),
+        definer(ConvertDefiner(definer)),
         descriptor(descriptor),
         data(data),
         flags(flags) {}
 
+  // TODO(https://crbug.com/348660658): cleanup once migration to
+  // IndexedPropertySetterCallback/IndexedPropertyDefinerCallback is done.
+  template <typename TSetter = nullptr_t>
+    requires(std::is_same_v<TSetter, nullptr_t> ||
+             std::is_same_v<TSetter, IndexedPropertySetterCallback> ||
+             std::is_same_v<TSetter, IndexedPropertySetterCallbackV2>)
   explicit IndexedPropertyHandlerConfiguration(
-      IndexedPropertyGetterCallbackV2 getter = nullptr,
-      IndexedPropertySetterCallbackV2 setter = nullptr,
-      IndexedPropertyQueryCallbackV2 query = nullptr,
-      IndexedPropertyDeleterCallbackV2 deleter = nullptr,
-      IndexedPropertyEnumeratorCallback enumerator = nullptr,
-      Local<Value> data = Local<Value>(),
+      IndexedPropertyGetterCallback getter = nullptr,          //
+      TSetter setter = nullptr,                                //
+      IndexedPropertyQueryCallback query = nullptr,            //
+      IndexedPropertyDeleterCallback deleter = nullptr,        //
+      IndexedPropertyEnumeratorCallback enumerator = nullptr,  //
+      Local<Value> data = Local<Value>(),                      //
       PropertyHandlerFlags flags = PropertyHandlerFlags::kNone)
       : getter(getter),
-        setter(setter),
+        setter(ConvertSetter(setter)),
         query(query),
         deleter(deleter),
         enumerator(enumerator),
@@ -864,32 +953,73 @@ struct IndexedPropertyHandlerConfiguration {
         data(data),
         flags(flags) {}
 
+  // TODO(https://crbug.com/348660658): cleanup once migration to
+  // IndexedPropertySetterCallback/IndexedPropertyDefinerCallback is done.
+  template <typename TSetter = nullptr_t, typename TDefiner = nullptr_t>
+    requires((std::is_same_v<TSetter, nullptr_t> ||
+              std::is_same_v<TSetter, IndexedPropertySetterCallback> ||
+              std::is_same_v<TSetter, IndexedPropertySetterCallbackV2>) &&
+             (std::is_same_v<TDefiner, nullptr_t> ||
+              std::is_same_v<TDefiner, IndexedPropertyDefinerCallback> ||
+              std::is_same_v<TDefiner, IndexedPropertyDefinerCallbackV2>))
   IndexedPropertyHandlerConfiguration(
-      IndexedPropertyGetterCallbackV2 getter,
-      IndexedPropertySetterCallbackV2 setter,
-      IndexedPropertyDescriptorCallbackV2 descriptor,
-      IndexedPropertyDeleterCallbackV2 deleter,
-      IndexedPropertyEnumeratorCallback enumerator,
-      IndexedPropertyDefinerCallbackV2 definer,
+      IndexedPropertyGetterCallback getter,          //
+      TSetter setter,                                //
+      IndexedPropertyDescriptorCallback descriptor,  //
+      IndexedPropertyDeleterCallback deleter,        //
+      IndexedPropertyEnumeratorCallback enumerator,  //
+      TDefiner definer,                              //
       Local<Value> data = Local<Value>(),
       PropertyHandlerFlags flags = PropertyHandlerFlags::kNone)
       : getter(getter),
-        setter(setter),
+        setter(ConvertSetter(setter)),
         query(nullptr),
         deleter(deleter),
         enumerator(enumerator),
-        definer(definer),
+        definer(ConvertDefiner(definer)),
         descriptor(descriptor),
         data(data),
         flags(flags) {}
 
-  IndexedPropertyGetterCallbackV2 getter;
-  IndexedPropertySetterCallbackV2 setter;
-  IndexedPropertyQueryCallbackV2 query;
-  IndexedPropertyDeleterCallbackV2 deleter;
+  // TODO(https://crbug.com/348660658): cleanup once migration to
+  // IndexedPropertySetterCallback/IndexedPropertyDefinerCallback is done.
+  template <typename TSetter = nullptr_t, typename TDefiner = nullptr_t>
+    requires((std::is_same_v<TSetter, nullptr_t> ||
+              std::is_same_v<TSetter, IndexedPropertySetterCallback> ||
+              std::is_same_v<TSetter, IndexedPropertySetterCallbackV2>) &&
+             (std::is_same_v<TDefiner, nullptr_t> ||
+              std::is_same_v<TDefiner, IndexedPropertyDefinerCallback> ||
+              std::is_same_v<TDefiner, IndexedPropertyDefinerCallbackV2>))
+  IndexedPropertyHandlerConfiguration(
+      IndexedPropertyGetterCallback getter,          //
+      TSetter setter,                                //
+      IndexedPropertyQueryCallback query,            //
+      IndexedPropertyDeleterCallback deleter,        //
+      IndexedPropertyEnumeratorCallback enumerator,  //
+      TDefiner definer,                              //
+      IndexedPropertyDescriptorCallback descriptor,  //
+      IndexedPropertyIndexOfCallback index_of,       //
+      Local<Value> data = Local<Value>(),
+      PropertyHandlerFlags flags = PropertyHandlerFlags::kNone)
+      : getter(getter),
+        setter(ConvertSetter(setter)),
+        query(query),
+        deleter(deleter),
+        enumerator(enumerator),
+        definer(ConvertDefiner(definer)),
+        descriptor(descriptor),
+        index_of(index_of),
+        data(data),
+        flags(flags) {}
+
+  IndexedPropertyGetterCallback getter;
+  IndexedPropertySetterCallback setter;
+  IndexedPropertyQueryCallback query;
+  IndexedPropertyDeleterCallback deleter;
   IndexedPropertyEnumeratorCallback enumerator;
-  IndexedPropertyDefinerCallbackV2 definer;
-  IndexedPropertyDescriptorCallbackV2 descriptor;
+  IndexedPropertyDefinerCallback definer;
+  IndexedPropertyDescriptorCallback descriptor;
+  IndexedPropertyIndexOfCallback index_of = nullptr;
   Local<Value> data;
   PropertyHandlerFlags flags;
 };

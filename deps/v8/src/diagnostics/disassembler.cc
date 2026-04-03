@@ -32,7 +32,7 @@
 
 #if V8_ENABLE_WEBASSEMBLY
 #include "src/wasm/wasm-code-manager.h"
-#include "src/wasm/wasm-engine.h"
+#include "src/wasm/wasm-engine-globals.h"
 #endif  // V8_ENABLE_WEBASSEMBLY
 
 namespace v8 {
@@ -56,7 +56,7 @@ class V8NameConverter : public disasm::NameConverter {
   Isolate* isolate_;
   CodeReference code_;
 
-  base::EmbeddedVector<char, 128> v8_buffer_;
+  mutable base::EmbeddedVector<char, 128> v8_buffer_;
 
   // Map from root-register relative offset of the external reference value to
   // the external reference name (stored in the external reference table).
@@ -258,12 +258,11 @@ static void PrintRelocInfo(std::ostringstream& out, Isolate* isolate,
                   address, IsolateGroup::current()->external_ref_table());
     out << "    ;; external reference (" << reference_name << ")";
   } else if (rmode == RelocInfo::JS_DISPATCH_HANDLE) {
-#ifdef V8_ENABLE_LEAPTIERING
     JSDispatchHandle dispatch_handle = relocinfo->js_dispatch_handle();
     out << "    ;; js dispatch handle:0x" << std::hex << dispatch_handle;
     if (dispatch_handle != kNullJSDispatchHandle) {
-      Tagged<Code> code = IsolateGroup::current()->js_dispatch_table()->GetCode(
-          relocinfo->js_dispatch_handle());
+      Tagged<Code> code =
+          isolate->js_dispatch_table().GetCode(relocinfo->js_dispatch_handle());
       CodeKind kind = code->kind();
       if (code->is_builtin()) {
         out << " Builtin::" << Builtins::name(code->builtin_id());
@@ -271,9 +270,6 @@ static void PrintRelocInfo(std::ostringstream& out, Isolate* isolate,
         out << " " << CodeKindToString(kind);
       }
     }
-#else
-    UNREACHABLE();
-#endif
   } else if (RelocInfo::IsCodeTargetMode(rmode)) {
     out << "    ;; code:";
     Tagged<Code> code =

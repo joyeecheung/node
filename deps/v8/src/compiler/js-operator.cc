@@ -28,7 +28,8 @@ namespace {
 
 // Returns properties for the given binary op.
 constexpr Operator::Properties BinopProperties(Operator::Opcode opcode) {
-  DCHECK(JSOperator::IsBinaryWithFeedback(opcode));
+  DCHECK(JSOperator::IsBinaryWithFeedback(opcode) ||
+         JSOperator::IsBinaryWithEmbeddedFeedback(opcode));
   return opcode == IrOpcode::kJSStrictEqual ? Operator::kPure
                                             : Operator::kNoProperties;
 }
@@ -151,15 +152,13 @@ const CallRuntimeParameters& CallRuntimeParametersOf(const Operator* op) {
   return OpParameter<CallRuntimeParameters>(op);
 }
 
-
 ContextAccess::ContextAccess(size_t depth, size_t index, bool immutable)
-    : immutable_(immutable),
-      depth_(static_cast<uint16_t>(depth)),
+    : immutable_and_depth_(ImmutableField::encode(immutable) |
+                           DepthField::encode(static_cast<uint32_t>(depth))),
       index_(static_cast<uint32_t>(index)) {
-  DCHECK(depth <= std::numeric_limits<uint16_t>::max());
+  CHECK_EQ(depth, DepthField::decode(immutable_and_depth_));
   DCHECK(index <= std::numeric_limits<uint32_t>::max());
 }
-
 
 bool operator==(ContextAccess const& lhs, ContextAccess const& rhs) {
   return lhs.depth() == rhs.depth() && lhs.index() == rhs.index() &&
@@ -274,6 +273,52 @@ FeedbackParameter const& FeedbackParameterOf(const Operator* op) {
   return OpParameter<FeedbackParameter>(op);
 }
 
+bool operator==(EmbeddedHintParameter const& lhs,
+                EmbeddedHintParameter const& rhs) {
+  return lhs.hint() == rhs.hint();
+}
+
+bool operator!=(EmbeddedHintParameter const& lhs,
+                EmbeddedHintParameter const& rhs) {
+  return !(lhs == rhs);
+}
+
+size_t hash_value(EmbeddedHintParameter const& p) {
+  return std::visit(
+      [](auto const& hint) {
+        using T = std::decay_t<decltype(hint)>;
+        if constexpr (std::is_same_v<T, CompareOperationHint>) {
+          return static_cast<size_t>(hint);
+        } else if constexpr (std::is_same_v<T, BinaryOperationHint>) {
+          return static_cast<size_t>(hint);
+        } else if constexpr (std::is_same_v<T, std::monostate>) {
+          return size_t{0};
+        } else {
+          UNREACHABLE();
+        }
+      },
+      p.hint());
+}
+
+std::ostream& operator<<(std::ostream& os, EmbeddedHintParameter const& p) {
+  std::visit(
+      [&os](auto const& hint) {
+        using T = std::decay_t<decltype(hint)>;
+        if constexpr (std::is_same_v<T, std::monostate>) {
+          os << "Invalid";
+        } else {
+          os << hint;
+        }
+      },
+      p.hint());
+  return os;
+}
+
+EmbeddedHintParameter const& EmbeddedHintParameterOf(const Operator* op) {
+  DCHECK(JSOperator::IsBinaryWithEmbeddedFeedback(op->opcode()));
+  return OpParameter<EmbeddedHintParameter>(op);
+}
+
 bool operator==(NamedAccess const& lhs, NamedAccess const& rhs) {
   return lhs.name_.object().location() == rhs.name_.object().location() &&
          lhs.language_mode() == rhs.language_mode() &&
@@ -335,6 +380,30 @@ size_t hash_value(PropertyAccess const& p) {
                             FeedbackSource::Hash()(p.feedback()));
 }
 
+bool operator==(CreateGeneratorObjectParameters const& lhs,
+                CreateGeneratorObjectParameters const& rhs) {
+  return lhs.bytecode_array.location() == rhs.bytecode_array.location();
+}
+
+bool operator!=(CreateGeneratorObjectParameters const& lhs,
+                CreateGeneratorObjectParameters const& rhs) {
+  return !(lhs == rhs);
+}
+
+size_t hash_value(CreateGeneratorObjectParameters const& p) {
+  return base::hash_combine(p.bytecode_array.location());
+}
+
+std::ostream& operator<<(std::ostream& os,
+                         CreateGeneratorObjectParameters const& p) {
+  return os << Brief(*p.bytecode_array);
+}
+
+const CreateGeneratorObjectParameters& CreateGeneratorObjectParametersOf(
+    const Operator* op) {
+  DCHECK_EQ(IrOpcode::kJSCreateGeneratorObject, op->opcode());
+  return OpParameter<CreateGeneratorObjectParameters>(op);
+}
 
 bool operator==(LoadGlobalParameters const& lhs,
                 LoadGlobalParameters const& rhs) {
@@ -689,6 +758,29 @@ size_t hash_value(GetIteratorParameters const& p) {
                             FeedbackSource::Hash()(p.callFeedback()));
 }
 
+std::ostream& operator<<(std::ostream& os, ForOfNextParameters const& p) {
+  return os << p.callFeedback();
+}
+
+bool operator==(ForOfNextParameters const& lhs,
+                ForOfNextParameters const& rhs) {
+  return lhs.callFeedback() == rhs.callFeedback();
+}
+
+bool operator!=(ForOfNextParameters const& lhs,
+                ForOfNextParameters const& rhs) {
+  return !(lhs == rhs);
+}
+
+ForOfNextParameters const& ForOfNextParametersOf(const Operator* op) {
+  DCHECK(op->opcode() == IrOpcode::kJSForOfNext);
+  return OpParameter<ForOfNextParameters>(op);
+}
+
+size_t hash_value(ForOfNextParameters const& p) {
+  return FeedbackSource::Hash()(p.callFeedback());
+}
+
 size_t hash_value(ForInMode const& mode) { return static_cast<uint8_t>(mode); }
 
 std::ostream& operator<<(std::ostream& os, ForInMode const& mode) {
@@ -857,6 +949,18 @@ JSOperatorBuilder::JSOperatorBuilder(Zone* zone)
 CACHED_OP_LIST(CACHED_OP)
 #undef CACHED_OP
 
+// AsyncFunctionAwait never throws, but the typed lowering reduction wires a
+// Branch/Merge diamond into the control chain, which requires a control output.
+// Define it manually with control_out=1 to bypass ZeroIfNoThrow.
+const Operator* JSOperatorBuilder::AsyncFunctionAwait() {
+  static constexpr auto kProperties = Operator::kNoDeopt | Operator::kNoThrow;
+  return zone()->New<Operator>(                      // --
+      IrOpcode::kJSAsyncFunctionAwait, kProperties,  // opcode
+      "JSAsyncFunctionAwait",                        // name
+      2, 1, 1,                                       // inputs
+      1, 1, 1);                                      // outputs
+}
+
 #define UNARY_OP(JSName, Name)                                                \
   const Operator* JSOperatorBuilder::Name(FeedbackSource const& feedback) {   \
     FeedbackParameter parameters(feedback);                                   \
@@ -877,6 +981,17 @@ JS_UNOP_WITH_FEEDBACK(UNARY_OP)
   }
 JS_BINOP_WITH_FEEDBACK(BINARY_OP)
 #undef BINARY_OP
+
+#define COMPARE_OP_WITH_EMBEDDED_FEEDBACK(JSName, Name)                       \
+  const Operator* JSOperatorBuilder::Name(CompareOperationHint feedback) {    \
+    static constexpr auto kProperties = BinopProperties(IrOpcode::k##JSName); \
+    EmbeddedHintParameter hint_parameter(feedback);                           \
+    return zone()->New<Operator1<EmbeddedHintParameter>>(                     \
+        IrOpcode::k##JSName, kProperties, #JSName, 2, 1, 1, 1, 1,             \
+        Operator::ZeroIfNoThrow(kProperties), hint_parameter);                \
+  }
+JS_COMPARE_BINOP_COMMON_LIST(COMPARE_OP_WITH_EMBEDDED_FEEDBACK)
+#undef COMPARE_OP_WITH_EMBEDDED_FEEDBACK
 
 const Operator* JSOperatorBuilder::DefineKeyedOwnPropertyInLiteral(
     const FeedbackSource& feedback) {
@@ -1110,11 +1225,14 @@ const Operator* JSOperatorBuilder::GetIterator(
       access);                                            // parameter
 }
 
-const Operator* JSOperatorBuilder::ForOfNext() {
-  return zone()->New<Operator>(                         // --
+const Operator* JSOperatorBuilder::ForOfNext(
+    FeedbackSource const& call_feedback) {
+  ForOfNextParameters access(call_feedback);
+  return zone()->New<Operator1<ForOfNextParameters>>(   // --
       IrOpcode::kJSForOfNext, Operator::kNoProperties,  // opcode
       "JSForOfNext",                                    // name
-      2, 1, 1, 2, 1, 2);                                // counts
+      3, 1, 1, 2, 1, 2,                                 // counts
+      access);                                          // parameter
 }
 
 const Operator* JSOperatorBuilder::HasProperty(FeedbackSource const& feedback) {
@@ -1239,11 +1357,14 @@ const Operator* JSOperatorBuilder::DeleteProperty() {
       3, 1, 1, 1, 1, 2);                                     // counts
 }
 
-const Operator* JSOperatorBuilder::CreateGeneratorObject() {
-  return zone()->New<Operator>(                                     // --
+const Operator* JSOperatorBuilder::CreateGeneratorObject(
+    IndirectHandle<BytecodeArray> bytecode_array) {
+  CreateGeneratorObjectParameters parameters(bytecode_array);
+  return zone()->New<Operator1<CreateGeneratorObjectParameters>>(   // --
       IrOpcode::kJSCreateGeneratorObject, Operator::kEliminatable,  // opcode
       "JSCreateGeneratorObject",                                    // name
-      2, 1, 1, 1, 1, 0);                                            // counts
+      2, 1, 1, 1, 1, 0,                                             // counts
+      parameters);  // parameters
 }
 
 const Operator* JSOperatorBuilder::LoadGlobal(NameRef name,

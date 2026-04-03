@@ -949,6 +949,11 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CheckNotTyped(node);
       break;
 
+    case IrOpcode::kJSAsyncFunctionAwait:
+      CheckValueInputIs(node, 0, Type::Any());
+      CheckValueInputIs(node, 1, Type::Any());
+      CheckTypeIs(node, Type::OtherObject());
+      break;
     case IrOpcode::kJSAsyncFunctionEnter:
       CheckValueInputIs(node, 0, Type::Any());
       CheckValueInputIs(node, 1, Type::Any());
@@ -1000,6 +1005,9 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     case IrOpcode::kComment:
     case IrOpcode::kAbortCSADcheck:
     case IrOpcode::kDebugBreak:
+#ifdef V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
+    case IrOpcode::kSwitchSandboxMode:
+#endif  // V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
     case IrOpcode::kRetain:
     case IrOpcode::kRuntimeAbort:
       CheckNotTyped(node);
@@ -1451,6 +1459,7 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       // CheckTypeIs(node, to));
       break;
     }
+    case IrOpcode::kChangeSmiOrHoleToFloat64:
     case IrOpcode::kChangeNumberOrHoleToFloat64: {
       // NumberOrHole /\ Tagged -> Number /\ UntaggedFloat64
       // TODO(neis): Activate once ChangeRepresentation works in typer.
@@ -1544,6 +1553,7 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       // CheckTypeIs(node, to));
       break;
     }
+    case IrOpcode::kTruncateSmiOrHoleToWord32:
     case IrOpcode::kTruncateNumberOrOddballOrHoleToWord32: {
       // Number /\ Tagged -> Signed32 /\ UntaggedInt32
       // TODO(neis): Activate once ChangeRepresentation works in typer.
@@ -1877,8 +1887,8 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     // -----------------------
     case IrOpcode::kLoad:
     case IrOpcode::kLoadImmutable:
-    case IrOpcode::kProtectedLoad:
-    case IrOpcode::kProtectedStore:
+    case IrOpcode::kTrappingLoad:
+    case IrOpcode::kTrappingStore:
     case IrOpcode::kLoadTrapOnNull:
     case IrOpcode::kStoreTrapOnNull:
     case IrOpcode::kStore:
@@ -2102,6 +2112,7 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     case IrOpcode::kSignExtendWord8ToInt64:
     case IrOpcode::kSignExtendWord16ToInt64:
     case IrOpcode::kSignExtendWord32ToInt64:
+    case IrOpcode::kMajorGCForCompilerTesting:
     case IrOpcode::kStaticAssert:
     case IrOpcode::kStackPointerGreaterThan:
     case IrOpcode::kTraceInstruction:

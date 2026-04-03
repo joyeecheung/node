@@ -42,7 +42,7 @@
 #include "src/heap/main-allocator.h"
 #include "src/heap/memory-allocator.h"
 #include "src/heap/memory-pool.h"
-#include "src/heap/mutable-page-metadata.h"
+#include "src/heap/mutable-page.h"
 #include "src/heap/spaces-inl.h"
 #include "src/heap/spaces.h"
 #include "src/objects/free-space.h"
@@ -134,7 +134,7 @@ static void VerifyMemoryChunk(Isolate* isolate, Heap* heap,
   size_t allocatable_memory_area_offset =
       MemoryChunkLayout::ObjectStartOffsetInMemoryChunk(space->identity());
 
-  MutablePageMetadata* memory_chunk = memory_allocator->AllocateLargePage(
+  MutablePage* memory_chunk = memory_allocator->AllocateLargePage(
       space, area_size, executable, AllocationHint());
   size_t reserved_size =
       ((executable == EXECUTABLE))
@@ -159,7 +159,7 @@ static unsigned int PseudorandomAreaSize() {
   return lo & 0xFFFFF;
 }
 
-TEST(MutablePageMetadata) {
+TEST(MutablePage) {
   Isolate* isolate = CcTest::i_isolate();
   Heap* heap = isolate->heap();
   IsolateSafepointScope safepoint(heap);
@@ -231,7 +231,7 @@ TEST(MemoryAllocator) {
   OldSpace faked_space(heap);
   CHECK(!faked_space.first_page());
   CHECK(!faked_space.last_page());
-  PageMetadata* first_page = memory_allocator->AllocatePage(
+  NormalPage* first_page = memory_allocator->AllocatePage(
       MemoryAllocator::AllocationMode::kRegular,
       static_cast<PagedSpace*>(&faked_space), NOT_EXECUTABLE);
 
@@ -239,24 +239,24 @@ TEST(MemoryAllocator) {
   CHECK(first_page->next_page() == nullptr);
   total_pages++;
 
-  for (PageMetadata* p = first_page; p != nullptr; p = p->next_page()) {
+  for (NormalPage* p = first_page; p != nullptr; p = p->next_page()) {
     CHECK(p->owner() == &faked_space);
   }
 
   // Again, we should get n or n - 1 pages.
-  PageMetadata* other = memory_allocator->AllocatePage(
+  NormalPage* other = memory_allocator->AllocatePage(
       MemoryAllocator::AllocationMode::kRegular,
       static_cast<PagedSpace*>(&faked_space), NOT_EXECUTABLE);
   total_pages++;
   faked_space.memory_chunk_list().PushBack(other);
   int page_count = 0;
-  for (PageMetadata* p = first_page; p != nullptr; p = p->next_page()) {
+  for (NormalPage* p = first_page; p != nullptr; p = p->next_page()) {
     CHECK(p->owner() == &faked_space);
     page_count++;
   }
   CHECK(total_pages == page_count);
 
-  PageMetadata* second_page = first_page->next_page();
+  NormalPage* second_page = first_page->next_page();
   CHECK_NOT_NULL(second_page);
 
   // OldSpace's destructor will tear down the space and free up all pages.
@@ -322,9 +322,9 @@ TEST(SemiSpaceNewSpace) {
 
   size_t successful_allocations = 0;
   while (new_space->Available() >= kMaxRegularHeapObjectSize) {
-    AllocationResult allocation =
-        allocator.AllocateRaw(kMaxRegularHeapObjectSize, kTaggedAligned,
-                              AllocationOrigin::kRuntime, AllocationHint());
+    AllocationResult allocation = allocator.AllocateRaw(
+        SafeHeapObjectSize(kMaxRegularHeapObjectSize), kTaggedAligned,
+        AllocationOrigin::kRuntime, AllocationHint());
     if (allocation.IsFailure()) break;
     successful_allocations++;
     Tagged<Object> obj = allocation.ToObjectChecked();
@@ -356,9 +356,9 @@ TEST(PagedNewSpace) {
 
   size_t successful_allocations = 0;
   while (true) {
-    AllocationResult allocation =
-        allocator.AllocateRaw(kMaxRegularHeapObjectSize, kTaggedAligned,
-                              AllocationOrigin::kRuntime, AllocationHint());
+    AllocationResult allocation = allocator.AllocateRaw(
+        SafeHeapObjectSize(kMaxRegularHeapObjectSize), kTaggedAligned,
+        AllocationOrigin::kRuntime, AllocationHint());
     if (allocation.IsFailure()) break;
     successful_allocations++;
     Tagged<Object> obj = allocation.ToObjectChecked();
@@ -393,8 +393,9 @@ TEST(OldSpace) {
   size_t successful_allocations = 0;
 
   while (true) {
-    AllocationResult allocation = allocator.AllocateRaw(
-        obj_size, kTaggedAligned, AllocationOrigin::kRuntime, AllocationHint());
+    AllocationResult allocation =
+        allocator.AllocateRaw(SafeHeapObjectSize(obj_size), kTaggedAligned,
+                              AllocationOrigin::kRuntime, AllocationHint());
     if (allocation.IsFailure()) break;
     successful_allocations++;
     Tagged<Object> obj = allocation.ToObjectChecked();
@@ -417,7 +418,7 @@ TEST(OldLargeObjectSpace) {
   Heap* heap = isolate->heap();
 
   auto lo = std::make_unique<OldLargeObjectSpace>(heap);
-  const int lo_size = PageMetadata::kPageSize;
+  const int lo_size = NormalPage::kPageSize;
 
   HandleScope handle_scope(isolate);
   Tagged<Map> map = ReadOnlyRoots(isolate).fixed_double_array_map();
@@ -539,8 +540,8 @@ HEAP_TEST(Regress777177) {
     AlwaysAllocateScopeForTesting always_allocate(heap);
     heap::SimulateFullSpace(old_space);
     AllocationResult result = old_space_allocator->AllocateRaw(
-        filler_size, kTaggedAligned, AllocationOrigin::kRuntime,
-        AllocationHint());
+        SafeHeapObjectSize(filler_size), kTaggedAligned,
+        AllocationOrigin::kRuntime, AllocationHint());
     Tagged<HeapObject> obj = result.ToObjectChecked();
     heap->CreateFillerObjectAt(obj.address(), filler_size);
   }
@@ -549,8 +550,8 @@ HEAP_TEST(Regress777177) {
     // Allocate all bytes of the linear allocation area. This moves top_ and
     // top_on_previous_step_ to the next page.
     AllocationResult result = old_space_allocator->AllocateRaw(
-        max_object_size, kTaggedAligned, AllocationOrigin::kRuntime,
-        AllocationHint());
+        SafeHeapObjectSize(max_object_size), kTaggedAligned,
+        AllocationOrigin::kRuntime, AllocationHint());
     Tagged<HeapObject> obj = result.ToObjectChecked();
     // Simulate allocation folding moving the top pointer back.
     old_space_allocator->ResetLab(
@@ -561,8 +562,8 @@ HEAP_TEST(Regress777177) {
   {
     // This triggers assert in crbug.com/777177.
     AllocationResult result = old_space_allocator->AllocateRaw(
-        filler_size, kTaggedAligned, AllocationOrigin::kRuntime,
-        AllocationHint());
+        SafeHeapObjectSize(filler_size), kTaggedAligned,
+        AllocationOrigin::kRuntime, AllocationHint());
     Tagged<HeapObject> obj = result.ToObjectChecked();
     heap->CreateFillerObjectAt(obj.address(), filler_size);
   }
@@ -594,8 +595,8 @@ HEAP_TEST(Regress791582) {
 
   {
     AllocationResult result = new_space_allocator->AllocateRaw(
-        until_page_end, kTaggedAligned, AllocationOrigin::kRuntime,
-        AllocationHint());
+        SafeHeapObjectSize(until_page_end), kTaggedAligned,
+        AllocationOrigin::kRuntime, AllocationHint());
     Tagged<HeapObject> obj = result.ToObjectChecked();
     heap->CreateFillerObjectAt(obj.address(), until_page_end);
     // Simulate allocation folding moving the top pointer back.
@@ -607,7 +608,8 @@ HEAP_TEST(Regress791582) {
   {
     // This triggers assert in crbug.com/791582
     AllocationResult result = new_space_allocator->AllocateRaw(
-        256, kTaggedAligned, AllocationOrigin::kRuntime, AllocationHint());
+        SafeHeapObjectSize(256), kTaggedAligned, AllocationOrigin::kRuntime,
+        AllocationHint());
     Tagged<HeapObject> obj = result.ToObjectChecked();
     heap->CreateFillerObjectAt(obj.address(), 256);
   }
@@ -652,7 +654,7 @@ TEST(NoMemoryForNewPage) {
   TestMemoryAllocatorScope test_allocator_scope(isolate, 0, &failing_allocator);
   MemoryAllocator* memory_allocator = test_allocator_scope.allocator();
   OldSpace faked_space(heap);
-  PageMetadata* page = memory_allocator->AllocatePage(
+  NormalPage* page = memory_allocator->AllocatePage(
       MemoryAllocator::AllocationMode::kRegular,
       static_cast<PagedSpace*>(&faked_space), NOT_EXECUTABLE);
 

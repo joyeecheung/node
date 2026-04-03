@@ -84,9 +84,9 @@ bitfield struct ScopeFlags extends uint32 {
   // only for contexts with "sloppy_eval_can_extend_vars" flag set).
   some_context_has_extension: bool: 1 bit;
   is_hidden: bool: 1 bit;
-  is_empty: bool: 1 bit;
   is_wrapped_function: bool: 1 bit;
   has_context_cells: bool: 1 bit;
+  is_hoisted_in_context: bool: 1 bit;
 }
 
 struct PositionInfo {
@@ -103,7 +103,8 @@ bitfield struct VariableProperties extends uint31 {
   variable_mode: VariableMode: 4 bit;
   init_flag: InitializationFlag: 1 bit;
   maybe_assigned_flag: MaybeAssignedFlag: 1 bit;
-  parameter_number: uint32: 16 bit;
+  is_parameter: bool: 1 bit;
+  parameter_number_or_position: uint32: 16 bit;
   is_static_flag: IsStaticFlag: 1 bit;
 }
 
@@ -182,6 +183,11 @@ extern class ScopeInfo extends HeapObject {
 
   // EmptyContextExtension-dependent code objects.
   dependent_code?[flags.sloppy_eval_can_extend_vars]: DependentCode;
+
+  // For the first 31 formal parameters, these bits will be set if they are
+  // explicitly unused within the body of the function.
+  const unused_parameter_bits?
+      [flags.scope_type == ScopeType::FUNCTION_SCOPE]: Smi;
 }
 
 extern macro NameToIndexHashTableLookup(

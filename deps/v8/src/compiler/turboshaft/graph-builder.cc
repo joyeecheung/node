@@ -40,6 +40,7 @@
 #include "src/compiler/turboshaft/phase.h"
 #include "src/compiler/turboshaft/representations.h"
 #include "src/compiler/turboshaft/simplified-optimization-reducer.h"
+#include "src/compiler/turboshaft/value-numbering-reducer.h"
 #include "src/compiler/turboshaft/variable-reducer.h"
 #include "src/flags/flags.h"
 #include "src/heap/factory-inl.h"
@@ -69,8 +70,8 @@ struct GraphBuilder {
   JSHeapBroker* broker;
   Zone* graph_zone;
   using AssemblerT =
-      TSAssembler<ExplicitTruncationReducer, SimplifiedOptimizationReducer,
-                  VariableReducer>;
+      Assembler<ExplicitTruncationReducer, SimplifiedOptimizationReducer,
+                VariableReducer, ValueNumberingReducer>;
   AssemblerT assembler;
   SourcePositionTable* source_positions;
   NodeOriginTable* origins;
@@ -731,7 +732,7 @@ OpIndex GraphBuilder::Process(
             !constant->float64().is_undefined_nan()) {
           return __ Float64Constant(std::numeric_limits<double>::quiet_NaN());
         }
-        return __ Float64Constant(constant->float64().get_scalar());
+        return __ Float64Constant(constant->float64());
       }
       ConvertJSPrimitiveToUntaggedOp* convert_op =
           input_op.TryCast<ConvertJSPrimitiveToUntaggedOp>();
@@ -1026,27 +1027,25 @@ OpIndex GraphBuilder::Process(
           CheckMinusZeroModeOf(node->op()));
 #undef CONVERT_PRIMITIVE_TO_OBJECT_CASE
 
-#define CONVERT_PRIMITIVE_TO_OBJECT_OR_DEOPT_CASE(name, kind, input_type, \
-                                                  input_interpretation)   \
-  case IrOpcode::k##name: {                                               \
-    DCHECK(dominating_frame_state.valid());                               \
-    const CheckParameters& params = CheckParametersOf(node->op());        \
-    return __ ConvertUntaggedToJSPrimitiveOrDeopt(                        \
-        Map(node->InputAt(0)), dominating_frame_state,                    \
-        ConvertUntaggedToJSPrimitiveOrDeoptOp::JSPrimitiveKind::k##kind,  \
-        V<input_type>::rep,                                               \
-        ConvertUntaggedToJSPrimitiveOrDeoptOp::InputInterpretation::      \
-            k##input_interpretation,                                      \
-        params.feedback());                                               \
+#define CONVERT_PRIMITIVE_TO_OBJECT_OR_DEOPT_CASE(name, input_type,        \
+                                                  input_interpretation)    \
+  case IrOpcode::k##name: {                                                \
+    DCHECK(dominating_frame_state.valid());                                \
+    const CheckParameters& params = CheckParametersOf(node->op());         \
+    return __ ConvertWordToSmiOrDeopt(                                     \
+        Map(node->InputAt(0)), dominating_frame_state, V<input_type>::rep, \
+        ConvertWordToSmiOrDeoptOp::InputInterpretation::                   \
+            k##input_interpretation,                                       \
+        params.feedback());                                                \
   }
-      CONVERT_PRIMITIVE_TO_OBJECT_OR_DEOPT_CASE(CheckedInt32ToTaggedSigned, Smi,
+      CONVERT_PRIMITIVE_TO_OBJECT_OR_DEOPT_CASE(CheckedInt32ToTaggedSigned,
                                                 Word32, Signed)
       CONVERT_PRIMITIVE_TO_OBJECT_OR_DEOPT_CASE(CheckedUint32ToTaggedSigned,
-                                                Smi, Word32, Unsigned)
-      CONVERT_PRIMITIVE_TO_OBJECT_OR_DEOPT_CASE(CheckedInt64ToTaggedSigned, Smi,
+                                                Word32, Unsigned)
+      CONVERT_PRIMITIVE_TO_OBJECT_OR_DEOPT_CASE(CheckedInt64ToTaggedSigned,
                                                 Word64, Signed)
       CONVERT_PRIMITIVE_TO_OBJECT_OR_DEOPT_CASE(CheckedUint64ToTaggedSigned,
-                                                Smi, Word64, Unsigned)
+                                                Word64, Unsigned)
 #undef CONVERT_PRIMITIVE_TO_OBJECT_OR_DEOPT_CASE
 
 #define CONVERT_OBJECT_TO_PRIMITIVE_CASE(name, kind, input_assumptions) \
@@ -1059,6 +1058,10 @@ OpIndex GraphBuilder::Process(
       CONVERT_OBJECT_TO_PRIMITIVE_CASE(ChangeTaggedSignedToInt32, Int32, Smi)
       CONVERT_OBJECT_TO_PRIMITIVE_CASE(ChangeTaggedSignedToInt64, Int64, Smi)
       CONVERT_OBJECT_TO_PRIMITIVE_CASE(ChangeTaggedToBit, Bit, Boolean)
+      CONVERT_OBJECT_TO_PRIMITIVE_CASE(ChangeSmiOrHoleToFloat64, Float64,
+                                       SmiOrHole)
+      CONVERT_OBJECT_TO_PRIMITIVE_CASE(ChangeNumberOrHoleToFloat64, Float64,
+                                       NumberOrHole)
       CONVERT_OBJECT_TO_PRIMITIVE_CASE(ChangeTaggedToInt32, Int32,
                                        NumberOrOddball)
       CONVERT_OBJECT_TO_PRIMITIVE_CASE(ChangeTaggedToUint32, Uint32,
@@ -1067,10 +1070,9 @@ OpIndex GraphBuilder::Process(
                                        NumberOrOddball)
       CONVERT_OBJECT_TO_PRIMITIVE_CASE(ChangeTaggedToFloat64, Float64,
                                        NumberOrOddball)
-      CONVERT_OBJECT_TO_PRIMITIVE_CASE(ChangeNumberOrHoleToFloat64, Float64,
-                                       NumberOrHole)
       CONVERT_OBJECT_TO_PRIMITIVE_CASE(TruncateTaggedToFloat64, Float64,
                                        NumberOrOddball)
+
 #ifdef V8_ENABLE_UNDEFINED_DOUBLE
       CONVERT_OBJECT_TO_PRIMITIVE_CASE(TruncateTaggedToFloat64PreserveUndefined,
                                        HoleyFloat64, NumberOrOddball)
@@ -1086,12 +1088,14 @@ OpIndex GraphBuilder::Process(
             k##input_assumptions);
       TRUNCATE_OBJECT_TO_PRIMITIVE_CASE(TruncateNumberOrOddballToWord32, Int32,
                                         NumberOrOddball)
-      TRUNCATE_OBJECT_TO_PRIMITIVE_CASE(TruncateNumberOrOddballOrHoleToWord32,
-                                        Int32, NumberOrOddballOrHole)
       TRUNCATE_OBJECT_TO_PRIMITIVE_CASE(TruncateBigIntToWord64, Int64, BigInt)
       TRUNCATE_OBJECT_TO_PRIMITIVE_CASE(TruncateTaggedToBit, Bit, Object)
       TRUNCATE_OBJECT_TO_PRIMITIVE_CASE(TruncateTaggedPointerToBit, Bit,
                                         HeapObject)
+      TRUNCATE_OBJECT_TO_PRIMITIVE_CASE(TruncateSmiOrHoleToWord32, Int32,
+                                        SmiOrHole)
+      TRUNCATE_OBJECT_TO_PRIMITIVE_CASE(TruncateNumberOrOddballOrHoleToWord32,
+                                        Int32, NumberOrOddballOrHole)
 #undef TRUNCATE_OBJECT_TO_PRIMITIVE_CASE
 
     case IrOpcode::kCheckedTruncateTaggedToWord32:
@@ -1256,23 +1260,23 @@ OpIndex GraphBuilder::Process(
       return __ Select(cond, vtrue, vfalse,
                        RegisterRepresentation::FromMachineRepresentation(
                            params.representation()),
-                       params.hint(), SelectOp::Implementation::kBranch);
+                       params.hint(), SelectOp::Implementation::kAny);
     }
     case IrOpcode::kWord32Select:
       return __ Select(
           Map<Word32>(node->InputAt(0)), Map<Word32>(node->InputAt(1)),
           Map<Word32>(node->InputAt(2)), RegisterRepresentation::Word32(),
-          BranchHint::kNone, SelectOp::Implementation::kCMove);
+          BranchHint::kNone, SelectOp::Implementation::kForceCMove);
     case IrOpcode::kWord64Select:
       return __ Select(
           Map<Word32>(node->InputAt(0)), Map<Word64>(node->InputAt(1)),
           Map<Word64>(node->InputAt(2)), RegisterRepresentation::Word64(),
-          BranchHint::kNone, SelectOp::Implementation::kCMove);
+          BranchHint::kNone, SelectOp::Implementation::kForceCMove);
     case IrOpcode::kFloat32Select:
       return __ Select(
           Map<Word32>(node->InputAt(0)), Map<Float32>(node->InputAt(1)),
           Map<Float32>(node->InputAt(2)), RegisterRepresentation::Float32(),
-          BranchHint::kNone, SelectOp::Implementation::kCMove);
+          BranchHint::kNone, SelectOp::Implementation::kForceCMove);
 
     case IrOpcode::kLoad:
     case IrOpcode::kLoadImmutable:
@@ -1307,11 +1311,11 @@ OpIndex GraphBuilder::Process(
       return __ Load(Map(base), Map(index), kind, loaded_rep, offset,
                      element_size_log2);
     }
-    case IrOpcode::kProtectedLoad: {
+    case IrOpcode::kTrappingLoad: {
       MemoryRepresentation loaded_rep =
           MemoryRepresentation::FromMachineType(LoadRepresentationOf(op));
       return __ Load(Map(node->InputAt(0)), Map(node->InputAt(1)),
-                     LoadOp::Kind::Protected(), loaded_rep);
+                     LoadOp::Kind::Trapping(), loaded_rep);
     }
 
     case IrOpcode::kStore:
@@ -1366,11 +1370,11 @@ OpIndex GraphBuilder::Process(
                initializing_transitioning);
       return OpIndex::Invalid();
     }
-    case IrOpcode::kProtectedStore:
-      // We don't mark ProtectedStores as initialzing even when inside regions,
+    case IrOpcode::kTrappingStore:
+      // We don't mark TrappingStores as initializing even when inside regions,
       // since we don't store-store eliminate them because they have a raw base.
       __ Store(Map(node->InputAt(0)), Map(node->InputAt(1)),
-               Map(node->InputAt(2)), StoreOp::Kind::Protected(),
+               Map(node->InputAt(2)), StoreOp::Kind::Trapping(),
                MemoryRepresentation::FromMachineRepresentation(
                    OpParameter<MachineRepresentation>(node->op())),
                WriteBarrierKind::kNoWriteBarrier);
@@ -1581,6 +1585,10 @@ OpIndex GraphBuilder::Process(
       return __ Projection(Map(input), index, rep);
     }
 
+    case IrOpcode::kMajorGCForCompilerTesting:
+      __ MajorGCForCompilerTesting();
+      return OpIndex::Invalid();
+
     case IrOpcode::kStaticAssert:
       __ StaticAssert(Map(node->InputAt(0)), StaticAssertSourceOf(node->op()));
       return OpIndex::Invalid();
@@ -1637,8 +1645,7 @@ OpIndex GraphBuilder::Process(
 
 #ifdef V8_ENABLE_SANDBOX
       if (access.is_bounded_size_access) {
-        value = __ ShiftLeft(value, kBoundedSizeShift,
-                             WordRepresentation::WordPtr());
+        value = __ WordPtrShiftLeft(value, kBoundedSizeShift);
       }
 #endif  // V8_ENABLE_SANDBOX
 
@@ -1714,12 +1721,11 @@ OpIndex GraphBuilder::Process(
       OpIndex value = __ Load(Map(object), kind, rep, access.offset);
 #ifdef V8_ENABLE_SANDBOX
       if (is_sandboxed_external) {
-        value = __ DecodeExternalPointer(value, access.external_pointer_tag);
+        value = __ LoadExternalPointer(value, access.external_pointer_tag);
       }
       if (access.is_bounded_size_access) {
         DCHECK(!is_sandboxed_external);
-        value = __ ShiftRightLogical(value, kBoundedSizeShift,
-                                     WordRepresentation::WordPtr());
+        value = __ WordPtrShiftRightLogical(value, kBoundedSizeShift);
       }
 #endif  // V8_ENABLE_SANDBOX
       return value;
@@ -1925,9 +1931,11 @@ OpIndex GraphBuilder::Process(
 
 #ifdef V8_INTL_SUPPORT
     case IrOpcode::kStringToLowerCaseIntl:
-      return __ StringToLowerCaseIntl(Map(node->InputAt(0)));
+      return __ StringToLowerCaseIntl(
+          Map(node->InputAt(0)), Map(node->InputAt(1)), Map(node->InputAt(2)));
     case IrOpcode::kStringToUpperCaseIntl:
-      return __ StringToUpperCaseIntl(Map(node->InputAt(0)));
+      return __ StringToUpperCaseIntl(
+          Map(node->InputAt(0)), Map(node->InputAt(1)), Map(node->InputAt(2)));
 #else
     case IrOpcode::kStringToLowerCaseIntl:
     case IrOpcode::kStringToUpperCaseIntl:
@@ -2497,8 +2505,8 @@ OpIndex GraphBuilder::Process(
           break;
         case MemoryAccessKind::kUnaligned:
           UNREACHABLE();
-        case MemoryAccessKind::kProtectedByTrapHandler:
-          kind = LoadOp::Kind::RawAligned().Atomic().Protected();
+        case MemoryAccessKind::kTrapping:
+          kind = LoadOp::Kind::RawAligned().Atomic().Trapping();
           break;
       }
       RegisterRepresentation result_rep =
@@ -2540,14 +2548,14 @@ OpIndex GraphBuilder::Process(
           break;
         case MemoryAccessKind::kUnaligned:
           UNREACHABLE();
-        case MemoryAccessKind::kProtectedByTrapHandler:
-          kind = StoreOp::Kind::RawAligned().Atomic().Protected();
+        case MemoryAccessKind::kTrapping:
+          kind = StoreOp::Kind::RawAligned().Atomic().Trapping();
           break;
       }
       __ Store(
           base, offset, value, kind,
           MemoryRepresentation::FromMachineRepresentation(p.representation()),
-          p.write_barrier_kind(), 0, 0, true);
+          p.write_barrier_kind(), p.order(), 0, 0, true);
       return OpIndex::Invalid();
     }
 
@@ -2797,6 +2805,15 @@ OpIndex GraphBuilder::Process(
       return OpIndex::Invalid();
 #endif  // V8_ENABLE_CONTINUATION_PRESERVED_EMBEDDER_DATA
 
+#ifdef V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
+    case IrOpcode::kSwitchSandboxMode: {
+      CodeSandboxingMode sandbox_mode =
+          OpParameter<CodeSandboxingMode>(node->op());
+      return __ SwitchSandboxMode(sandbox_mode);
+    }
+
+#endif  // V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
+
     default:
       std::cerr << "unsupported node type: " << *node->op() << "\n";
       node->Print(std::cerr);
@@ -2811,8 +2828,8 @@ std::optional<BailoutReason> BuildGraph(
     JsWasmCallsSidetable* js_wasm_calls_sidetable) {
   GraphBuilder builder{data, phase_zone, *schedule, linkage,
                        js_wasm_calls_sidetable};
+  DCHECK(data->graph().IsCreatedFromTurbofan());
 #if DEBUG
-  data->graph().SetCreatedFromTurbofan();
   data->graph().set_broker(data->broker());
 #endif
   return builder.Run();

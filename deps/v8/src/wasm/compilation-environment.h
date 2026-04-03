@@ -17,12 +17,7 @@
 #include "src/wasm/wasm-module.h"
 #include "src/wasm/wasm-tier.h"
 
-namespace v8 {
-
-class CFunctionInfo;
-class JobHandle;
-
-namespace internal {
+namespace v8::internal {
 
 class Counters;
 
@@ -31,14 +26,13 @@ namespace wasm {
 class NativeModule;
 struct UnpublishedWasmCode;
 class WasmCode;
-class WasmEngine;
-class WasmError;
+struct FastApiData;
 class WasmModuleCoverageData;
 
 // The Arm architecture does not specify the results in memory of
 // partially-in-bound writes, which does not align with the wasm spec. This
 // affects when trap handlers can be used for OOB detection; however, Mac
-// systems with Apple silicon currently do provide trapping beahviour for
+// systems with Apple silicon currently do provide trapping behaviour for
 // partially-out-of-bound writes, so we assume we can rely on that on MacOS,
 // since doing so provides better performance for writes.
 #if V8_TARGET_ARCH_ARM64 && !V8_OS_MACOS
@@ -56,9 +50,7 @@ struct CompilationEnv {
   // Features enabled for this compilation.
   const WasmEnabledFeatures enabled_features;
 
-  const std::atomic<Address>* fast_api_targets;
-
-  std::atomic<const MachineSignature*>* fast_api_signatures;
+  const std::shared_ptr<FastApiData[]> fast_api_data;
 
   std::shared_ptr<WasmModuleCoverageData> module_coverage_data;
 
@@ -67,17 +59,13 @@ struct CompilationEnv {
   // being used.
   static inline CompilationEnv ForModule(const NativeModule* native_module);
 
-  static CompilationEnv NoModuleAllFeaturesForTesting();
-
  private:
   CompilationEnv(const WasmModule* module, WasmEnabledFeatures enabled_features,
-                 std::atomic<Address>* fast_api_targets,
-                 std::atomic<const MachineSignature*>* fast_api_signatures,
+                 std::shared_ptr<FastApiData[]> fast_api_data,
                  std::shared_ptr<WasmModuleCoverageData> module_coverage_data)
       : module(module),
         enabled_features(enabled_features),
-        fast_api_targets(fast_api_targets),
-        fast_api_signatures(fast_api_signatures),
+        fast_api_data(std::move(fast_api_data)),
         module_coverage_data(std::move(module_coverage_data)) {}
 };
 
@@ -149,9 +137,6 @@ class V8_EXPORT_PRIVATE CompilationState {
   void InitializeAfterDeserialization(base::Vector<const int> lazy_functions,
                                       base::Vector<const int> eager_functions);
 
-  // Set a higher priority for the compilation job.
-  void SetHighPriority();
-
   void TierUpAllFunctions();
 
   // By default, only one top-tier compilation task will be executed for each
@@ -161,7 +146,6 @@ class V8_EXPORT_PRIVATE CompilationState {
   void AllowAnotherTopTierJobForAllFunctions();
 
   bool failed() const;
-  bool baseline_compilation_finished() const;
 
   void set_compilation_id(int compilation_id);
 
@@ -189,7 +173,6 @@ class V8_EXPORT_PRIVATE CompilationState {
 };
 
 }  // namespace wasm
-}  // namespace internal
-}  // namespace v8
+}  // namespace v8::internal
 
 #endif  // V8_WASM_COMPILATION_ENVIRONMENT_H_

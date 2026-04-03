@@ -44,7 +44,8 @@ class RootVisitor;
 
 // Adapts one INTERNALIZED_STRING_LIST_GENERATOR entry to
 // the ROOT_LIST-compatible entry
-#define INTERNALIZED_STRING_LIST_ADAPTER(V, name, ...) V(String, name, name)
+#define INTERNALIZED_STRING_LIST_ADAPTER(V, name, ...) \
+  V(InternalizedString, name, name)
 
 // Produces (String, name, CamelCase) entries
 #define EXTRA_IMPORTANT_INTERNALIZED_STRING_ROOT_LIST(V) \
@@ -98,6 +99,7 @@ class RootVisitor;
   V(UninitializedHole, uninitialized_value, UninitializedValue)                \
   /* Maps */                                                                   \
   V(Map, meta_map, MetaMap)                                                    \
+  V(Map, weak_homomorphic_fixed_array_map, WeakHomomorphicFixedArrayMap)       \
   V(Map, free_space_map, FreeSpaceMap)                                         \
   V(Map, one_pointer_filler_map, OnePointerFillerMap)                          \
   V(Map, two_pointer_filler_map, TwoPointerFillerMap)                          \
@@ -159,6 +161,7 @@ class RootVisitor;
   IF_WASM(V, Map, wasm_resume_data_map, WasmResumeDataMap)                     \
   IF_WASM(V, Map, wasm_suspender_object_map, WasmSuspenderObjectMap)           \
   IF_WASM(V, Map, wasm_continuation_object_map, WasmContinuationObjectMap)     \
+  IF_WASM(V, Map, wasm_stack_object_map, WasmStackObjectMap)                   \
   IF_WASM(V, Map, wasm_trusted_instance_data_map, WasmTrustedInstanceDataMap)  \
   IF_WASM(V, Map, wasm_type_info_map, WasmTypeInfoMap)                         \
   V(Map, weak_array_list_map, WeakArrayListMap)                                \
@@ -239,7 +242,9 @@ class RootVisitor;
     EmptyOrderedPropertyDictionary)                                            \
   V(SwissNameDictionary, empty_swiss_property_dictionary,                      \
     EmptySwissPropertyDictionary)                                              \
-  V(InterceptorInfo, noop_interceptor_info, NoOpInterceptorInfo)               \
+  V(InterceptorInfo, noop_named_interceptor_info, NoOpNamedInterceptorInfo)    \
+  V(InterceptorInfo, noop_indexed_interceptor_info,                            \
+    NoOpIndexedInterceptorInfo)                                                \
   V(ArrayList, empty_array_list, EmptyArrayList)                               \
   V(WeakFixedArray, empty_weak_fixed_array, EmptyWeakFixedArray)               \
   STRONG_READ_ONLY_HEAP_NUMBER_ROOT_LIST(V)                                    \
@@ -259,7 +264,6 @@ class RootVisitor;
   V(ByteArray, hash_seed, HashSeed)                                            \
   V(FixedArray, preallocated_number_string_table,                              \
     PreallocatedNumberStringTable)                                             \
-  IF_WASM(V, HeapObject, wasm_null_padding, WasmNullPadding)                   \
   IF_WASM(V, WasmNull, wasm_null, WasmNull)
 
 // TODO(saelo): ideally, these would be read-only roots (and then become part
@@ -355,6 +359,7 @@ class RootVisitor;
   V(PropertyCell, array_iterator_protector, ArrayIteratorProtector)            \
   V(PropertyCell, array_buffer_detaching_protector,                            \
     ArrayBufferDetachingProtector)                                             \
+  V(PropertyCell, array_buffer_mutable_protector, ArrayBufferMutableProtector) \
   V(PropertyCell, promise_hook_protector, PromiseHookProtector)                \
   V(PropertyCell, promise_resolve_protector, PromiseResolveProtector)          \
   V(PropertyCell, map_iterator_protector, MapIteratorProtector)                \
@@ -376,12 +381,6 @@ class RootVisitor;
     SourceTextModuleExecuteAsyncModuleFulfilledSFI)                            \
   V(SharedFunctionInfo, source_text_module_execute_async_module_rejected_sfi,  \
     SourceTextModuleExecuteAsyncModuleRejectedSFI)                             \
-  V(SharedFunctionInfo, atomics_mutex_async_unlock_resolve_handler_sfi,        \
-    AtomicsMutexAsyncUnlockResolveHandlerSFI)                                  \
-  V(SharedFunctionInfo, atomics_mutex_async_unlock_reject_handler_sfi,         \
-    AtomicsMutexAsyncUnlockRejectHandlerSFI)                                   \
-  V(SharedFunctionInfo, atomics_condition_acquire_lock_sfi,                    \
-    AtomicsConditionAcquireLockSFI)                                            \
   V(SharedFunctionInfo, async_disposable_stack_on_fulfilled_shared_fun,        \
     AsyncDisposableStackOnFulfilledSharedFun)                                  \
   V(SharedFunctionInfo, async_disposable_stack_on_rejected_shared_fun,         \
@@ -396,6 +395,9 @@ class RootVisitor;
   /* Caches */                                                              \
   V(SmiStringCache, smi_string_cache, SmiStringCache)                       \
   V(DoubleStringCache, double_string_cache, DoubleStringCache)              \
+  /* undefined or BigInt. Caching divisors used for modulo divisions. */    \
+  V(Object, cached_bigint_divisor, CachedBigIntDivisor)                     \
+  V(Object, next_cached_bigint_divisor, NextCachedBigIntDivisor)            \
   /* Lists and dictionaries */                                              \
   V(RegisteredSymbolTable, public_symbol_table, PublicSymbolTable)          \
   V(RegisteredSymbolTable, api_symbol_table, ApiSymbolTable)                \
@@ -729,8 +731,13 @@ class RootsTable {
   friend class RootsSerializer;
 };
 
-inline ReadOnlyRoots GetReadOnlyRoots();
+#ifdef V8_STATIC_ROOTS
+#define V8_RO_CONST V8_CONST
+#else
+#define V8_RO_CONST
+#endif
 
+V8_RO_CONST inline ReadOnlyRoots GetReadOnlyRoots();
 class ReadOnlyRoots {
  public:
   static constexpr size_t kEntriesCount =
@@ -744,9 +751,9 @@ class ReadOnlyRoots {
   // map-word instead of a tagged heap pointer.
   MapWord one_pointer_filler_map_word();
 
-#define ROOT_ACCESSOR(Type, name, CamelName) \
-  V8_INLINE Tagged<Type> name() const;       \
-  V8_INLINE Tagged<Type> unchecked_##name() const;
+#define ROOT_ACCESSOR(Type, name, CamelName)       \
+  V8_RO_CONST V8_INLINE Tagged<Type> name() const; \
+  V8_RO_CONST V8_INLINE Tagged<Type> unchecked_##name() const;
 
   READ_ONLY_ROOT_LIST(ROOT_ACCESSOR)
 #undef ROOT_ACCESSOR
@@ -758,12 +765,12 @@ class ReadOnlyRoots {
   void VerifyTypes();
 #endif
 
-  V8_INLINE Tagged<Boolean> boolean_value(bool value) const;
+  V8_RO_CONST V8_INLINE Tagged<Boolean> boolean_value(bool value) const;
 
-  V8_INLINE Tagged<String> single_character_string(int code) const;
+  V8_RO_CONST V8_INLINE Tagged<String> single_character_string(int code) const;
 
-  V8_INLINE Address address_at(RootIndex root_index) const;
-  V8_INLINE Tagged<Object> object_at(RootIndex root_index) const;
+  V8_RO_CONST V8_INLINE Address address_at(RootIndex root_index) const;
+  V8_RO_CONST V8_INLINE Tagged<Object> object_at(RootIndex root_index) const;
 
   // Check if a slot is initialized yet. Should only be necessary for code
   // running during snapshot creation.
@@ -791,6 +798,13 @@ class ReadOnlyRoots {
   friend class DeserializerAllocator;
   friend class ReadOnlyHeapImageDeserializer;
   friend ReadOnlyRoots GetReadOnlyRoots();
+};
+
+// Subclass for RORoots loaded specifically early in the snapshot
+// deserializtion.
+class EarlyReadOnlyRoots : public ReadOnlyRoots {
+ public:
+  explicit EarlyReadOnlyRoots(ReadOnlyRoots roots) : ReadOnlyRoots(roots) {}
 };
 
 }  // namespace internal

@@ -529,25 +529,20 @@ TNode<String> StringBuiltinsAssembler::StringAdd(
     Comment("Full string concatenate");
     TNode<Int32T> left_instance_type = LoadInstanceType(var_left.value());
     TNode<Int32T> right_instance_type = LoadInstanceType(var_right.value());
-    // Compute intersection and difference of instance types.
 
-    TNode<Int32T> ored_instance_types =
-        Word32Or(left_instance_type, right_instance_type);
-    TNode<Word32T> xored_instance_types =
-        Word32Xor(left_instance_type, right_instance_type);
-
-    // Check if both strings have the same encoding and both are sequential.
-    GotoIf(IsSetWord32(xored_instance_types, kStringEncodingMask), &runtime,
-           GotoHint::kFallthrough);
-    GotoIf(IsSetWord32(ored_instance_types, kStringRepresentationMask), &slow);
+    // Check if both strings are sequential.
+    static_assert(kSeqStringTag == 0);
+    GotoIf(IsSetWord32(Word32Or(left_instance_type, right_instance_type),
+                       kStringRepresentationMask),
+           &slow);
 
     TNode<IntPtrT> word_left_length = Signed(ChangeUint32ToWord(left_length));
     TNode<IntPtrT> word_right_length = Signed(ChangeUint32ToWord(right_length));
 
     Label two_byte(this);
-    GotoIf(Word32Equal(Word32And(ored_instance_types,
-                                 Int32Constant(kStringEncodingMask)),
-                       Int32Constant(kTwoByteStringTag)),
+    static_assert(kTwoByteStringTag == 0);
+    GotoIf(IsNotSetWord32(Word32And(left_instance_type, right_instance_type),
+                          kStringEncodingMask),
            &two_byte);
     // One-byte sequential string case
     result = AllocateNonEmptySeqOneByteString(new_length);
@@ -563,10 +558,31 @@ TNode<String> StringBuiltinsAssembler::StringAdd(
     {
       // Two-byte sequential string case
       result = AllocateNonEmptySeqTwoByteString(new_length);
+      Label left_two_byte(this);
+      Label right_two_byte(this);
+      GotoIf(IsNotSetWord32(left_instance_type, kStringEncodingMask),
+             &left_two_byte);
+      // Left is one-byte (right must be two-byte).
+      CopyStringCharacters(var_left.value(), result.value(), IntPtrConstant(0),
+                           IntPtrConstant(0), word_left_length,
+                           String::ONE_BYTE_ENCODING,
+                           String::TWO_BYTE_ENCODING);
+      Goto(&right_two_byte);
+      BIND(&left_two_byte);
+      // Left is two-byte, right is unknown.
       CopyStringCharacters(var_left.value(), result.value(), IntPtrConstant(0),
                            IntPtrConstant(0), word_left_length,
                            String::TWO_BYTE_ENCODING,
                            String::TWO_BYTE_ENCODING);
+      GotoIf(IsNotSetWord32(right_instance_type, kStringEncodingMask),
+             &right_two_byte);
+      // Left was two-byte, right is one-byte.
+      CopyStringCharacters(var_right.value(), result.value(), IntPtrConstant(0),
+                           word_left_length, word_right_length,
+                           String::ONE_BYTE_ENCODING,
+                           String::TWO_BYTE_ENCODING);
+      Goto(&done);
+      BIND(&right_two_byte);
       CopyStringCharacters(var_right.value(), result.value(), IntPtrConstant(0),
                            word_left_length, word_right_length,
                            String::TWO_BYTE_ENCODING,
@@ -1020,7 +1036,7 @@ TF_BUILTIN(StringFromCodePointAt, StringBuiltinsAssembler) {
 // -----------------------------------------------------------------------------
 // ES6 section 21.1 String Objects
 
-// ES6 #sec-string.fromcharcode
+// https://tc39.es/ecma262/#sec-string.fromcharcode
 // NOTE: This needs to be kept in sync with the Turboshaft implementation in
 // `builtins-string-tsa.cc`.
 TF_BUILTIN(StringFromCharCode, StringBuiltinsAssembler) {
@@ -1236,7 +1252,7 @@ TNode<String> StringBuiltinsAssembler::GetSubstitution(
   return var_result.value();
 }
 
-// ES6 #sec-string.prototype.replace
+// https://tc39.es/ecma262/#sec-string.prototype.replace
 TF_BUILTIN(StringPrototypeReplace, StringBuiltinsAssembler) {
   Label out(this);
 
@@ -1401,7 +1417,7 @@ TF_BUILTIN(StringPrototypeReplace, StringBuiltinsAssembler) {
   }
 }
 
-// ES #sec-string.prototype.matchAll
+// https://tc39.es/ecma262/#sec-string.prototype.matchAll
 TF_BUILTIN(StringPrototypeMatchAll, StringBuiltinsAssembler) {
   char const* method_name = "String.prototype.matchAll";
 
@@ -1587,7 +1603,7 @@ TNode<JSArray> StringBuiltinsAssembler::StringToArray(
   return result_array.value();
 }
 
-// ES6 section 21.1.3.19 String.prototype.split ( separator, limit )
+// https://tc39.es/ecma262/#sec-string.prototype.split
 TF_BUILTIN(StringPrototypeSplit, StringBuiltinsAssembler) {
   const int kSeparatorArg = 0;
   const int kLimitArg = 1;
@@ -1636,32 +1652,14 @@ TF_BUILTIN(StringPrototypeSplit, StringBuiltinsAssembler) {
       [=, this] { return ToUint32(context, limit); });
   const TNode<String> separator_string = ToString_Inline(context, separator);
 
-  Label return_empty_array(this);
+  Label return_empty_array(this), return_subject_as_array(this);
 
   // Shortcut for {limit} == 0.
   GotoIf(TaggedEqual(limit_number, smi_zero), &return_empty_array);
 
   // ECMA-262 says that if {separator} is undefined, the result should
   // be an array of size 1 containing the entire string.
-  {
-    Label next(this);
-    GotoIfNot(IsUndefined(separator), &next);
-
-    const ElementsKind kind = PACKED_ELEMENTS;
-    const TNode<NativeContext> native_context = LoadNativeContext(context);
-    TNode<Map> array_map = LoadJSArrayElementsMap(kind, native_context);
-
-    TNode<Smi> length = SmiConstant(1);
-    TNode<IntPtrT> capacity = IntPtrConstant(1);
-    TNode<JSArray> result = AllocateJSArray(kind, array_map, capacity, length);
-
-    TNode<FixedArray> fixed_array = CAST(LoadElements(result));
-    StoreFixedArrayElement(fixed_array, 0, subject_string);
-
-    args.PopAndReturn(result);
-
-    BIND(&next);
-  }
+  GotoIf(IsUndefined(separator), &return_subject_as_array);
 
   // If the separator string is empty then return the elements in the subject.
   {
@@ -1678,10 +1676,23 @@ TF_BUILTIN(StringPrototypeSplit, StringBuiltinsAssembler) {
     BIND(&next);
   }
 
-  const TNode<JSAny> result =
-      CallRuntime<JSAny>(Runtime::kStringSplit, context, subject_string,
-                         separator_string, limit_number);
-  args.PopAndReturn(result);
+  // Fast path for a separator that does not occur in the subject string.
+  {
+    Label next(this);
+    const TNode<Smi> index =
+        CAST(CallBuiltin(Builtin::kStringIndexOf, context, subject_string,
+                         separator_string, smi_zero));
+    Branch(SmiEqual(index, SmiConstant(-1)), &return_subject_as_array, &next);
+
+    BIND(&next);
+  }
+
+  {
+    const TNode<JSAny> result =
+        CallRuntime<JSAny>(Runtime::kStringSplit, context, subject_string,
+                           separator_string, limit_number);
+    args.PopAndReturn(result);
+  }
 
   BIND(&return_empty_array);
   {
@@ -1691,10 +1702,25 @@ TF_BUILTIN(StringPrototypeSplit, StringBuiltinsAssembler) {
 
     TNode<Smi> length = smi_zero;
     TNode<IntPtrT> capacity = IntPtrConstant(0);
-    TNode<JSArray> result_array =
-        AllocateJSArray(kind, array_map, capacity, length);
+    TNode<JSArray> result = AllocateJSArray(kind, array_map, capacity, length);
 
-    args.PopAndReturn(result_array);
+    args.PopAndReturn(result);
+  }
+
+  BIND(&return_subject_as_array);
+  {
+    const ElementsKind kind = PACKED_ELEMENTS;
+    const TNode<NativeContext> native_context = LoadNativeContext(context);
+    TNode<Map> array_map = LoadJSArrayElementsMap(kind, native_context);
+
+    TNode<Smi> length = SmiConstant(1);
+    TNode<IntPtrT> capacity = IntPtrConstant(1);
+    TNode<JSArray> result = AllocateJSArray(kind, array_map, capacity, length);
+
+    TNode<FixedArray> fixed_array = CAST(LoadElements(result));
+    StoreFixedArrayElement(fixed_array, 0, subject_string);
+
+    args.PopAndReturn(result);
   }
 }
 
@@ -1857,6 +1883,7 @@ template V8_EXPORT_PRIVATE void StringBuiltinsAssembler::CopyStringCharacters(
     TNode<IntPtrT> character_count, String::Encoding from_encoding,
     String::Encoding to_encoding);
 
+// LINT.IfChange
 template <typename T>
 void StringBuiltinsAssembler::CopyStringCharacters(
     TNode<T> from_string, TNode<String> to_string, TNode<IntPtrT> from_index,
@@ -1920,6 +1947,7 @@ void StringBuiltinsAssembler::CopyStringCharacters(
       },
       from_increment, LoopUnrollingMode::kYes, IndexAdvanceMode::kPost);
 }
+// LINT.ThenChange(/src/builtins/builtins-string-tsa-inl.h)
 
 // A wrapper around CopyStringCharacters which determines the correct string
 // encoding, allocates a corresponding sequential string, and then copies the

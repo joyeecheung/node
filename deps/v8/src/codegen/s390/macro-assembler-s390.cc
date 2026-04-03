@@ -20,7 +20,7 @@
 #include "src/debug/debug.h"
 #include "src/deoptimizer/deoptimizer.h"
 #include "src/execution/frames-inl.h"
-#include "src/heap/mutable-page-metadata.h"
+#include "src/heap/mutable-page.h"
 #include "src/init/bootstrapper.h"
 #include "src/logging/counters.h"
 #include "src/objects/smi.h"
@@ -56,195 +56,29 @@ constexpr int kStackSavedSavedFPSizeInBytes =
 void MacroAssembler::DoubleMax(DoubleRegister result_reg,
                                DoubleRegister left_reg,
                                DoubleRegister right_reg) {
-  if (CpuFeatures::IsSupported(VECTOR_ENHANCE_FACILITY_1)) {
     vfmax(result_reg, left_reg, right_reg, Condition(1), Condition(8),
           Condition(3));
-    return;
-  }
-
-  Label check_zero, return_left, return_right, return_nan, done;
-  cdbr(left_reg, right_reg);
-  bunordered(&return_nan, Label::kNear);
-  beq(&check_zero);
-  bge(&return_left, Label::kNear);
-  b(&return_right, Label::kNear);
-
-  bind(&check_zero);
-  lzdr(kDoubleRegZero);
-  cdbr(left_reg, kDoubleRegZero);
-  /* left == right != 0. */
-  bne(&return_left, Label::kNear);
-  /* At this point, both left and right are either 0 or -0. */
-  /* N.B. The following works because +0 + -0 == +0 */
-  /* For max we want logical-and of sign bit: (L + R) */
-  ldr(result_reg, left_reg);
-  adbr(result_reg, right_reg);
-  b(&done, Label::kNear);
-
-  bind(&return_nan);
-  /* If left or right are NaN, adbr propagates the appropriate one.*/
-  adbr(left_reg, right_reg);
-  b(&return_left, Label::kNear);
-
-  bind(&return_right);
-  if (right_reg != result_reg) {
-    ldr(result_reg, right_reg);
-  }
-  b(&done, Label::kNear);
-
-  bind(&return_left);
-  if (left_reg != result_reg) {
-    ldr(result_reg, left_reg);
-  }
-  bind(&done);
 }
 
 void MacroAssembler::DoubleMin(DoubleRegister result_reg,
                                DoubleRegister left_reg,
                                DoubleRegister right_reg) {
-  if (CpuFeatures::IsSupported(VECTOR_ENHANCE_FACILITY_1)) {
     vfmin(result_reg, left_reg, right_reg, Condition(1), Condition(8),
           Condition(3));
-    return;
-  }
-  Label check_zero, return_left, return_right, return_nan, done;
-  cdbr(left_reg, right_reg);
-  bunordered(&return_nan, Label::kNear);
-  beq(&check_zero);
-  ble(&return_left, Label::kNear);
-  b(&return_right, Label::kNear);
-
-  bind(&check_zero);
-  lzdr(kDoubleRegZero);
-  cdbr(left_reg, kDoubleRegZero);
-  /* left == right != 0. */
-  bne(&return_left, Label::kNear);
-  /* At this point, both left and right are either 0 or -0. */
-  /* N.B. The following works because +0 + -0 == +0 */
-  /* For min we want logical-or of sign bit: -(-L + -R) */
-  lcdbr(left_reg, left_reg);
-  ldr(result_reg, left_reg);
-  if (left_reg == right_reg) {
-    adbr(result_reg, right_reg);
-  } else {
-    sdbr(result_reg, right_reg);
-  }
-  lcdbr(result_reg, result_reg);
-  b(&done, Label::kNear);
-
-  bind(&return_nan);
-  /* If left or right are NaN, adbr propagates the appropriate one.*/
-  adbr(left_reg, right_reg);
-  b(&return_left, Label::kNear);
-
-  bind(&return_right);
-  if (right_reg != result_reg) {
-    ldr(result_reg, right_reg);
-  }
-  b(&done, Label::kNear);
-
-  bind(&return_left);
-  if (left_reg != result_reg) {
-    ldr(result_reg, left_reg);
-  }
-  bind(&done);
 }
 
 void MacroAssembler::FloatMax(DoubleRegister result_reg,
                               DoubleRegister left_reg,
                               DoubleRegister right_reg) {
-  if (CpuFeatures::IsSupported(VECTOR_ENHANCE_FACILITY_1)) {
     vfmax(result_reg, left_reg, right_reg, Condition(1), Condition(8),
           Condition(2));
-    return;
-  }
-  Label check_zero, return_left, return_right, return_nan, done;
-  cebr(left_reg, right_reg);
-  bunordered(&return_nan, Label::kNear);
-  beq(&check_zero);
-  bge(&return_left, Label::kNear);
-  b(&return_right, Label::kNear);
-
-  bind(&check_zero);
-  lzdr(kDoubleRegZero);
-  cebr(left_reg, kDoubleRegZero);
-  /* left == right != 0. */
-  bne(&return_left, Label::kNear);
-  /* At this point, both left and right are either 0 or -0. */
-  /* N.B. The following works because +0 + -0 == +0 */
-  /* For max we want logical-and of sign bit: (L + R) */
-  ldr(result_reg, left_reg);
-  aebr(result_reg, right_reg);
-  b(&done, Label::kNear);
-
-  bind(&return_nan);
-  /* If left or right are NaN, aebr propagates the appropriate one.*/
-  aebr(left_reg, right_reg);
-  b(&return_left, Label::kNear);
-
-  bind(&return_right);
-  if (right_reg != result_reg) {
-    ldr(result_reg, right_reg);
-  }
-  b(&done, Label::kNear);
-
-  bind(&return_left);
-  if (left_reg != result_reg) {
-    ldr(result_reg, left_reg);
-  }
-  bind(&done);
 }
 
 void MacroAssembler::FloatMin(DoubleRegister result_reg,
                               DoubleRegister left_reg,
                               DoubleRegister right_reg) {
-  if (CpuFeatures::IsSupported(VECTOR_ENHANCE_FACILITY_1)) {
     vfmin(result_reg, left_reg, right_reg, Condition(1), Condition(8),
           Condition(2));
-    return;
-  }
-
-  Label check_zero, return_left, return_right, return_nan, done;
-  cebr(left_reg, right_reg);
-  bunordered(&return_nan, Label::kNear);
-  beq(&check_zero);
-  ble(&return_left, Label::kNear);
-  b(&return_right, Label::kNear);
-
-  bind(&check_zero);
-  lzdr(kDoubleRegZero);
-  cebr(left_reg, kDoubleRegZero);
-  /* left == right != 0. */
-  bne(&return_left, Label::kNear);
-  /* At this point, both left and right are either 0 or -0. */
-  /* N.B. The following works because +0 + -0 == +0 */
-  /* For min we want logical-or of sign bit: -(-L + -R) */
-  lcebr(left_reg, left_reg);
-  ldr(result_reg, left_reg);
-  if (left_reg == right_reg) {
-    aebr(result_reg, right_reg);
-  } else {
-    sebr(result_reg, right_reg);
-  }
-  lcebr(result_reg, result_reg);
-  b(&done, Label::kNear);
-
-  bind(&return_nan);
-  /* If left or right are NaN, aebr propagates the appropriate one.*/
-  aebr(left_reg, right_reg);
-  b(&return_left, Label::kNear);
-
-  bind(&return_right);
-  if (right_reg != result_reg) {
-    ldr(result_reg, right_reg);
-  }
-  b(&done, Label::kNear);
-
-  bind(&return_left);
-  if (left_reg != result_reg) {
-    ldr(result_reg, left_reg);
-  }
-  bind(&done);
 }
 
 void MacroAssembler::CeilF32(DoubleRegister dst, DoubleRegister src) {
@@ -828,9 +662,9 @@ void MacroAssembler::MultiPopV128(DoubleRegList dregs, Register scratch,
 void MacroAssembler::MultiPushF64OrV128(DoubleRegList dregs, Register scratch,
                                         Register location) {
 #if V8_ENABLE_WEBASSEMBLY
-  bool generating_bultins =
+  bool generating_builtins =
       isolate() && isolate()->IsGeneratingEmbeddedBuiltins();
-  if (generating_bultins) {
+  if (generating_builtins) {
     Label push_doubles, simd_pushed;
     Move(r1, ExternalReference::supports_wasm_simd_128_address());
     LoadU8(r1, MemOperand(r1));
@@ -862,9 +696,9 @@ void MacroAssembler::MultiPushF64OrV128(DoubleRegList dregs, Register scratch,
 void MacroAssembler::MultiPopF64OrV128(DoubleRegList dregs, Register scratch,
                                        Register location) {
 #if V8_ENABLE_WEBASSEMBLY
-  bool generating_bultins =
+  bool generating_builtins =
       isolate() && isolate()->IsGeneratingEmbeddedBuiltins();
-  if (generating_bultins) {
+  if (generating_builtins) {
     Label pop_doubles, simd_popped;
     Move(r1, ExternalReference::supports_wasm_simd_128_address());
     LoadU8(r1, MemOperand(r1));
@@ -1290,14 +1124,7 @@ void MacroAssembler::ConvertIntToDouble(DoubleRegister dst, Register src) {
 
 void MacroAssembler::ConvertUnsignedIntToDouble(DoubleRegister dst,
                                                 Register src) {
-  if (CpuFeatures::IsSupported(FLOATING_POINT_EXT)) {
     cdlfbr(Condition(5), Condition(0), dst, src);
-  } else {
-    // zero-extend src
-    llgfr(src, src);
-    // convert to double
-    cdgbr(dst, src);
-  }
 }
 
 void MacroAssembler::ConvertIntToFloat(DoubleRegister dst, Register src) {
@@ -1610,15 +1437,13 @@ void MacroAssembler::EnterExitFrame(Register scratch, int stack_space,
                                     StackFrame::Type frame_type) {
   DCHECK(frame_type == StackFrame::EXIT ||
          frame_type == StackFrame::BUILTIN_EXIT ||
-         frame_type == StackFrame::API_ACCESSOR_EXIT ||
+         frame_type == StackFrame::API_NAMED_ACCESSOR_EXIT ||
          frame_type == StackFrame::API_CALLBACK_EXIT);
 
   // Set up the frame structure on the stack.
   DCHECK_EQ(2 * kSystemPointerSize, ExitFrameConstants::kCallerSPDisplacement);
   DCHECK_EQ(1 * kSystemPointerSize, ExitFrameConstants::kCallerPCOffset);
   DCHECK_EQ(0 * kSystemPointerSize, ExitFrameConstants::kCallerFPOffset);
-
-  using ER = ExternalReference;
 
   // This is an opportunity to build a frame to wrap
   // all of the pushes that have happened inside of V8
@@ -1634,12 +1459,8 @@ void MacroAssembler::EnterExitFrame(Register scratch, int stack_space,
   }
 
   // Save the frame pointer and the context in top.
-  ER c_entry_fp_address =
-      ER::Create(IsolateAddressId::kCEntryFPAddress, isolate());
-  StoreU64(fp, ExternalReferenceAsOperand(c_entry_fp_address, no_reg));
-
-  ER context_address = ER::Create(IsolateAddressId::kContextAddress, isolate());
-  StoreU64(cp, ExternalReferenceAsOperand(context_address, no_reg));
+  StoreU64(fp, AsMemOperand(IsolateFieldId::kCEntryFP));
+  StoreU64(cp, AsMemOperand(IsolateFieldId::kContext));
 
   lay(sp, MemOperand(sp, -(stack_space + 1) * kSystemPointerSize));
 
@@ -1676,22 +1497,17 @@ int MacroAssembler::ActivationFrameAlignment() {
 }
 
 void MacroAssembler::LeaveExitFrame(Register scratch) {
-  using ER = ExternalReference;
-
   // Restore current context from top and clear it in debug mode.
-  ER context_address = ER::Create(IsolateAddressId::kContextAddress, isolate());
-  LoadU64(cp, ExternalReferenceAsOperand(context_address, no_reg));
+  LoadU64(cp, AsMemOperand(IsolateFieldId::kContext));
 
 #ifdef DEBUG
   mov(scratch, Operand(Context::kNoContext));
-  StoreU64(scratch, ExternalReferenceAsOperand(context_address, no_reg));
+  StoreU64(scratch, AsMemOperand(IsolateFieldId::kContext));
 #endif
 
   // Clear the top frame.
-  ER c_entry_fp_address =
-      ER::Create(IsolateAddressId::kCEntryFPAddress, isolate());
   mov(scratch, Operand::Zero());
-  StoreU64(scratch, ExternalReferenceAsOperand(c_entry_fp_address, no_reg));
+  StoreU64(scratch, AsMemOperand(IsolateFieldId::kCEntryFP));
 
   // Tear down the exit frame, pop the arguments, and return.
   LeaveFrame(StackFrame::EXIT);
@@ -1922,10 +1738,6 @@ void MacroAssembler::PushStackHandler() {
   static_assert(StackHandlerConstants::kSize == 2 * kSystemPointerSize);
   static_assert(StackHandlerConstants::kNextOffset == 0 * kSystemPointerSize);
 
-  // Link the current handler as the next handler.
-  Move(r7,
-       ExternalReference::Create(IsolateAddressId::kHandlerAddress, isolate()));
-
   // Buy the full stack frame for 5 slots.
   lay(sp, MemOperand(sp, -StackHandlerConstants::kSize));
 
@@ -1934,10 +1746,10 @@ void MacroAssembler::PushStackHandler() {
   StoreU64(r0, MemOperand(sp));  // Padding.
 
   // Copy the old handler into the next handler slot.
-  MoveChar(MemOperand(sp, StackHandlerConstants::kNextOffset), MemOperand(r7),
-           Operand(kSystemPointerSize));
+  MoveChar(MemOperand(sp, StackHandlerConstants::kNextOffset),
+           AsMemOperand(IsolateFieldId::kHandler), Operand(kSystemPointerSize));
   // Set this new handler as the current one.
-  StoreU64(sp, MemOperand(r7));
+  StoreU64(sp, AsMemOperand(IsolateFieldId::kHandler));
 }
 
 void MacroAssembler::PopStackHandler() {
@@ -1946,9 +1758,7 @@ void MacroAssembler::PopStackHandler() {
 
   // Pop the Next Handler into r3 and store it into Handler Address reference.
   Pop(r3);
-  Move(ip,
-       ExternalReference::Create(IsolateAddressId::kHandlerAddress, isolate()));
-  StoreU64(r3, MemOperand(ip));
+  StoreU64(r3, AsMemOperand(IsolateFieldId::kHandler));
 
   Drop(1);  // Drop padding.
 }
@@ -2063,59 +1873,6 @@ void MacroAssembler::TryInlineTruncateDoubleToI(Register result,
   beq(done);
 }
 
-namespace {
-
-#ifndef V8_ENABLE_LEAPTIERING
-
-void TailCallOptimizedCodeSlot(MacroAssembler* masm,
-                               Register optimized_code_entry,
-                               Register scratch) {
-  // ----------- S t a t e -------------
-  //  -- r2 : actual argument count
-  //  -- r5 : new target (preserved for callee if needed, and caller)
-  //  -- r3 : target function (preserved for callee if needed, and caller)
-  // -----------------------------------
-  DCHECK(!AreAliased(r3, r5, optimized_code_entry, scratch));
-
-  Register closure = r3;
-  Label heal_optimized_code_slot;
-
-  // If the optimized code is cleared, go to runtime to update the optimization
-  // marker field.
-  __ LoadWeakValue(optimized_code_entry, optimized_code_entry,
-                   &heal_optimized_code_slot);
-
-  // The entry references a CodeWrapper object. Unwrap it now.
-  __ LoadTaggedField(
-      optimized_code_entry,
-      FieldMemOperand(optimized_code_entry, CodeWrapper::kCodeOffset));
-
-  // Check if the optimized code is marked for deopt. If it is, call the
-  // runtime to clear it.
-  {
-    __ TestCodeIsMarkedForDeoptimization(optimized_code_entry, scratch);
-    __ bne(&heal_optimized_code_slot);
-  }
-
-  // Optimized code is good, get it into the closure and link the closure
-  // into the optimized functions list, then tail call the optimized code.
-  __ ReplaceClosureCodeWithOptimizedCode(optimized_code_entry, closure, scratch,
-                                         r7);
-  static_assert(kJavaScriptCallCodeStartRegister == r4, "ABI mismatch");
-  __ LoadCodeInstructionStart(r4, optimized_code_entry);
-  __ Jump(r4);
-
-  // Optimized code slot contains deoptimized code or code is cleared and
-  // optimized code marker isn't updated. Evict the code, update the marker
-  // and re-enter the closure's code.
-  __ bind(&heal_optimized_code_slot);
-  __ GenerateTailCallToReturnedCode(Runtime::kHealOptimizedCodeSlot);
-}
-
-#endif  // V8_ENABLE_LEAPTIERING
-
-}  // namespace
-
 #ifdef V8_ENABLE_DEBUG_CODE
 void MacroAssembler::AssertFeedbackCell(Register object, Register scratch) {
   if (v8_flags.debug_code) {
@@ -2156,9 +1913,6 @@ void MacroAssembler::GenerateTailCallToReturnedCode(
          kJavaScriptCallArgCountRegister, kJavaScriptCallTargetRegister);
 
     CallRuntime(function_id, 1);
-#ifndef V8_ENABLE_LEAPTIERING
-    mov(r4, r2);
-#endif
 
     // Restore target function, new target and actual argument count.
     Pop(kJavaScriptCallTargetRegister, kJavaScriptCallNewTargetRegister,
@@ -2166,90 +1920,9 @@ void MacroAssembler::GenerateTailCallToReturnedCode(
     SmiUntag(kJavaScriptCallArgCountRegister);
   }
   static_assert(kJavaScriptCallCodeStartRegister == r4, "ABI mismatch");
-#ifdef V8_ENABLE_LEAPTIERING
   JumpJSFunction(kJavaScriptCallTargetRegister);
-#else
-  JumpCodeObject(r4);
-#endif
 }
 
-#ifndef V8_ENABLE_LEAPTIERING
-
-// Optimized code is good, get it into the closure and link the closure
-// into the optimized functions list, then tail call the optimized code.
-void MacroAssembler::ReplaceClosureCodeWithOptimizedCode(
-    Register optimized_code, Register closure, Register scratch1,
-    Register slot_address) {
-  DCHECK(!AreAliased(optimized_code, closure, scratch1, slot_address));
-  DCHECK_EQ(closure, kJSFunctionRegister);
-  DCHECK(!AreAliased(optimized_code, closure));
-  // Store code entry in the closure.
-  StoreTaggedField(optimized_code,
-                   FieldMemOperand(closure, JSFunction::kCodeOffset), r0);
-  // Write barrier clobbers scratch1 below.
-  Register value = scratch1;
-  mov(value, optimized_code);
-
-  RecordWriteField(closure, JSFunction::kCodeOffset, value, slot_address,
-                   kLRHasNotBeenSaved, SaveFPRegsMode::kIgnore,
-                   SmiCheck::kOmit);
-}
-
-// Read off the flags in the feedback vector and check if there
-// is optimized code or a tiering state that needs to be processed.
-Condition MacroAssembler::LoadFeedbackVectorFlagsAndCheckIfNeedsProcessing(
-    Register flags, Register feedback_vector, CodeKind current_code_kind) {
-  ASM_CODE_COMMENT(this);
-  DCHECK(!AreAliased(flags, feedback_vector));
-  DCHECK(CodeKindCanTierUp(current_code_kind));
-  LoadU16(flags,
-          FieldMemOperand(feedback_vector, FeedbackVector::kFlagsOffset));
-  uint32_t kFlagsMask = FeedbackVector::kFlagsTieringStateIsAnyRequested |
-                        FeedbackVector::kFlagsMaybeHasTurbofanCode |
-                        FeedbackVector::kFlagsLogNextExecution;
-  if (current_code_kind != CodeKind::MAGLEV) {
-    kFlagsMask |= FeedbackVector::kFlagsMaybeHasMaglevCode;
-  }
-  CHECK(is_uint16(kFlagsMask));
-  tmll(flags, Operand(kFlagsMask));
-  return Condition(7);
-}
-
-// Read off the flags in the feedback vector and check if there
-// is optimized code or a tiering state that needs to be processed.
-void MacroAssembler::LoadFeedbackVectorFlagsAndJumpIfNeedsProcessing(
-    Register flags, Register feedback_vector, CodeKind current_code_kind,
-    Label* flags_need_processing) {
-  ASM_CODE_COMMENT(this);
-  b(LoadFeedbackVectorFlagsAndCheckIfNeedsProcessing(flags, feedback_vector,
-                                                     current_code_kind),
-    flags_need_processing);
-}
-
-void MacroAssembler::OptimizeCodeOrTailCallOptimizedCodeSlot(
-    Register flags, Register feedback_vector) {
-  DCHECK(!AreAliased(flags, feedback_vector));
-  Label maybe_has_optimized_code, maybe_needs_logging;
-  // Check if optimized code is available
-  TestBitMask(flags, FeedbackVector::kFlagsTieringStateIsAnyRequested, r0);
-  beq(&maybe_needs_logging);
-
-  GenerateTailCallToReturnedCode(Runtime::kCompileOptimized);
-
-  bind(&maybe_needs_logging);
-  TestBitMask(flags, FeedbackVector::LogNextExecutionBit::kMask, r0);
-  beq(&maybe_has_optimized_code);
-  GenerateTailCallToReturnedCode(Runtime::kFunctionLogNextExecution);
-
-  bind(&maybe_has_optimized_code);
-  Register optimized_code_entry = flags;
-  LoadTaggedField(optimized_code_entry,
-                  FieldMemOperand(feedback_vector,
-                                  FeedbackVector::kMaybeOptimizedCodeOffset));
-  TailCallOptimizedCodeSlot(this, optimized_code_entry, r1);
-}
-
-#endif  // !V8_ENABLE_LEAPTIERING
 
 void MacroAssembler::CallRuntime(const Runtime::Function* f,
                                  int num_arguments) {
@@ -2392,7 +2065,7 @@ void MacroAssembler::LoadFeedbackVector(Register dst, Register closure,
   // Load the feedback vector from the closure.
   LoadTaggedField(dst,
                   FieldMemOperand(closure, JSFunction::kFeedbackCellOffset));
-  LoadTaggedField(dst, FieldMemOperand(dst, FeedbackCell::kValueOffset));
+  LoadTaggedField(dst, FieldMemOperand(dst, offsetof(FeedbackCell, value_)));
 
   // Check if feedback vector is valid.
   IsObjectType(dst, scratch, scratch, FEEDBACK_VECTOR_TYPE);
@@ -2895,8 +2568,12 @@ void MacroAssembler::PreCheckSkippedWriteBarrier(Register object,
     b(to_condition(Condition::kEqual), ok);
   }
 
+#if CONTIGUOUS_COMPRESSED_READ_ONLY_SPACE_BOOL
+  JumpIfUnsignedLessThan(value, kContiguousReadOnlyReservationSize, ok);
+#else   // !CONTIGUOUS_COMPRESSED_READ_ONLY_SPACE_BOOL
   // Write barier can also be removed if value is in read-only space.
   CheckPageFlag(value, scratch, MemoryChunk::kIsInReadOnlyHeapMask, ne, ok);
+#endif  // !CONTIGUOUS_COMPRESSED_READ_ONLY_SPACE_BOOL
 
   Label not_ok;
 
@@ -3237,23 +2914,8 @@ void MacroAssembler::MulS64(Register dst, const MemOperand& opnd) {
 }
 
 void MacroAssembler::MulHighS64(Register dst, Register src1, Register src2) {
-  if (CpuFeatures::IsSupported(MISC_INSTR_EXT2)) {
     mgrk(r0, src1, src2);
     lgr(dst, r0);
-  } else {
-    SaveFPRegsMode fp_mode = SaveFPRegsMode::kSave;
-    PushCallerSaved(fp_mode, ip);
-    Push(src1, src2);
-    Pop(r2, r3);
-    {
-      FrameScope scope(this, StackFrame::INTERNAL);
-      PrepareCallCFunction(2, 0, r0);
-      CallCFunction(ExternalReference::int64_mul_high_function(), 2, 0);
-    }
-    mov(r0, r2);
-    PopCallerSaved(fp_mode, ip);
-    mov(dst, r0);
-  }
 }
 
 void MacroAssembler::MulHighS64(Register dst, Register src1,
@@ -3312,7 +2974,7 @@ void MacroAssembler::AddS32(Register dst, Register src, int32_t opnd) {
 // Add 32-bit (Register dst = Register src + Immediate opnd)
 void MacroAssembler::AddS32(Register dst, Register src, const Operand& opnd) {
   if (dst != src) {
-    if (CpuFeatures::IsSupported(DISTINCT_OPS) && is_int16(opnd.immediate())) {
+    if (is_int16(opnd.immediate())) {
       ahik(dst, src, opnd);
       return;
     }
@@ -3328,7 +2990,7 @@ void MacroAssembler::AddS64(Register dst, Register src, int32_t opnd) {
 // Add Pointer Size (Register dst = Register src + Immediate opnd)
 void MacroAssembler::AddS64(Register dst, Register src, const Operand& opnd) {
   if (dst != src) {
-    if (CpuFeatures::IsSupported(DISTINCT_OPS) && is_int16(opnd.immediate())) {
+    if (is_int16(opnd.immediate())) {
       aghik(dst, src, opnd);
       return;
     }
@@ -3348,12 +3010,8 @@ void MacroAssembler::AddS32(Register dst, Register src1, Register src2) {
   if (dst != src1 && dst != src2) {
     // We prefer to generate AR/AGR, over the non clobbering ARK/AGRK
     // as AR is a smaller instruction
-    if (CpuFeatures::IsSupported(DISTINCT_OPS)) {
       ark(dst, src1, src2);
       return;
-    } else {
-      lr(dst, src1);
-    }
   } else if (dst == src2) {
     src2 = src1;
   }
@@ -3365,12 +3023,8 @@ void MacroAssembler::AddS64(Register dst, Register src1, Register src2) {
   if (dst != src1 && dst != src2) {
     // We prefer to generate AR/AGR, over the non clobbering ARK/AGRK
     // as AR is a smaller instruction
-    if (CpuFeatures::IsSupported(DISTINCT_OPS)) {
       agrk(dst, src1, src2);
       return;
-    } else {
-      mov(dst, src1);
-    }
   } else if (dst == src2) {
     src2 = src1;
   }
@@ -3396,7 +3050,6 @@ void MacroAssembler::AddS64(Register dst, const MemOperand& opnd) {
 void MacroAssembler::AddS32(const MemOperand& opnd, const Operand& imm) {
   DCHECK(is_int8(imm.immediate()));
   DCHECK(is_int20(opnd.offset()));
-  DCHECK(CpuFeatures::IsSupported(GENERAL_INSTR_EXT));
   asi(opnd, imm);
 }
 
@@ -3404,7 +3057,6 @@ void MacroAssembler::AddS32(const MemOperand& opnd, const Operand& imm) {
 void MacroAssembler::AddS64(const MemOperand& opnd, const Operand& imm) {
   DCHECK(is_int8(imm.immediate()));
   DCHECK(is_int20(opnd.offset()));
-  DCHECK(CpuFeatures::IsSupported(GENERAL_INSTR_EXT));
   agsi(opnd, imm);
 }
 
@@ -3440,12 +3092,7 @@ void MacroAssembler::AddU64(Register dst, const Operand& imm) {
 
 void MacroAssembler::AddU64(Register dst, Register src1, Register src2) {
   if (dst != src2 && dst != src1) {
-    if (CpuFeatures::IsSupported(DISTINCT_OPS)) {
       algrk(dst, src1, src2);
-    } else {
-      lgr(dst, src1);
-      algr(dst, src2);
-    }
   } else if (dst != src2) {
     // dst == src1
     DCHECK(dst == src1);
@@ -3529,42 +3176,12 @@ void MacroAssembler::SubS64(Register dst, Register src) { sgr(dst, src); }
 
 // Subtract 32-bit (Register = Register - Register)
 void MacroAssembler::SubS32(Register dst, Register src1, Register src2) {
-  // Use non-clobbering version if possible
-  if (CpuFeatures::IsSupported(DISTINCT_OPS)) {
     srk(dst, src1, src2);
-    return;
-  }
-  if (dst != src1 && dst != src2) lr(dst, src1);
-  // In scenario where we have dst = src - dst, we need to swap and negate
-  if (dst != src1 && dst == src2) {
-    Label done;
-    lcr(dst, dst);  // dst = -dst
-    b(overflow, &done);
-    ar(dst, src1);  // dst = dst + src
-    bind(&done);
-  } else {
-    sr(dst, src2);
-  }
 }
 
 // Subtract Pointer Sized (Register = Register - Register)
 void MacroAssembler::SubS64(Register dst, Register src1, Register src2) {
-  // Use non-clobbering version if possible
-  if (CpuFeatures::IsSupported(DISTINCT_OPS)) {
     sgrk(dst, src1, src2);
-    return;
-  }
-  if (dst != src1 && dst != src2) mov(dst, src1);
-  // In scenario where we have dst = src - dst, we need to swap and negate
-  if (dst != src1 && dst == src2) {
-    Label done;
-    lcgr(dst, dst);  // dst = -dst
-    b(overflow, &done);
-    AddS64(dst, src1);  // dst = dst + src
-    bind(&done);
-  } else {
-    SubS64(dst, src2);
-  }
 }
 
 // Subtract 32-bit (Register-Memory)
@@ -3638,12 +3255,8 @@ void MacroAssembler::And(Register dst, Register src1, Register src2) {
   if (dst != src1 && dst != src2) {
     // We prefer to generate XR/XGR, over the non clobbering XRK/XRK
     // as XR is a smaller instruction
-    if (CpuFeatures::IsSupported(DISTINCT_OPS)) {
       nrk(dst, src1, src2);
       return;
-    } else {
-      lr(dst, src1);
-    }
   } else if (dst == src2) {
     src2 = src1;
   }
@@ -3655,12 +3268,8 @@ void MacroAssembler::AndP(Register dst, Register src1, Register src2) {
   if (dst != src1 && dst != src2) {
     // We prefer to generate XR/XGR, over the non clobbering XRK/XRK
     // as XR is a smaller instruction
-    if (CpuFeatures::IsSupported(DISTINCT_OPS)) {
       ngrk(dst, src1, src2);
       return;
-    } else {
-      mov(dst, src1);
-    }
   } else if (dst == src2) {
     src2 = src1;
   }
@@ -3705,7 +3314,6 @@ void MacroAssembler::And(Register dst, Register src, const Operand& opnd) {
 void MacroAssembler::AndP(Register dst, Register src, const Operand& opnd) {
   // Try to exploit RISBG first
   intptr_t value = opnd.immediate();
-  if (CpuFeatures::IsSupported(GENERAL_INSTR_EXT)) {
     intptr_t shifted_value = value;
     int trailing_zeros = 0;
 
@@ -3735,7 +3343,6 @@ void MacroAssembler::AndP(Register dst, Register src, const Operand& opnd) {
                              Operand::Zero(), true);
       return;
     }
-  }
 
   // If we are &'ing zero, we can just whack the dst register and skip copy
   if (dst != src && (0 != value)) mov(dst, src);
@@ -3753,12 +3360,8 @@ void MacroAssembler::Or(Register dst, Register src1, Register src2) {
   if (dst != src1 && dst != src2) {
     // We prefer to generate XR/XGR, over the non clobbering XRK/XRK
     // as XR is a smaller instruction
-    if (CpuFeatures::IsSupported(DISTINCT_OPS)) {
       ork(dst, src1, src2);
       return;
-    } else {
-      lr(dst, src1);
-    }
   } else if (dst == src2) {
     src2 = src1;
   }
@@ -3770,12 +3373,8 @@ void MacroAssembler::OrP(Register dst, Register src1, Register src2) {
   if (dst != src1 && dst != src2) {
     // We prefer to generate XR/XGR, over the non clobbering XRK/XRK
     // as XR is a smaller instruction
-    if (CpuFeatures::IsSupported(DISTINCT_OPS)) {
       ogrk(dst, src1, src2);
       return;
-    } else {
-      mov(dst, src1);
-    }
   } else if (dst == src2) {
     src2 = src1;
   }
@@ -3833,12 +3432,8 @@ void MacroAssembler::Xor(Register dst, Register src1, Register src2) {
   if (dst != src1 && dst != src2) {
     // We prefer to generate XR/XGR, over the non clobbering XRK/XRK
     // as XR is a smaller instruction
-    if (CpuFeatures::IsSupported(DISTINCT_OPS)) {
       xrk(dst, src1, src2);
       return;
-    } else {
-      lr(dst, src1);
-    }
   } else if (dst == src2) {
     src2 = src1;
   }
@@ -3850,12 +3445,8 @@ void MacroAssembler::XorP(Register dst, Register src1, Register src2) {
   if (dst != src1 && dst != src2) {
     // We prefer to generate XR/XGR, over the non clobbering XRK/XRK
     // as XR is a smaller instruction
-    if (CpuFeatures::IsSupported(DISTINCT_OPS)) {
       xgrk(dst, src1, src2);
       return;
-    } else {
-      mov(dst, src1);
-    }
   } else if (dst == src2) {
     src2 = src1;
   }
@@ -4087,12 +3678,8 @@ void MacroAssembler::CmpSmiLiteral(Register src1, Tagged<Smi> smi,
   // CFI takes 32-bit immediate.
   cfi(src1, Operand(smi));
 #else
-  if (CpuFeatures::IsSupported(DISTINCT_OPS)) {
-    cih(src1, Operand(static_cast<intptr_t>(smi.ptr()) >> 32));
-  } else {
-    LoadSmiLiteral(scratch, smi);
-    cgr(src1, scratch);
-  }
+  LoadSmiLiteral(scratch, smi);
+  cgr(src1, scratch);
 #endif
 }
 
@@ -4130,8 +3717,8 @@ void MacroAssembler::StoreU64(const MemOperand& mem, const Operand& opnd,
   DCHECK_EQ(opnd.rmode(), RelocInfo::NO_INFO);
 
   // Try to use MVGHI/MVHI
-  if (CpuFeatures::IsSupported(GENERAL_INSTR_EXT) && is_uint12(mem.offset()) &&
-      mem.getIndexRegister() == r0 && is_int16(opnd.immediate())) {
+  if (is_uint12(mem.offset()) && mem.getIndexRegister() == r0 &&
+      is_int16(opnd.immediate())) {
     mvghi(mem, opnd);
   } else {
     mov(scratch, opnd);
@@ -4819,12 +4406,8 @@ void MacroAssembler::ShiftLeftU32(Register dst, Register src, Register val,
                                   const Operand& val2) {
   if (dst == src) {
     sll(dst, val, val2);
-  } else if (CpuFeatures::IsSupported(DISTINCT_OPS)) {
-    sllk(dst, src, val, val2);
   } else {
-    DCHECK(dst != val || val == r0);  // The lr/sll path clobbers val.
-    lr(dst, src);
-    sll(dst, val, val2);
+    sllk(dst, src, val, val2);
   }
 }
 
@@ -4851,12 +4434,8 @@ void MacroAssembler::ShiftRightU32(Register dst, Register src, Register val,
                                    const Operand& val2) {
   if (dst == src) {
     srl(dst, val, val2);
-  } else if (CpuFeatures::IsSupported(DISTINCT_OPS)) {
-    srlk(dst, src, val, val2);
   } else {
-    DCHECK(dst != val || val == r0);  // The lr/srl path clobbers val.
-    lr(dst, src);
-    srl(dst, val, val2);
+    srlk(dst, src, val, val2);
   }
 }
 
@@ -4882,12 +4461,8 @@ void MacroAssembler::ShiftRightS32(Register dst, Register src, Register val,
                                    const Operand& val2) {
   if (dst == src) {
     sra(dst, val, val2);
-  } else if (CpuFeatures::IsSupported(DISTINCT_OPS)) {
-    srak(dst, src, val, val2);
   } else {
-    DCHECK(dst != val || val == r0);  // The lr/sra path clobbers val.
-    lr(dst, src);
-    sra(dst, val, val2);
+    srak(dst, src, val, val2);
   }
 }
 
@@ -4908,27 +4483,9 @@ void MacroAssembler::ClearRightImm(Register dst, Register src,
                                    const Operand& val) {
   int numBitsToClear = val.immediate() % (kSystemPointerSize * 8);
 
-  // Try to use RISBG if possible
-  if (CpuFeatures::IsSupported(GENERAL_INSTR_EXT)) {
     int endBit = 63 - numBitsToClear;
     RotateInsertSelectBits(dst, src, Operand::Zero(), Operand(endBit),
                            Operand::Zero(), true);
-    return;
-  }
-
-  uint64_t hexMask = ~((1L << numBitsToClear) - 1);
-
-  // S390 AND instr clobbers source.  Make a copy if necessary
-  if (dst != src) mov(dst, src);
-
-  if (numBitsToClear <= 16) {
-    nill(dst, Operand(static_cast<uint16_t>(hexMask)));
-  } else if (numBitsToClear <= 32) {
-    nilf(dst, Operand(static_cast<uint32_t>(hexMask)));
-  } else if (numBitsToClear <= 64) {
-    nilf(dst, Operand(static_cast<intptr_t>(0)));
-    nihf(dst, Operand(hexMask >> 32));
-  }
 }
 
 void MacroAssembler::Popcnt32(Register dst, Register src) {
@@ -5099,6 +4656,12 @@ void MacroAssembler::JumpIfLessThan(Register x, int32_t y, Label* dest) {
   blt(dest);
 }
 
+void MacroAssembler::JumpIfUnsignedLessThan(Register x, int32_t y,
+                                            Label* dest) {
+  CmpU32(x, Operand(y));
+  blt(dest);
+}
+
 void MacroAssembler::LoadEntryFromBuiltinIndex(Register builtin_index,
                                                Register target) {
   static_assert(kSystemPointerSize == 8);
@@ -5136,7 +4699,6 @@ MemOperand MacroAssembler::EntryFromBuiltinAsOperand(Builtin builtin) {
                     IsolateData::BuiltinEntrySlotOffset(builtin));
 }
 
-#ifdef V8_ENABLE_LEAPTIERING
 
 void MacroAssembler::LoadEntrypointFromJSDispatchTable(Register destination,
                                                        Register dispatch_handle,
@@ -5154,7 +4716,6 @@ void MacroAssembler::LoadEntrypointFromJSDispatchTable(Register destination,
   LoadU64(destination, MemOperand(scratch, JSDispatchEntry::kEntrypointOffset));
 }
 
-#endif  // V8_ENABLE_LEAPTIERING
 
 void MacroAssembler::LoadCodeInstructionStart(Register destination,
                                               Register code_object,
@@ -5180,21 +4741,14 @@ void MacroAssembler::JumpCodeObject(Register code_object, JumpMode jump_mode) {
 void MacroAssembler::CallJSFunction(Register function_object,
                                     uint16_t argument_count, Register scratch) {
   Register code = kJavaScriptCallCodeStartRegister;
-#if V8_ENABLE_LEAPTIERING
   Register dispatch_handle = r0;
   scratch = ip;
   LoadU32(dispatch_handle,
           FieldMemOperand(function_object, JSFunction::kDispatchHandleOffset));
   LoadEntrypointFromJSDispatchTable(code, dispatch_handle, scratch);
   Call(code);
-#else
-  LoadTaggedField(code,
-                  FieldMemOperand(function_object, JSFunction::kCodeOffset));
-  CallCodeObject(code);
-#endif  // V8_ENABLE_LEAPTIERING
 }
 
-#if V8_ENABLE_LEAPTIERING
 void MacroAssembler::CallJSDispatchEntry(JSDispatchHandle dispatch_handle,
                                          uint16_t argument_count) {
   Register code = kJavaScriptCallCodeStartRegister;
@@ -5211,27 +4765,19 @@ void MacroAssembler::CallJSDispatchEntry(JSDispatchHandle dispatch_handle,
   static_assert(!JSDispatchTable::kSupportsCompaction);
   LoadEntrypointFromJSDispatchTable(code, dispatch_handle_reg, scratch);
   CHECK_EQ(argument_count,
-           IsolateGroup::current()->js_dispatch_table()->GetParameterCount(
-               dispatch_handle));
+           isolate()->js_dispatch_table().GetParameterCount(dispatch_handle));
   Call(code);
 }
-#endif
 
 void MacroAssembler::JumpJSFunction(Register function_object,
                                     JumpMode jump_mode) {
   Register code = kJavaScriptCallCodeStartRegister;
-#if V8_ENABLE_LEAPTIERING
   Register dispatch_handle = r0;
   Register scratch = ip;
   LoadU32(dispatch_handle,
           FieldMemOperand(function_object, JSFunction::kDispatchHandleOffset));
   LoadEntrypointFromJSDispatchTable(code, dispatch_handle, scratch);
   Jump(code);
-#else
-  LoadTaggedField(code,
-                  FieldMemOperand(function_object, JSFunction::kCodeOffset));
-  JumpCodeObject(code, jump_mode);
-#endif  // V8_ENABLE_LEAPTIERING
 }
 
 #if V8_OS_ZOS
@@ -5327,30 +4873,12 @@ void MacroAssembler::StoreReturnAddressAndCall(Register target) {
   bind(&return_label);
 }
 
-// Check if the code object is marked for deoptimization. If it is, then it
-// jumps to the CompileLazyDeoptimizedCode builtin. In order to do this we need
-// to:
-//    1. read from memory the word that contains that bit, which can be found in
-//       the flags in the referenced {Code} object;
-//    2. test kMarkedForDeoptimizationBit in those flags; and
-//    3. if it is not zero then it jumps to the builtin.
-//
-// Note: With leaptiering we simply assert the code is not deoptimized.
-void MacroAssembler::BailoutIfDeoptimized(Register scratch) {
+void MacroAssembler::AssertNotDeoptimized(Register scratch) {
   int offset = InstructionStream::kCodeOffset - InstructionStream::kHeaderSize;
-  if (v8_flags.debug_code || !V8_ENABLE_LEAPTIERING_BOOL) {
-    LoadTaggedField(scratch,
-                    MemOperand(kJavaScriptCallCodeStartRegister, offset));
-    TestCodeIsMarkedForDeoptimization(scratch, scratch);
-  }
-#ifdef V8_ENABLE_LEAPTIERING
-  if (v8_flags.debug_code) {
-    Assert(to_condition(kZero), AbortReason::kInvalidDeoptimizedCode);
-  }
-#else
-  Jump(BUILTIN_CODE(isolate(), CompileLazyDeoptimizedCode),
-       RelocInfo::CODE_TARGET, ne);
-#endif
+  LoadTaggedField(scratch,
+                  MemOperand(kJavaScriptCallCodeStartRegister, offset));
+  TestCodeIsMarkedForDeoptimization(scratch, scratch);
+  Assert(to_condition(kZero), AbortReason::kInvalidDeoptimizedCode);
 }
 
 void MacroAssembler::CallForDeoptimization(Builtin target, int, Label* exit,
@@ -6753,7 +6281,7 @@ void MacroAssembler::TryLoadOptimizedOsrCode(Register scratch_and_result,
     // The entry references a CodeWrapper object. Unwrap it now.
     LoadTaggedField(
         scratch_and_result,
-        FieldMemOperand(scratch_and_result, CodeWrapper::kCodeOffset));
+        FieldMemOperand(scratch_and_result, offsetof(CodeWrapper, code_)));
 
     UseScratchRegisterScope temps(this);
     Register temp = temps.Acquire();
@@ -6788,7 +6316,8 @@ void CallApiFunctionAndReturn(MacroAssembler* masm, bool with_profiling,
                               ExternalReference thunk_ref, Register thunk_arg,
                               int slots_to_drop_on_return,
                               MemOperand* argc_operand,
-                              MemOperand return_value_operand) {
+                              MemOperand return_value_operand,
+                              bool handle_interceptor_result) {
   using ER = ExternalReference;
 
   Isolate* isolate = masm->isolate();
@@ -6818,14 +6347,14 @@ void CallApiFunctionAndReturn(MacroAssembler* masm, bool with_profiling,
   Register prev_limit_reg = r7;
   Register prev_level_reg = r8;
 
-  // C arguments (kCArgRegs[0/1]) are expected to be initialized outside, so
+  // C arguments (kCArgRegs[0/1/2]) are expected to be initialized outside, so
   // this function must not corrupt them (return_value overlaps with
   // kCArgRegs[0] but that's ok because we start using it only after the C
   // call).
-  DCHECK(!AreAliased(kCArgRegs[0], kCArgRegs[1],  // C args
+  DCHECK(!AreAliased(kCArgRegs[0], kCArgRegs[1], kCArgRegs[2],  // C args
                      scratch, scratch2, prev_next_address_reg, prev_limit_reg));
   // function_address and thunk_arg might overlap but this function must not
-  // corrupted them until the call is made (i.e. overlap with return_value is
+  // corrupt them until the call is made (i.e. overlap with return_value is
   // fine).
   DCHECK(!AreAliased(function_address,  // incoming parameters
                      scratch, scratch2, prev_next_address_reg, prev_limit_reg));
@@ -6841,7 +6370,8 @@ void CallApiFunctionAndReturn(MacroAssembler* masm, bool with_profiling,
     __ StoreU32(scratch, level_mem_op);
   }
 
-  Label profiler_or_side_effects_check_enabled, done_api_call;
+  Label profiler_or_side_effects_check_enabled, done_api_call,
+      done_reading_result;
   if (with_profiling) {
     __ RecordComment("Check if profiler or side effects check is enabled");
     __ LoadU8(scratch,
@@ -6866,12 +6396,25 @@ void CallApiFunctionAndReturn(MacroAssembler* masm, bool with_profiling,
 #endif
   __ bind(&done_api_call);
 
+  if (handle_interceptor_result) {
+    // Skip reading return value if the callback returned kInterceptedNo,
+    // this would make the builtin return kNotInterceptedSentinel value.
+    // Size is important here, otherwise the C++ function could have returned
+    // one- or two-byte value with junk in the upper part.
+    static_assert(kInterceptedNo == 1 && kInterceptedSize == 4);
+    static_assert(kInterceptedNo == kNotInterceptedSentinel);
+    static_assert(kInterceptedYes == 0);
+    __ tmll(return_value, Operand(1));
+    __ b(to_condition(kNotZero), &done_reading_result);
+  }
+
   Label propagate_exception;
   Label delete_allocated_handles;
   Label leave_exit_frame;
 
   __ RecordComment("Load the value from ReturnValue");
   __ LoadU64(r2, return_value_operand);
+  __ bind(&done_reading_result);
 
   {
     ASM_CODE_COMMENT_STRING(
@@ -6909,8 +6452,16 @@ void CallApiFunctionAndReturn(MacroAssembler* masm, bool with_profiling,
     __ bne(&propagate_exception, Label::kNear);
   }
 
-  __ AssertJSAny(return_value, scratch, scratch2,
-                 AbortReason::kAPICallReturnedInvalidObject);
+  if (v8_flags.debug_code) {
+    Label ok;
+    if (handle_interceptor_result) {
+      __ Cmp(return_value, kNotInterceptedSentinel);
+      __ beq(&ok);
+    }
+    __ AssertJSAny(return_value, scratch, scratch2,
+                   AbortReason::kAPICallReturnedInvalidObject);
+    __ bind(&ok);
+  }
 
   if (argc_operand == nullptr) {
     DCHECK_NE(slots_to_drop_on_return, 0);
@@ -6928,7 +6479,7 @@ void CallApiFunctionAndReturn(MacroAssembler* masm, bool with_profiling,
   if (with_profiling) {
     ASM_CODE_COMMENT_STRING(masm, "Call the api function via thunk wrapper.");
     __ bind(&profiler_or_side_effects_check_enabled);
-    // Additional parameter is the address of the actual callback function.
+    // Additional parameter if provided.
     if (thunk_arg.is_valid()) {
       MemOperand thunk_arg_mem_op = __ ExternalReferenceAsOperand(
           IsolateFieldId::kApiCallbackThunkArgument);

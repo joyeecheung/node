@@ -17,26 +17,54 @@ class AsyncBuiltinsAssembler : public PromiseBuiltinsAssembler {
       : PromiseBuiltinsAssembler(state) {}
 
  protected:
-  // Perform steps to resume generator after `value` is resolved.
-  // `on_reject` is the SharedFunctioninfo instance used to create the reject
-  // closure. `on_resolve` is the SharedFunctioninfo instance used to create the
-  // resolve closure. Returns the Promise-wrapped `value`.
-  using CreateClosures =
+  // Allocates an await context that stores the generator as extension.
+  TNode<Context> AllocateAwaitContext(TNode<NativeContext> native_context,
+                                      TNode<JSGeneratorObject> generator);
+
+  // Callback that returns (on_resolve, on_reject) closures.
+  // Responsible for allocating context and closures, or reusing existing ones.
+  using GetClosures =
       std::function<std::pair<TNode<JSFunction>, TNode<JSFunction>>(
-          TNode<Context>, TNode<NativeContext>)>;
+          TNode<NativeContext>)>;
+
+  // Perform steps to resume generator after `value` is resolved.
+  // Returns the Promise-wrapped `value`.
   TNode<Object> Await(TNode<Context> context,
                       TNode<JSGeneratorObject> generator, TNode<JSAny> value,
                       TNode<JSPromise> outer_promise,
-                      const CreateClosures& CreateClosures);
+                      const GetClosures& get_closures);
   TNode<Object> Await(TNode<Context> context,
                       TNode<JSGeneratorObject> generator, TNode<JSAny> value,
                       TNode<JSPromise> outer_promise, RootIndex on_resolve_sfi,
                       RootIndex on_reject_sfi);
 
+  // Optimized Await for async functions that lazily allocates closures on
+  // first await and reuses them for subsequent awaits. This avoids per-await
+  // allocation of the context and closures, and saves memory for async
+  // functions that never suspend.
+  TNode<Object> AwaitWithReusableClosures(
+      TNode<Context> context,
+      TNode<JSAsyncFunctionObject> async_function_object, TNode<JSAny> value,
+      TNode<JSPromise> outer_promise);
+
   // Return a new built-in function object as defined in
   // Async Iterator Value Unwrap Functions
   TNode<JSFunction> CreateUnwrapClosure(TNode<NativeContext> native_context,
                                         TNode<Boolean> done);
+
+  // Branches to |if_non_thenable| when |value| is guaranteed not to have a
+  // "then" property and no promise hooks/debug are active. Falls through to
+  // |if_slow| otherwise. Used to gate fast paths that skip promise/closure
+  // allocation for non-thenable awaited/yielded values.
+  void BranchIfNonThenable(TNode<Context> context, TNode<Object> value,
+                           Label* if_non_thenable, Label* if_slow);
+
+  // Allocates an AsyncResumeTask, stores all fields, and enqueues it on
+  // the microtask queue.  Used by both async generator yield and async
+  // function await fast paths.
+  void EnqueueAsyncResumeTask(TNode<NativeContext> native_context,
+                              TNode<JSGeneratorObject> generator,
+                              TNode<Object> value, int kind);
 
  private:
   TNode<Context> AllocateAsyncIteratorValueUnwrapContext(

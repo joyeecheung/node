@@ -20,6 +20,7 @@ namespace v8 {
 namespace internal {
 
 class Code;
+class CodeDesc;
 class WritableJitAllocation;
 
 // InstructionStream contains the instruction stream for V8-generated code
@@ -74,7 +75,7 @@ class InstructionStream : public TrustedObject {
   // Set to Smi::zero() during initialization. Heap iterators may see
   // InstructionStream objects in this state.
   inline Tagged<Code> code(AcquireLoadTag tag) const;
-  inline Tagged<Object> raw_code(AcquireLoadTag tag) const;
+  inline Tagged<Union<Smi, Code>> raw_code(AcquireLoadTag tag) const;
   // Use when the InstructionStream may be uninitialized:
   inline bool TryGetCode(Tagged<Code>* code_out, AcquireLoadTag tag) const;
   inline bool TryGetCodeUnchecked(Tagged<Code>* code_out,
@@ -115,6 +116,7 @@ class InstructionStream : public TrustedObject {
   static V8_INLINE Tagged<InstructionStream> Initialize(
       Tagged<HeapObject> self, Tagged<Map> map, uint32_t body_size,
       int constant_pool_offset, Tagged<TrustedByteArray> reloc_info);
+  static void ValidateJSDispatchHandles(Heap* heap, const CodeDesc& desc);
   V8_INLINE void Finalize(Tagged<Code> code,
                           Tagged<TrustedByteArray> reloc_info, CodeDesc desc,
                           Heap* heap);

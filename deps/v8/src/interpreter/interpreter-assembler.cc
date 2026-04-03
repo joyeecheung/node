@@ -50,6 +50,11 @@ InterpreterAssembler::InterpreterAssembler(CodeAssemblerState* state,
 #ifdef V8_TRACE_UNOPTIMIZED
   TraceBytecode(Runtime::kTraceUnoptimizedBytecodeEntry);
 #endif
+
+#ifdef V8_DUMPLING
+  TraceBytecode(Runtime::kDumpExecutionFrame);
+#endif
+
   RegisterCallGenerationCallbacks([this] { CallPrologue(); },
                                   [this] { CallEpilogue(); });
 
@@ -133,10 +138,22 @@ TNode<BytecodeArray> InterpreterAssembler::BytecodeArrayTaggedPointer() {
   // Force a re-load of the bytecode array after every call in case the debugger
   // has been activated.
   if (!bytecode_array_valid_) {
-    bytecode_array_ = CAST(LoadRegister(Register::bytecode_array()));
+    bytecode_array_ = TrustedCast<BytecodeArray>(
+        LoadRegister(Register::bytecode_array()), "from trusted register");
     bytecode_array_valid_ = true;
   }
   return bytecode_array_.value();
+}
+
+void InterpreterAssembler::UpdateEmbeddedFeedback(TNode<Smi> feedback,
+                                                  int feedback_operand_index) {
+#ifndef V8_JITLESS
+  TNode<IntPtrT> feedback_value_offset =
+      BytecodeOperandOffset(feedback_operand_index);
+  CodeStubAssembler::UpdateEmbeddedFeedback(SmiToInt32(feedback),
+                                            BytecodeArrayTaggedPointer(),
+                                            feedback_value_offset);
+#endif  // V8_JITLESS
 }
 
 TNode<ExternalReference> InterpreterAssembler::DispatchTablePointer() {
@@ -603,38 +620,109 @@ TNode<Smi> InterpreterAssembler::BytecodeOperandImmSmi(int operand_index) {
   return SmiFromInt32(BytecodeOperandImm(operand_index));
 }
 
-TNode<Uint32T> InterpreterAssembler::BytecodeOperandIdxInt32(
+TNode<UintPtrT> InterpreterAssembler::BytecodeOperandConstantPoolIndex(
     int operand_index) {
-  DCHECK_EQ(OperandType::kIdx,
+  DCHECK_EQ(OperandType::kConstantPoolIndex,
+            Bytecodes::GetOperandType(bytecode_, operand_index));
+  OperandSize operand_size =
+      Bytecodes::GetOperandSize(bytecode_, operand_index, operand_scale());
+  return ChangeUint32ToWord(
+      BytecodeUnsignedOperand(operand_index, operand_size));
+}
+
+TNode<UintPtrT> InterpreterAssembler::BytecodeOperandFeedbackSlot(
+    int operand_index) {
+  DCHECK_EQ(OperandType::kFeedbackSlot,
+            Bytecodes::GetOperandType(bytecode_, operand_index));
+  OperandSize operand_size =
+      Bytecodes::GetOperandSize(bytecode_, operand_index, operand_scale());
+  return ChangeUint32ToWord(
+      BytecodeUnsignedOperand(operand_index, operand_size));
+}
+
+TNode<UintPtrT> InterpreterAssembler::BytecodeOperandContextSlot(
+    int operand_index) {
+  DCHECK_EQ(OperandType::kContextSlot,
+            Bytecodes::GetOperandType(bytecode_, operand_index));
+  OperandSize operand_size =
+      Bytecodes::GetOperandSize(bytecode_, operand_index, operand_scale());
+  return ChangeUint32ToWord(
+      BytecodeUnsignedOperand(operand_index, operand_size));
+}
+
+TNode<UintPtrT> InterpreterAssembler::BytecodeOperandCoverageSlot(
+    int operand_index) {
+  DCHECK_EQ(OperandType::kCoverageSlot,
+            Bytecodes::GetOperandType(bytecode_, operand_index));
+  OperandSize operand_size =
+      Bytecodes::GetOperandSize(bytecode_, operand_index, operand_scale());
+  return ChangeUint32ToWord(
+      BytecodeUnsignedOperand(operand_index, operand_size));
+}
+
+TNode<Smi> InterpreterAssembler::BytecodeOperandConstantPoolIndexSmi(
+    int operand_index) {
+  return SmiTag(Signed(BytecodeOperandConstantPoolIndex(operand_index)));
+}
+
+TNode<Smi> InterpreterAssembler::BytecodeOperandFeedbackSlotSmi(
+    int operand_index) {
+  return SmiTag(Signed(BytecodeOperandFeedbackSlot(operand_index)));
+}
+
+TNode<Smi> InterpreterAssembler::BytecodeOperandContextSlotSmi(
+    int operand_index) {
+  return SmiTag(Signed(BytecodeOperandContextSlot(operand_index)));
+}
+
+TNode<Smi> InterpreterAssembler::BytecodeOperandCoverageSlotSmi(
+    int operand_index) {
+  return SmiTag(Signed(BytecodeOperandCoverageSlot(operand_index)));
+}
+
+TNode<TaggedIndex>
+InterpreterAssembler::BytecodeOperandConstantPoolIndexTaggedIndex(
+    int operand_index) {
+  TNode<IntPtrT> index =
+      Signed(BytecodeOperandConstantPoolIndex(operand_index));
+  return IntPtrToTaggedIndex(index);
+}
+
+TNode<TaggedIndex> InterpreterAssembler::BytecodeOperandFeedbackSlotTaggedIndex(
+    int operand_index) {
+  TNode<IntPtrT> index = Signed(BytecodeOperandFeedbackSlot(operand_index));
+  return IntPtrToTaggedIndex(index);
+}
+
+TNode<TaggedIndex> InterpreterAssembler::BytecodeOperandContextSlotTaggedIndex(
+    int operand_index) {
+  TNode<IntPtrT> index = Signed(BytecodeOperandContextSlot(operand_index));
+  return IntPtrToTaggedIndex(index);
+}
+
+TNode<TaggedIndex> InterpreterAssembler::BytecodeOperandCoverageSlotTaggedIndex(
+    int operand_index) {
+  TNode<IntPtrT> index = Signed(BytecodeOperandCoverageSlot(operand_index));
+  return IntPtrToTaggedIndex(index);
+}
+
+TNode<Uint32T> InterpreterAssembler::BytecodeOperandAbortReason(
+    int operand_index) {
+  DCHECK_EQ(OperandType::kAbortReason,
             Bytecodes::GetOperandType(bytecode_, operand_index));
   OperandSize operand_size =
       Bytecodes::GetOperandSize(bytecode_, operand_index, operand_scale());
   return BytecodeUnsignedOperand(operand_index, operand_size);
 }
 
-TNode<UintPtrT> InterpreterAssembler::BytecodeOperandIdx(int operand_index) {
-  return ChangeUint32ToWord(BytecodeOperandIdxInt32(operand_index));
-}
-
-TNode<Smi> InterpreterAssembler::BytecodeOperandIdxSmi(int operand_index) {
-  return SmiTag(Signed(BytecodeOperandIdx(operand_index)));
-}
-
-TNode<TaggedIndex> InterpreterAssembler::BytecodeOperandIdxTaggedIndex(
+TNode<Uint32T> InterpreterAssembler::BytecodeOperandEmbeddedFeedback(
     int operand_index) {
-  TNode<IntPtrT> index =
-      ChangeInt32ToIntPtr(Signed(BytecodeOperandIdxInt32(operand_index)));
-  return IntPtrToTaggedIndex(index);
-}
-
-TNode<UintPtrT> InterpreterAssembler::BytecodeOperandConstantPoolIdx(
-    int operand_index) {
-  DCHECK_EQ(OperandType::kIdx,
+  DCHECK_EQ(OperandType::kEmbeddedFeedback,
             Bytecodes::GetOperandType(bytecode_, operand_index));
   OperandSize operand_size =
       Bytecodes::GetOperandSize(bytecode_, operand_index, operand_scale());
-  return ChangeUint32ToWord(
-      BytecodeUnsignedOperand(operand_index, operand_size));
+  DCHECK_EQ(operand_size, OperandSize::kShort);
+  return BytecodeUnsignedOperand(operand_index, operand_size);
 }
 
 TNode<IntPtrT> InterpreterAssembler::BytecodeOperandReg(int operand_index) {
@@ -676,9 +764,14 @@ TNode<Uint32T> InterpreterAssembler::BytecodeOperandIntrinsicId(
   return BytecodeUnsignedOperand(operand_index, operand_size);
 }
 
+TNode<IntPtrT> InterpreterAssembler::BytecodeOperandOffset(int operand_index) {
+  return IntPtrAdd(BytecodeOffset(), OperandOffset(operand_index));
+}
+
 TNode<Object> InterpreterAssembler::LoadConstantPoolEntry(TNode<WordT> index) {
-  TNode<TrustedFixedArray> constant_pool = CAST(LoadProtectedPointerField(
-      BytecodeArrayTaggedPointer(), BytecodeArray::kConstantPoolOffset));
+  TNode<TrustedFixedArray> constant_pool =
+      LoadProtectedPointerField<TrustedFixedArray>(
+          BytecodeArrayTaggedPointer(), BytecodeArray::kConstantPoolOffset);
   return CAST(LoadArrayElement(constant_pool,
                                OFFSET_OF_DATA_START(TrustedFixedArray),
                                UncheckedCast<IntPtrT>(index), 0));
@@ -691,7 +784,7 @@ TNode<IntPtrT> InterpreterAssembler::LoadAndUntagConstantPoolEntry(
 
 TNode<Object> InterpreterAssembler::LoadConstantPoolEntryAtOperandIndex(
     int operand_index) {
-  TNode<UintPtrT> index = BytecodeOperandConstantPoolIdx(operand_index);
+  TNode<UintPtrT> index = BytecodeOperandConstantPoolIndex(operand_index);
   return LoadConstantPoolEntry(index);
 }
 
@@ -760,13 +853,13 @@ void InterpreterAssembler::CallJSAndDispatch(TNode<JSAny> function,
   DCHECK(Bytecodes::IsCallOrConstruct(bytecode_) ||
          bytecode_ == Bytecode::kInvokeIntrinsic);
   DCHECK_EQ(Bytecodes::GetReceiverMode(bytecode_), receiver_mode);
-  Builtin builtin = Builtins::Call();
+  Builtin builtin = Builtins::Call(receiver_mode);
 
   arg_count = JSParameterCount(arg_count);
   if (receiver_mode == ConvertReceiverMode::kNullOrUndefined) {
     // The first argument parameter (the receiver) is implied to be undefined.
     TailCallBuiltinThenBytecodeDispatch(builtin, context, function, arg_count,
-                                        args..., UndefinedConstant());
+                                        UndefinedConstant(), args...);
   } else {
     TailCallBuiltinThenBytecodeDispatch(builtin, context, function, arg_count,
                                         args...);
@@ -1069,13 +1162,13 @@ TNode<Int32T> InterpreterAssembler::UpdateInterruptBudget(
   TNode<FeedbackCell> feedback_cell =
       LoadObjectField<FeedbackCell>(function, JSFunction::kFeedbackCellOffset);
   TNode<Int32T> old_budget = LoadObjectField<Int32T>(
-      feedback_cell, FeedbackCell::kInterruptBudgetOffset);
+      feedback_cell, offsetof(FeedbackCell, interrupt_budget_));
 
   // Update budget by |weight| and check if it reaches zero.
   TNode<Int32T> new_budget = Int32Sub(old_budget, weight);
   // Update budget.
   StoreObjectFieldNoWriteBarrier(
-      feedback_cell, FeedbackCell::kInterruptBudgetOffset, new_budget);
+      feedback_cell, offsetof(FeedbackCell, interrupt_budget_), new_budget);
   return new_budget;
 }
 
@@ -1272,6 +1365,10 @@ void InterpreterAssembler::InlineShortStar(TNode<WordT> target_bytecode) {
   TraceBytecode(Runtime::kTraceUnoptimizedBytecodeEntry);
 #endif
 
+#ifdef V8_DUMPLING
+  TraceBytecode(Runtime::kDumpExecutionFrame);
+#endif
+
   StoreRegisterForShortStar(GetAccumulator(), target_bytecode);
 
   DCHECK_EQ(implicit_register_use_,
@@ -1429,8 +1526,9 @@ void InterpreterAssembler::OnStackReplacement(
     // Is it marked_for_deoptimization? If yes, clear the slot.
     TNode<CodeWrapper> code_wrapper = CAST(maybe_target_code.value());
     maybe_target_code =
-        LoadCodePointerFromObject(code_wrapper, CodeWrapper::kCodeOffset);
-    GotoIfNot(IsMarkedForDeoptimization(CAST(maybe_target_code.value())),
+        LoadCodePointerFromObject(code_wrapper, offsetof(CodeWrapper, code_));
+    GotoIfNot(IsMarkedForDeoptimization(TrustedCast<Code>(
+                  maybe_target_code.value(), "read access only")),
               &osr_to_opt);
     StoreFeedbackVectorSlot(feedback_vector, Unsigned(feedback_slot),
                             ClearedValue(), UNSAFE_SKIP_WRITE_BARRIER);
@@ -1722,7 +1820,7 @@ void InterpreterAssembler::ToNumberOrNumeric(Object::Conversion mode) {
   BIND(&if_done);
 
   // Record the type feedback collected for {object}.
-  TNode<UintPtrT> slot_index = BytecodeOperandIdx(0);
+  TNode<UintPtrT> slot_index = BytecodeOperandFeedbackSlot(0);
   TNode<HeapObject> maybe_feedback_vector = LoadFeedbackVector();
 
   MaybeUpdateFeedback(var_type_feedback.value(), maybe_feedback_vector,

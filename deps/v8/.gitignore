@@ -62,6 +62,7 @@
 /src/inspector/build/closure-compiler
 /src/inspector/build/closure-compiler.tar.gz
 /test/benchmarks/data
+/test/benchmarks/JetStream3
 /test/fuzzer/wasm_corpus/
 /test/fuzzer/wasm_corpus.tar.gz
 !/test/mjsunit/tools/*.log
@@ -155,6 +156,7 @@ bazel-out
 bazel-testlogs
 bazel-v8
 launch.json
+MODULE.bazel.lock
 !/third_party/jinja2
 !/third_party/markupsafe
 !/third_party/zlib

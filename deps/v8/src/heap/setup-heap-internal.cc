@@ -184,8 +184,6 @@ bool SetupIsolateDelegate::SetupHeapInternal(Isolate* isolate) {
     isolate->VerifyStaticRoots();
     isolate->read_only_heap()->OnCreateRootsComplete(isolate);
   }
-  // We prefer to fit all of read-only space in one page.
-  CHECK_EQ(heap->read_only_space()->pages().size(), 1);
   auto ro_size = heap->read_only_space()->Size();
   DCHECK_EQ(heap->old_space()->Size(), 0);
   DCHECK_IMPLIES(heap->new_space(), heap->new_space()->Size() == 0);
@@ -243,7 +241,7 @@ bool Heap::CreateMutableHeapObjects() {
   // Create initial objects
   CreateInitialMutableObjects();
   CreateInternalAccessorInfoObjects();
-  CHECK_EQ(0u, gc_count_);
+  CHECK_EQ(kInitialGCEpoch, gc_count_);
 
   set_native_contexts_list(roots.undefined_value());
   set_allocation_sites_list(roots.undefined_value());
@@ -327,7 +325,7 @@ void Heap::FinalizePartialMap(Tagged<Map> map) {
 
 AllocationResult Heap::Allocate(DirectHandle<Map> map,
                                 AllocationType allocation_type) {
-  DCHECK(map->instance_type() != MAP_TYPE);
+  DCHECK(!InstanceTypeChecker::IsMap(map->instance_type()));
   int size = map->instance_size();
   Tagged<HeapObject> result;
   AllocationResult allocation = AllocateRaw(size, allocation_type);
@@ -388,7 +386,7 @@ bool Heap::CreateEarlyReadOnlyMapsAndObjects() {
 
     ALLOCATE_AND_SET_ROOT(Undefined, undefined_value, sizeof(Undefined));
     ALLOCATE_AND_SET_ROOT(Null, null_value, sizeof(Null));
-    ALLOCATE_AND_SET_ROOT(SeqOneByteString, empty_string,
+    ALLOCATE_AND_SET_ROOT(InternalizedString, empty_string,
                           SeqOneByteString::SizeFor(0));
     ALLOCATE_AND_SET_ROOT(False, false_value, sizeof(False));
     ALLOCATE_AND_SET_ROOT(True, true_value, sizeof(True));
@@ -482,7 +480,7 @@ bool Heap::CreateEarlyReadOnlyMapsAndObjects() {
     empty_string->set_map_after_allocation(
         isolate(), roots.unchecked_internalized_one_byte_string_map(),
         SKIP_WRITE_BARRIER);
-    empty_string->clear_padding_destructively(0);
+    Cast<SeqOneByteString>(empty_string)->clear_padding_destructively(0);
     empty_string->set_length(0);
     empty_string->set_raw_hash_field(String::kEmptyHashField);
   }
@@ -505,6 +503,8 @@ bool Heap::CreateEarlyReadOnlyMapsAndObjects() {
                          protected_fixed_array);
     ALLOCATE_PARTIAL_MAP(WEAK_FIXED_ARRAY_TYPE, kVariableSizeSentinel,
                          weak_fixed_array);
+    ALLOCATE_PARTIAL_MAP(WEAK_HOMOMORPHIC_FIXED_ARRAY_TYPE,
+                         kVariableSizeSentinel, weak_homomorphic_fixed_array);
     ALLOCATE_PARTIAL_MAP(TRUSTED_WEAK_FIXED_ARRAY_TYPE, kVariableSizeSentinel,
                          trusted_weak_fixed_array);
     ALLOCATE_PARTIAL_MAP(PROTECTED_WEAK_FIXED_ARRAY_TYPE, kVariableSizeSentinel,
@@ -518,7 +518,7 @@ bool Heap::CreateEarlyReadOnlyMapsAndObjects() {
     ALLOCATE_PARTIAL_MAP(DESCRIPTOR_ARRAY_TYPE, kVariableSizeSentinel,
                          descriptor_array)
 
-    ALLOCATE_PARTIAL_MAP(HOLE_TYPE, sizeof(Hole), hole);
+    ALLOCATE_PARTIAL_MAP(HOLE_TYPE, kVariableSizeSentinel, hole);
 
     // Some struct maps which we need for later dependencies
     for (const StructInit& entry : kStructTable) {
@@ -592,6 +592,7 @@ bool Heap::CreateEarlyReadOnlyMapsAndObjects() {
   FinalizePartialMap(roots.trusted_fixed_array_map());
   FinalizePartialMap(roots.protected_fixed_array_map());
   FinalizePartialMap(roots.weak_fixed_array_map());
+  FinalizePartialMap(roots.weak_homomorphic_fixed_array_map());
   FinalizePartialMap(roots.weak_array_list_map());
   FinalizePartialMap(roots.trusted_weak_fixed_array_map());
   FinalizePartialMap(roots.protected_weak_fixed_array_map());
@@ -645,8 +646,8 @@ bool Heap::CreateEarlyReadOnlyMapsAndObjects() {
                          closure_feedback_cell_array)
     ALLOCATE_VARSIZE_MAP(FEEDBACK_VECTOR_TYPE, feedback_vector)
 
-    ALLOCATE_MAP(FOREIGN_TYPE, Foreign::kSize, foreign)
-    ALLOCATE_MAP(TRUSTED_FOREIGN_TYPE, TrustedForeign::kSize, trusted_foreign)
+    ALLOCATE_MAP(FOREIGN_TYPE, sizeof(Foreign), foreign)
+    ALLOCATE_MAP(TRUSTED_FOREIGN_TYPE, sizeof(TrustedForeign), trusted_foreign)
     ALLOCATE_MAP(MEGA_DOM_HANDLER_TYPE, MegaDomHandler::kSize, mega_dom_handler)
 
     ALLOCATE_VARSIZE_MAP(FIXED_DOUBLE_ARRAY_TYPE, fixed_double_array)
@@ -663,11 +664,11 @@ bool Heap::CreateEarlyReadOnlyMapsAndObjects() {
 
     ALLOCATE_VARSIZE_MAP(INSTRUCTION_STREAM_TYPE, instruction_stream)
 
-    ALLOCATE_MAP(CELL_TYPE, Cell::kSize, cell);
+    ALLOCATE_MAP(CELL_TYPE, sizeof(Cell), cell);
     {
       // The invalid_prototype_validity_cell is needed for JSObject maps.
       AllocationResult alloc =
-          AllocateRaw(Cell::kSize, AllocationType::kReadOnly);
+          AllocateRaw(sizeof(Cell), AllocationType::kReadOnly);
       if (!alloc.To(&obj)) return false;
       obj->set_map_after_allocation(isolate(), roots.cell_map(),
                                     SKIP_WRITE_BARRIER);
@@ -680,14 +681,11 @@ bool Heap::CreateEarlyReadOnlyMapsAndObjects() {
 
     // The "no closures" and "one closure" FeedbackCell maps need
     // to be marked unstable because their objects can change maps.
-    ALLOCATE_MAP(FEEDBACK_CELL_TYPE, FeedbackCell::kAlignedSize,
-                 no_closures_cell)
+    ALLOCATE_MAP(FEEDBACK_CELL_TYPE, sizeof(FeedbackCell), no_closures_cell)
     roots.no_closures_cell_map()->mark_unstable();
-    ALLOCATE_MAP(FEEDBACK_CELL_TYPE, FeedbackCell::kAlignedSize,
-                 one_closure_cell)
+    ALLOCATE_MAP(FEEDBACK_CELL_TYPE, sizeof(FeedbackCell), one_closure_cell)
     roots.one_closure_cell_map()->mark_unstable();
-    ALLOCATE_MAP(FEEDBACK_CELL_TYPE, FeedbackCell::kAlignedSize,
-                 many_closures_cell)
+    ALLOCATE_MAP(FEEDBACK_CELL_TYPE, sizeof(FeedbackCell), many_closures_cell)
 
     ALLOCATE_VARSIZE_MAP(TRANSITION_ARRAY_TYPE, transition_array)
 
@@ -767,9 +765,9 @@ bool Heap::CreateLateReadOnlyNonJSReceiverMaps() {
                  atom_regexp_data);
     ALLOCATE_MAP(IR_REG_EXP_DATA_TYPE, IrRegExpData::kSize, ir_regexp_data);
 
-    ALLOCATE_MAP(SOURCE_TEXT_MODULE_TYPE, SourceTextModule::kSize,
+    ALLOCATE_MAP(SOURCE_TEXT_MODULE_TYPE, sizeof(SourceTextModule),
                  source_text_module)
-    ALLOCATE_MAP(SYNTHETIC_MODULE_TYPE, SyntheticModule::kSize,
+    ALLOCATE_MAP(SYNTHETIC_MODULE_TYPE, sizeof(SyntheticModule),
                  synthetic_module)
 
     ALLOCATE_MAP(CONTEXT_CELL_TYPE, sizeof(ContextCell), context_cell)
@@ -791,6 +789,8 @@ bool Heap::CreateLateReadOnlyNonJSReceiverMaps() {
             WasmSuspenderObject::kSize, wasm_suspender_object)
     IF_WASM(ALLOCATE_MAP, WASM_CONTINUATION_OBJECT_TYPE,
             WasmContinuationObject::kSize, wasm_continuation_object)
+    IF_WASM(ALLOCATE_MAP, WASM_STACK_OBJECT_TYPE, WasmStackObject::kSize,
+            wasm_stack_object)
     IF_WASM(ALLOCATE_MAP, WASM_TYPE_INFO_TYPE, kVariableSizeSentinel,
             wasm_type_info)
     IF_WASM(ALLOCATE_MAP, WASM_NULL_TYPE, kVariableSizeSentinel, wasm_null);
@@ -879,9 +879,11 @@ bool Heap::CreateLateReadOnlyJSReceiverMaps() {
     DirectHandle<DescriptorArray> descriptors =
         factory->NewDescriptorArray(1, 0, AllocationType::kReadOnly);
     Descriptor length_descriptor = Descriptor::DataField(
-        factory->length_string(), JSSharedArray::kLengthFieldIndex,
+        factory->length_string(),
+        shared_array_map->GetInObjectPropertyOffset(
+            JSSharedArray::kLengthFieldIndex),
         ALL_ATTRIBUTES_MASK, PropertyConstness::kConst, Representation::Smi(),
-        MaybeObjectDirectHandle(FieldType::Any(isolate())));
+        MaybeObjectDirectHandle(FieldType::Any(isolate())), true);
     descriptors->Set(InternalIndex(0), &length_descriptor);
     shared_array_map->InitializeDescriptors(isolate(), *descriptors);
     set_js_shared_array_map(shared_array_map);
@@ -992,7 +994,7 @@ bool Heap::CreateImportantReadOnlyObjects() {
     if (!alloc.To(&obj)) return false;
     obj->set_map_after_allocation(isolate(), roots.scope_info_map(),
                                   SKIP_WRITE_BARRIER);
-    int flags = ScopeInfo::IsEmptyBit::encode(true);
+    int flags = 0;
     DCHECK_EQ(ScopeInfo::LanguageModeBit::decode(flags), LanguageMode::kSloppy);
     DCHECK_EQ(ScopeInfo::ReceiverVariableBits::decode(flags),
               VariableAllocationInfo::NONE);
@@ -1304,7 +1306,7 @@ bool Heap::CreateReadOnlyObjects() {
     }
 
     // This code duplicates FactoryBase::SmiToNumber.
-    for (int i = 10; i < kPreallocatedNumberStringTableSize; ++i) {
+    for (uint32_t i = 10; i < kPreallocatedNumberStringTableSize; ++i) {
       std::string_view string = IntToStringView(i, buffer);
       Handle<String> str = factory->InternalizeString(
           base::OneByteVector(string.data(), string.length()));
@@ -1331,71 +1333,21 @@ bool Heap::CreateReadOnlyObjects() {
   (V8_STATIC_ROOTS_BOOL || V8_STATIC_ROOTS_GENERATION_BOOL)
 
 #if V8_UNMAP_WASM_NULL_PAYLOAD
-  constexpr size_t kLargestPossibleOSPageSize = 64 * KB;
-  static_assert(kLargestPossibleOSPageSize >= kMinimumOSPageSize);
-
+  // Allocate an unmappable WasmNull.
   {
-    // Ensure all of the following lands on the same V8 page.
-    constexpr int kOffsetAfterMapWord = HeapObject::kMapOffset + kTaggedSize;
-    static_assert(kOffsetAfterMapWord % kObjectAlignment == 0);
-
-    constexpr size_t kPaddingSize =
-        WasmNull::kSizeWithFullPayload - kOffsetAfterMapWord;
-    static_assert(kPaddingSize == 2 * kLargestPossibleOSPageSize);
-
-    read_only_space_->EnsureSpaceForAllocation(WasmNull::kSizeWithFullPayload -
-                                               kOffsetAfterMapWord);
-    Address next_page = RoundUp(read_only_space_->top() + kOffsetAfterMapWord,
-                                kLargestPossibleOSPageSize);
-
-    // Add some filler to end up right before an OS page boundary.
-    int filler_size = static_cast<int>(next_page - read_only_space_->top() -
-                                       kOffsetAfterMapWord);
-    // TODO(v8:7748) Depending on where we end up this might actually not hold,
-    // in which case we would need to use a one or two-word filler.
-    CHECK(filler_size > 2 * kTaggedSize);
-    Tagged<HeapObject> filler =
-        allocator()->AllocateRawWith<HeapAllocator::kRetryOrFail>(
-            filler_size, AllocationType::kReadOnly, AllocationOrigin::kRuntime,
-            AllocationAlignment::kTaggedAligned);
-    CreateFillerObjectAt(filler.address(), filler_size,
-                         ClearFreedMemoryMode::kClearFreedMemory);
-    set_wasm_null_padding(filler);
-    CHECK_EQ(read_only_space_->top() + kOffsetAfterMapWord, next_page);
-  }
-
-  {
-    // Finally, allocate the wasm-null object.
-    // Massive hack: the WasmNull with two payloads is too large for a regular,
-    // non-LO-space object. This doesn't actually really matter in RO space, so
-    // do two allocations side-by-side and write the WasmNull over both of them.
-    AllocationResult first_allocation = AllocateRaw(
-        WasmNull::kSizeWithFullPayload - WasmNull::kSecondPayloadSize,
-        AllocationType::kReadOnly);
-    AllocationResult second_allocation =
-        AllocateRaw(WasmNull::kSecondPayloadSize, AllocationType::kReadOnly);
-    CHECK(!first_allocation.IsFailure());
-    CHECK(!second_allocation.IsFailure());
-    Tagged<HeapObject> wasm_null_obj;
-    CHECK(first_allocation.To(&wasm_null_obj));
+    static_assert(WasmNull::kSize ==
+                  WasmNull::kHeaderSize + WasmNull::kPayloadSize);
+    Tagged<HeapObject> wasm_null_obj =
+        read_only_space_
+            ->AllocateRawUnmappableAllocation(WasmNull::kHeaderSize,
+                                              WasmNull::kPayloadSize)
+            .ToObjectChecked();
     wasm_null_obj->set_map_after_allocation(isolate(), roots.wasm_null_map(),
                                             SKIP_WRITE_BARRIER);
     // No need to initialize the payload since it's either empty or unmapped.
-
-    Tagged<WasmNull> wasm_null = Cast<WasmNull>(wasm_null_obj);
-
-    CHECK_EQ(wasm_null->second_payload(), second_allocation.ToAddress());
-
-    CHECK_EQ(read_only_space_->top() % kLargestPossibleOSPageSize, 0);
-    CHECK_EQ(wasm_null->first_payload() % kLargestPossibleOSPageSize, 0);
-    CHECK_EQ(wasm_null->second_payload() % kLargestPossibleOSPageSize, 0);
-
-    set_wasm_null(wasm_null);
+    set_wasm_null(Cast<WasmNull>(wasm_null_obj));
   }
 #else
-  // There is no padding before the wasm_null.
-  set_wasm_null_padding(roots.undefined_value());
-
   // Allocate the WasmNull.
   {
     Tagged<HeapObject> wasm_null_obj;
@@ -1406,34 +1358,21 @@ bool Heap::CreateReadOnlyObjects() {
     set_wasm_null(Cast<WasmNull>(wasm_null_obj));
   }
 #endif  // V8_UNMAP_WASM_NULL_PAYLOAD
-
-#else
-#define V8_UNMAP_WASM_NULL_PAYLOAD false
 #endif  // V8_ENABLE_WEBASSEMBLY
 
-  int i = 0;
-  auto make_hole = [this, roots, factory, &i]() {
-#if V8_UNMAP_WASM_NULL_PAYLOAD
+  auto make_hole = [this, roots, factory]() {
     USE(factory);
-    // For configurations where the WasmNull has a large unmapped padding
-    // area, allocate the holes inside this padding so that they are also
-    // unmapped.
-    Tagged<Hole> hole = UncheckedCast<Hole>(HeapObject::FromAddress(
-        roots.wasm_null()->second_payload() + (i * sizeof(Hole))));
 
-    hole->set_map_after_allocation(isolate(), roots.hole_map(),
-                                   SKIP_WRITE_BARRIER);
-    // Make sure the holes are in the right position for unmapping whether or
-    // not --unmap-holes is set.
-    DCHECK_EQ(static_cast<Tagged_t>(hole.address()),
-              2 * kLargestPossibleOSPageSize + i * sizeof(Hole));
-
-    i++;
-    return hole;
-#else
-    USE(this, roots, i);
-    return *factory->NewHole();
-#endif  // V8_UNMAP_WASM_NULL_PAYLOAD
+    static_assert(sizeof(Hole) == sizeof(Hole::map_) + Hole::kPayloadSize);
+    Tagged<HeapObject> hole_obj =
+        read_only_space_
+            ->AllocateRawUnmappableAllocation(sizeof(Hole::map_),
+                                              Hole::kPayloadSize)
+            .ToObjectChecked();
+    hole_obj->set_map_after_allocation(isolate(), roots.hole_map(),
+                                       SKIP_WRITE_BARRIER);
+    // No need to initialize the payload since it's either empty or unmapped.
+    return Cast<Hole>(hole_obj);
   };
 
   // Set up the hole values in one range
@@ -1454,14 +1393,6 @@ bool Heap::CreateReadOnlyObjects() {
   set_basic_block_counters_marker(
       UncheckedCast<BasicBlockCountersMarker>(make_hole()));
 
-#if V8_UNMAP_WASM_NULL_PAYLOAD
-  Address after_last_hole =
-      roots.wasm_null()->second_payload() + (i * sizeof(Hole));
-  int filler_size = static_cast<int>(read_only_space_->top() - after_last_hole);
-  CreateFillerObjectAt(after_last_hole, filler_size,
-                       ClearFreedMemoryMode::kClearFreedMemory);
-#endif  // V8_UNMAP_WASM_NULL_PAYLOAD
-
   return true;
 }
 
@@ -1472,13 +1403,21 @@ void Heap::CreateMutableApiObjects() {
 
 void Heap::CreateReadOnlyApiObjects() {
   HandleScope scope(isolate());
-  auto info =
-      isolate()->factory()->NewInterceptorInfo(AllocationType::kReadOnly);
-  set_noop_interceptor_info(*info);
+
   // Make sure read only heap layout does not depend on the size of
   // ExternalPointer fields.
-  StaticRootsEnsureAllocatedSize(info,
-                                 3 * kTaggedSize + 7 * kSystemPointerSize);
+  constexpr int kMaxPossibleInterceptorInfoSize =
+      3 * kTaggedSize + 8 * kSystemPointerSize;
+
+  auto info = isolate()->factory()->NewInterceptorInfo(
+      InterceptorKind::kNamed, AllocationType::kReadOnly);
+  set_noop_named_interceptor_info(*info);
+  StaticRootsEnsureAllocatedSize(info, kMaxPossibleInterceptorInfoSize);
+
+  info = isolate()->factory()->NewInterceptorInfo(InterceptorKind::kIndexed,
+                                                  AllocationType::kReadOnly);
+  set_noop_indexed_interceptor_info(*info);
+  StaticRootsEnsureAllocatedSize(info, kMaxPossibleInterceptorInfoSize);
 }
 
 void Heap::CreateInitialMutableObjects() {
@@ -1499,17 +1438,21 @@ void Heap::CreateInitialMutableObjects() {
       *SmiStringCache::New(isolate(), SmiStringCache::kInitialSize));
   set_double_string_cache(
       *DoubleStringCache::New(isolate(), DoubleStringCache::kInitialSize));
+  // We only need pointer identity comparisons with valid BigInts, so any
+  // non-BigInt will do as initializer value.
+  set_cached_bigint_divisor(roots.undefined_value());
+  set_next_cached_bigint_divisor(roots.undefined_value());
 
   // Unchecked to skip failing checks since required roots are uninitialized.
   set_basic_block_profiling_data(roots.unchecked_empty_array_list());
 
   // Allocate regexp caches.
   set_string_split_cache(*factory->NewFixedArray(
-      RegExpResultsCache::kRegExpResultsCacheSize, AllocationType::kOld));
+      regexp::ResultsCache::kRegExpResultsCacheSize, AllocationType::kOld));
   set_regexp_multiple_cache(*factory->NewFixedArray(
-      RegExpResultsCache::kRegExpResultsCacheSize, AllocationType::kOld));
+      regexp::ResultsCache::kRegExpResultsCacheSize, AllocationType::kOld));
   set_regexp_match_global_atom_cache(*factory->NewFixedArray(
-      RegExpResultsCache_MatchGlobalAtom::kSize, AllocationType::kOld));
+      regexp::ResultsCache_MatchGlobalAtom::kSize, AllocationType::kOld));
 
   set_detached_contexts(roots.empty_weak_array_list());
 
@@ -1543,6 +1486,7 @@ void Heap::CreateInitialMutableObjects() {
 
   // Protectors
   set_array_buffer_detaching_protector(*factory->NewProtector());
+  set_array_buffer_mutable_protector(*factory->NewProtector());
   set_array_iterator_protector(*factory->NewProtector());
   set_array_species_protector(*factory->NewProtector());
   set_no_date_time_configuration_change_protector(*factory->NewProtector());
@@ -1762,23 +1706,6 @@ void Heap::CreateInitialMutableObjects() {
     info = CreateSharedFunctionInfo(
         isolate_, Builtin::kArrayFromAsyncArrayLikeOnRejected, 1);
     set_array_from_async_array_like_on_rejected_shared_fun(*info);
-  }
-
-  // Atomics.Mutex
-  {
-    DirectHandle<SharedFunctionInfo> info = CreateSharedFunctionInfo(
-        isolate_, Builtin::kAtomicsMutexAsyncUnlockResolveHandler, 1);
-    set_atomics_mutex_async_unlock_resolve_handler_sfi(*info);
-    info = CreateSharedFunctionInfo(
-        isolate_, Builtin::kAtomicsMutexAsyncUnlockRejectHandler, 1);
-    set_atomics_mutex_async_unlock_reject_handler_sfi(*info);
-  }
-
-  // Atomics.Condition
-  {
-    DirectHandle<SharedFunctionInfo> info = CreateSharedFunctionInfo(
-        isolate_, Builtin::kAtomicsConditionAcquireLock, 0);
-    set_atomics_condition_acquire_lock_sfi(*info);
   }
 
   // Async Disposable Stack

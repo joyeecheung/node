@@ -27,9 +27,14 @@ LoadHandler::Kind LoadHandler::GetHandlerKind(Tagged<Smi> smi_handler) {
   return KindBits::decode(smi_handler.value());
 }
 
-Handle<Smi> LoadHandler::LoadNormal(Isolate* isolate) {
-  int config = KindBits::encode(Kind::kNormal);
-  return handle(Smi::FromInt(config), isolate);
+Handle<Smi> LoadHandler::LoadNormal(Isolate* isolate, InternalIndex entry) {
+  auto encoding = KindBits::encode(Kind::kNormal);
+  encoding =
+      entry.is_found() && entry.as_uint32() < DictionaryIndexBits::kMax
+          ? DictionaryIndexBits::update(encoding, entry.as_uint32())
+          : DictionaryIndexBits::update(encoding, DictionaryIndexBits::kMax);
+
+  return handle(Smi::FromInt(encoding), isolate);
 }
 
 Handle<Smi> LoadHandler::LoadGlobal(Isolate* isolate) {
@@ -37,9 +42,10 @@ Handle<Smi> LoadHandler::LoadGlobal(Isolate* isolate) {
   return handle(Smi::FromInt(config), isolate);
 }
 
-Handle<Smi> LoadHandler::LoadInterceptor(Isolate* isolate) {
-  int config = KindBits::encode(Kind::kInterceptor);
-  return handle(Smi::FromInt(config), isolate);
+Tagged<Smi> LoadHandler::LoadInterceptor(bool non_masking) {
+  int config = KindBits::encode(Kind::kInterceptor) |
+               NonMaskingInterceptorBits::encode(non_masking);
+  return Smi::FromInt(config);
 }
 
 Handle<Smi> LoadHandler::LoadSlow(Isolate* isolate) {
@@ -55,12 +61,32 @@ Tagged<Smi> LoadHandler::LoadGeneric() {
   return Smi::FromInt(KindBits::encode(Kind::kGeneric));
 }
 
-Handle<Smi> LoadHandler::LoadField(Isolate* isolate, FieldIndex field_index) {
+Handle<Smi> LoadHandler::LoadField(Isolate* isolate, FieldIndex field_index,
+                                   InternalIndex descriptor_index) {
+  return LoadField(isolate, field_index.offset_in_words(),
+                   field_index.is_inobject(), field_index.is_double(),
+                   descriptor_index);
+}
+
+Handle<Smi> LoadHandler::LoadField(Isolate* isolate, int offset_in_words,
+                                   bool is_in_object, bool is_double,
+                                   InternalIndex descriptor_index) {
+  return handle(
+      LoadField(offset_in_words, is_in_object, is_double, descriptor_index),
+      isolate);
+}
+
+Tagged<Smi> LoadHandler::LoadField(int offset_in_words, bool is_in_object,
+                                   bool is_double,
+                                   InternalIndex descriptor_index) {
   int config = KindBits::encode(Kind::kField) |
-               IsInobjectBits::encode(field_index.is_inobject()) |
-               IsDoubleBits::encode(field_index.is_double()) |
-               FieldIndexBits::encode(field_index.index());
-  return handle(Smi::FromInt(config), isolate);
+               IsInobjectBits::encode(is_in_object) |
+               IsDoubleBits::encode(is_double) |
+               StorageOffsetInWordsBits::encode(offset_in_words);
+  if (descriptor_index.is_found()) {
+    config |= DescriptorIndexBits::encode(descriptor_index.as_int());
+  }
+  return Smi::FromInt(config);
 }
 
 DirectHandle<Smi> LoadHandler::LoadWasmStructField(Isolate* isolate,
@@ -88,9 +114,9 @@ Handle<Smi> LoadHandler::LoadProxy(Isolate* isolate) {
 }
 
 Handle<Smi> LoadHandler::LoadNativeDataProperty(Isolate* isolate,
-                                                int descriptor) {
+                                                InternalIndex descriptor) {
   int config = KindBits::encode(Kind::kNativeDataProperty) |
-               DescriptorBits::encode(descriptor);
+               DescriptorBits::encode(descriptor.as_int());
   return handle(Smi::FromInt(config), isolate);
 }
 
@@ -159,9 +185,10 @@ Handle<Smi> StoreHandler::StoreNormal(Isolate* isolate) {
   return handle(Smi::FromInt(config), isolate);
 }
 
-Handle<Smi> StoreHandler::StoreInterceptor(Isolate* isolate) {
-  int config = KindBits::encode(Kind::kInterceptor);
-  return handle(Smi::FromInt(config), isolate);
+Tagged<Smi> StoreHandler::StoreInterceptor(bool non_masking) {
+  int config = KindBits::encode(Kind::kInterceptor) |
+               NonMaskingInterceptorBits::encode(non_masking);
+  return Smi::FromInt(config);
 }
 
 Handle<Code> StoreHandler::StoreSloppyArgumentsBuiltin(
@@ -221,11 +248,15 @@ DirectHandle<Code> StoreHandler::ElementsTransitionAndStoreBuiltin(
   }
 }
 
-Handle<Smi> StoreHandler::StoreSlow(Isolate* isolate,
-                                    KeyedAccessStoreMode store_mode) {
+Tagged<Smi> StoreHandler::StoreSlow(KeyedAccessStoreMode store_mode) {
   int config = KindBits::encode(Kind::kSlow) |
                KeyedAccessStoreModeBits::encode(store_mode);
-  return handle(Smi::FromInt(config), isolate);
+  return Smi::FromInt(config);
+}
+
+Handle<Smi> StoreHandler::StoreSlow(Isolate* isolate,
+                                    KeyedAccessStoreMode store_mode) {
+  return handle(StoreSlow(store_mode), isolate);
 }
 
 Handle<Smi> StoreHandler::StoreGeneric(Isolate* isolate) {
@@ -246,7 +277,8 @@ Tagged<Smi> StoreHandler::StoreProxy() {
 }
 
 Handle<Smi> StoreHandler::StoreField(Isolate* isolate, Kind kind,
-                                     int descriptor, FieldIndex field_index,
+                                     InternalIndex descriptor,
+                                     FieldIndex field_index,
                                      Representation representation) {
   DCHECK(!representation.IsNone());
   DCHECK(kind == Kind::kField || kind == Kind::kConstField ||
@@ -255,12 +287,12 @@ Handle<Smi> StoreHandler::StoreField(Isolate* isolate, Kind kind,
   int config = KindBits::encode(kind) |
                IsInobjectBits::encode(field_index.is_inobject()) |
                RepresentationBits::encode(representation.kind()) |
-               DescriptorBits::encode(descriptor) |
-               FieldIndexBits::encode(field_index.index());
+               DescriptorBits::encode(descriptor.as_int()) |
+               StorageOffsetInWordsBits::encode(field_index.offset_in_words());
   return handle(Smi::FromInt(config), isolate);
 }
 
-Handle<Smi> StoreHandler::StoreField(Isolate* isolate, int descriptor,
+Handle<Smi> StoreHandler::StoreField(Isolate* isolate, InternalIndex descriptor,
                                      FieldIndex field_index,
                                      PropertyConstness constness,
                                      Representation representation) {
@@ -270,7 +302,7 @@ Handle<Smi> StoreHandler::StoreField(Isolate* isolate, int descriptor,
 }
 
 Handle<Smi> StoreHandler::StoreSharedStructField(
-    Isolate* isolate, int descriptor, FieldIndex field_index,
+    Isolate* isolate, InternalIndex descriptor, FieldIndex field_index,
     Representation representation) {
   DCHECK(representation.Equals(Representation::Tagged()));
   return StoreField(isolate, Kind::kSharedStructField, descriptor, field_index,
@@ -278,9 +310,9 @@ Handle<Smi> StoreHandler::StoreSharedStructField(
 }
 
 Handle<Smi> StoreHandler::StoreNativeDataProperty(Isolate* isolate,
-                                                  int descriptor) {
+                                                  InternalIndex descriptor) {
   int config = KindBits::encode(Kind::kNativeDataProperty) |
-               DescriptorBits::encode(descriptor);
+               DescriptorBits::encode(descriptor.as_int());
   return handle(Smi::FromInt(config), isolate);
 }
 

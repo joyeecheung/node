@@ -253,7 +253,13 @@ struct WordWithBits : public Any {
 
 using Word32 = WordWithBits<32>;
 using Word64 = WordWithBits<64>;
-using WordPtr = std::conditional_t<Is64(), Word64, Word32>;
+#ifdef V8_TARGET_ARCH_64_BIT
+static_assert(Is64());
+using WordPtr = Word64;
+#else
+static_assert(!Is64());
+using WordPtr = Word32;
+#endif
 
 template <size_t Bits>
 struct FloatWithBits : public Any {  // FloatAny {
@@ -398,6 +404,22 @@ struct v_traits<Float64> {
 };
 
 template <>
+struct v_traits<Smi> {
+  static constexpr bool is_abstract_tag = false;
+  using rep_type = RegisterRepresentation;
+  static constexpr auto rep = RegisterRepresentation::Tagged();
+  using constexpr_type = Tagged<Smi>;
+  static constexpr bool allows_representation(
+      RegisterRepresentation maybe_allowed_rep) {
+    return maybe_allowed_rep == RegisterRepresentation::Tagged();
+  }
+
+  template <typename U>
+  struct implicitly_constructible_from
+      : std::bool_constant<std::is_base_of_v<Smi, U>> {};
+};
+
+template <>
 struct v_traits<Simd128> {
   static constexpr bool is_abstract_tag = true;
   using rep_type = RegisterRepresentation;
@@ -467,15 +489,12 @@ struct v_traits<Union<T, Ts...>> {
 
   template <typename U>
   struct implicitly_constructible_from
-      : std::bool_constant<(
-            v_traits<T>::template implicitly_constructible_from<U>::value ||
-            ... ||
-            v_traits<Ts>::template implicitly_constructible_from<U>::value)> {};
-  template <typename... Us>
-  struct implicitly_constructible_from<Union<Us...>>
-      : std::bool_constant<(implicitly_constructible_from<Us>::value && ...)> {
-  };
+      : std::bool_constant<is_subtype<U, Union<T, Ts...>>::value> {};
 };
+
+// Make sure that a simple implicitly_constructible_from works.
+static_assert(
+    v_traits<MaybeObject>::implicitly_constructible_from<Object>::value);
 
 namespace detail {
 template <typename T, bool SameStaticRep>
@@ -575,7 +594,7 @@ using NumberOrUndefined = UnionOf<Number, Undefined>;
 using AnyFixedArray = UnionOf<FixedArray, FixedDoubleArray>;
 using NonBigIntPrimitive = UnionOf<Symbol, PlainPrimitive>;
 using Primitive = UnionOf<BigInt, NonBigIntPrimitive>;
-using CallTarget = UntaggedUnion<WordPtr, Code, JSFunction, Word32>;
+using CallTarget = UntaggedUnion<WordPtr, Code, JSFunction, Word32, BuiltinPtr>;
 using AnyOrNone = UntaggedUnion<Any, None>;
 using Word32Pair = Tuple<Word32, Word32>;
 
@@ -724,6 +743,11 @@ class OptionalV : public OptionalOpIndex {
     return OptionalV<T>(index);
   }
 
+  static constexpr bool allows_representation(
+      RegisterRepresentation maybe_allowed_rep) {
+    return v_traits<T>::allows_representation(maybe_allowed_rep);
+  }
+
 #if !defined(TURBOSHAFT_ALLOW_IMPLICIT_OPINDEX_INITIALIZATION_FOR_V)
 
  protected:
@@ -737,6 +761,21 @@ class OptionalV : public OptionalOpIndex {
 // Deduction guide for `OptionalV`.
 template <typename T>
 OptionalV(V<T>) -> OptionalV<T>;
+
+template <typename T>
+struct is_optional_index : std::bool_constant<false> {};
+template <>
+struct is_optional_index<OptionalOpIndex> : std::bool_constant<true> {};
+template <typename T>
+struct is_optional_index<OptionalV<T>> : std::bool_constant<true> {};
+
+template <typename T>
+constexpr bool is_optional_index_v = is_optional_index<T>::value;
+
+static_assert(is_optional_index_v<OptionalOpIndex>);
+static_assert(is_optional_index_v<OptionalV<Word32>>);
+static_assert(!is_optional_index_v<OpIndex>);
+static_assert(!is_optional_index_v<V<Word32>>);
 
 // ConstOrV<> is a generalization of V<> that allows constexpr values
 // (constants) to be passed implicitly. This allows reducers to write things
@@ -759,6 +798,8 @@ class ConstOrV {
  public:
   using type = T;
   using constant_type = C;
+
+  ConstOrV() : constant_value_(), value_() {}
 
   ConstOrV(constant_type value)  // NOLINT(runtime/explicit)
       : constant_value_(value), value_() {}

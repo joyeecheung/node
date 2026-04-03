@@ -4,6 +4,8 @@
 
 #include "src/sandbox/external-pointer-table.h"
 
+#include <inttypes.h>
+
 #include "src/execution/isolate.h"
 #include "src/heap/read-only-spaces.h"
 #include "src/logging/counters.h"
@@ -11,8 +13,7 @@
 
 #ifdef V8_COMPRESS_POINTERS
 
-namespace v8 {
-namespace internal {
+namespace v8::internal {
 
 void ExternalPointerTable::SetUpFromReadOnlyArtifacts(
     Space* read_only_space, const ReadOnlyArtifacts* artifacts) {
@@ -276,6 +277,27 @@ uint32_t ExternalPointerTable::Sweep(Space* space, Counters* counters) {
   return SweepAndCompact(space, counters);
 }
 
+void ExternalPointerTable::Verify(Isolate* isolate, Space* space) {
+  IterateEntriesIn(space, [&](uint32_t index) {
+    auto payload = at(index).GetRawPayload();
+    ExternalPointerTag tag = payload.ExtractTag();
+    if (tag == kExternalPointerFreeEntryTag ||
+        tag == kExternalPointerEvacuationEntryTag ||
+        tag == kExternalPointerZappedEntryTag) {
+      return;
+    }
+
+    Address pointer = payload.Untag(tag);
+    if (pointer == kNullAddress) return;
+
+    // We don't know the C++ type of the referenced object, so we cannot do
+    // much verification on it. What we can do is try to load the first byte of
+    // the object (we assume we don't have zero-sized objects). This way, we
+    // can at least detect issues like use-after-free on ASan builds.
+    USE(*reinterpret_cast<const uint8_t*>(pointer));
+  });
+}
+
 void ExternalPointerTable::ResolveEvacuationEntryDuringSweeping(
     uint32_t new_index, ExternalPointerHandle* handle_location,
     uint32_t start_of_evacuation_area) {
@@ -305,7 +327,51 @@ void ExternalPointerTable::ResolveEvacuationEntryDuringSweeping(
   }
 }
 
-}  // namespace internal
-}  // namespace v8
+#ifdef OBJECT_PRINT
+
+namespace {
+
+constexpr std::string_view entry_spacer =
+    "+-----------------------------------------+\n";
+
+}  // namespace
+
+// static
+void ExternalPointerTableEntryPrinter::PrintHeader(const char* space_name) {
+  PrintF(stderr, "%s", entry_spacer.data());
+  PrintF(stderr, "| %*s |\n", static_cast<int>(entry_spacer.size() - 5),
+         space_name);
+  PrintF(stderr, "%s", entry_spacer.data());
+  PrintF(stderr, "|     handle |   tag |   external pointer |\n");
+  PrintF(stderr, "%s", entry_spacer.data());
+}
+
+// static
+void ExternalPointerTableEntryPrinter::PrintIfInUse(
+    ExternalPointerHandle handle, const ExternalPointerTableEntry& entry,
+    std::function<bool(ExternalPointerTag)> entry_callback) {
+  const auto payload = entry.GetRawPayload();
+  const ExternalPointerTag tag = payload.ExtractTag();
+  if (tag == kExternalPointerFreeEntryTag ||
+      tag == kExternalPointerZappedEntryTag) {
+    return;
+  }
+  if (!entry_callback(tag)) {
+    return;
+  }
+
+  Address address = payload.Untag(tag);
+  PrintF(stderr, "| %10" PRIu32 " | %5" PRIu16 " | 0x%016" PRIxPTR " |\n",
+         handle, tag, address);
+}
+
+// static
+void ExternalPointerTableEntryPrinter::PrintFooter() {
+  PrintF(stderr, "%s", entry_spacer.data());
+}
+
+#endif  // OBJECT_PRINT
+
+}  // namespace v8::internal
 
 #endif  // V8_COMPRESS_POINTERS

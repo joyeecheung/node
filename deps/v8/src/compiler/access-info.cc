@@ -49,13 +49,13 @@ bool CanInlinePropertyAccess(MapRef map, AccessMode access_mode) {
       return access_mode == AccessMode::kLoad &&
              map.object()->is_prototype_map();
     }
-    return !map.object()->has_named_interceptor() &&
+    return !map.has_named_interceptor() &&
            // TODO(verwaest): Allowlist contexts to which we have access.
            !map.is_access_check_needed();
   }
 #if V8_ENABLE_WEBASSEMBLY
   if (IsWasmObjectMap(*map.object())) {
-    DCHECK(!map.object()->has_named_interceptor());
+    DCHECK(!map.has_named_interceptor());
     DCHECK(!map.is_access_check_needed());
     // Accesses to Wasm objects all go through the prototype chain, but
     // we can't express that in this helper function.
@@ -557,7 +557,7 @@ std::optional<ElementAccessInfo> AccessInfoFactory::ComputeElementAccessInfo(
         if (!trap_value.AsHeapObject().IsJSFunction()) return {};
 
         SharedFunctionInfoRef sfi = trap_value.AsJSFunction().shared(broker());
-        Tagged<Object> trusted_data =
+        Tagged<Union<Smi, TrustedObject>> trusted_data =
             sfi.object()->GetTrustedData(broker()->local_isolate_or_isolate());
         Tagged<WasmExportedFunctionData> wasm_data;
         if (!TryCast(trusted_data, &wasm_data)) return {};
@@ -638,7 +638,6 @@ PropertyAccessInfo AccessInfoFactory::ComputeDataFieldAccessInfo(
   DirectHandle<DescriptorArray> descriptors =
       map.instance_descriptors(broker()).object();
   PropertyDetails const details = descriptors->GetDetails(descriptor);
-  int index = descriptors->GetFieldIndex(descriptor);
   Representation details_representation = details.representation();
   if (details_representation.IsNone()) {
     // The ICs collect feedback in PREMONOMORPHIC state already,
@@ -648,8 +647,7 @@ PropertyAccessInfo AccessInfoFactory::ComputeDataFieldAccessInfo(
     // here and fall back to use the regular IC logic instead.
     return Invalid();
   }
-  FieldIndex field_index = FieldIndex::ForPropertyIndex(*map.object(), index,
-                                                        details_representation);
+  FieldIndex field_index = FieldIndex::ForDetails(*map.object(), details);
   // Private brands are used when loading private methods, which are stored in a
   // BlockContext, an internal object.
   Type field_type = name.object()->IsPrivateBrand() ? Type::OtherInternal()
@@ -719,22 +717,27 @@ PropertyAccessInfo AccessInfoFactory::ComputeDataFieldAccessInfo(
 
   PropertyConstness constness =
       map.GetPropertyDetails(broker_, descriptor).constness();
-  switch (constness) {
-    case PropertyConstness::kMutable:
-      return PropertyAccessInfo::DataField(
-          broker(), zone(), receiver_map, std::move(unrecorded_dependencies),
-          field_index, details_representation, field_type, field_owner_map,
-          field_map, holder, {});
-    case PropertyConstness::kConst:
-      auto constness_dep = dependencies()->FieldConstnessDependencyOffTheRecord(
-          map, field_owner_map, descriptor);
-      unrecorded_dependencies.push_back(constness_dep);
+
+  if (constness == PropertyConstness::kConst) {
+    if (auto constness_dep =
+            dependencies()->FieldConstnessDependencyOffTheRecord(
+                map, field_owner_map, descriptor)) {
+      unrecorded_dependencies.push_back(*constness_dep);
       return PropertyAccessInfo::FastDataConstant(
           zone(), receiver_map, std::move(unrecorded_dependencies), field_index,
           details_representation, field_type, field_owner_map, field_map,
           holder, {});
+    }
+
+    if (access_mode != AccessMode::kLoad && access_mode != AccessMode::kHas) {
+      return PropertyAccessInfo::Invalid(zone());
+    }
   }
-  UNREACHABLE();
+
+  return PropertyAccessInfo::DataField(
+      broker(), zone(), receiver_map, std::move(unrecorded_dependencies),
+      field_index, details_representation, field_type, field_owner_map,
+      field_map, holder, {});
 }
 
 namespace {
@@ -758,8 +761,8 @@ PropertyAccessInfo AccessorAccessInfoHelper(
             isolate, name.object(),
             Smi::ToInt(Object::GetHash(*name.object())))));
     if (IsAnyStore(access_mode)) {
-      // ES#sec-module-namespace-exotic-objects-set-p-v-receiver
-      // ES#sec-module-namespace-exotic-objects-defineownproperty-p-desc
+      // https://tc39.es/ecma262/#sec-module-namespace-exotic-objects-set-p-v-receiver
+      // https://tc39.es/ecma262/#sec-module-namespace-exotic-objects-defineownproperty-p-desc
       //
       // Storing to a module namespace object is always an error or a no-op in
       // JS.
@@ -1109,7 +1112,7 @@ PropertyAccessInfo AccessInfoFactory::ComputePropertyAccessInfo(
     if (access_mode == AccessMode::kStoreInLiteral ||
         access_mode == AccessMode::kDefine) {
       PropertyAttributes attrs = NONE;
-      if (name.object()->IsPrivate()) {
+      if (name.object()->IsAnyPrivate()) {
         // When PrivateNames are added to an object, they are by definition
         // non-enumerable.
         attrs = DONT_ENUM;
@@ -1118,7 +1121,7 @@ PropertyAccessInfo AccessInfoFactory::ComputePropertyAccessInfo(
     }
 
     // Don't lookup private symbols on the prototype chain.
-    if (name.object()->IsPrivate()) {
+    if (name.object()->IsAnyPrivate()) {
       return Invalid();
     }
 
@@ -1356,6 +1359,7 @@ PropertyAccessInfo AccessInfoFactory::LookupSpecialFieldAccessorInHolder(
   // prototype.
   if (v8_flags.typed_array_length_loading &&
       IsJSTypedArrayMap(*receiver_map.object()) &&
+      !IsJSDetachedTypedArrayMap(*receiver_map.object()) &&
       !IsRabGsabTypedArrayElementsKind(receiver_map.elements_kind()) &&
       Name::Equals(isolate(), name.object(),
                    isolate()->factory()->length_string()) &&
@@ -1373,14 +1377,17 @@ PropertyAccessInfo AccessInfoFactory::LookupSpecialFieldAccessorInHolder(
           TryCast<JSFunction>(maybe_getter, &getter)) {
         if (getter->shared()->HasBuiltinId() &&
             getter->shared()->builtin_id() ==
-                Builtin::kTypedArrayPrototypeLength &&
-            broker_->dependencies()->DependOnArrayBufferDetachingProtector()) {
-          dependencies()->DependOnStablePrototypeChain(
-              receiver_map, kStartAtPrototype, holder);
-          // TODO(388844115): If we cannot depend on the detaching protector,
-          // add a different kind of TypedArrayLength operator which checks for
-          // detached before reading the byte_length.
-          return PropertyAccessInfo::TypedArrayLength(zone(), receiver_map);
+                Builtin::kTypedArrayPrototypeLength) {
+          if (v8_flags.turbolev ||
+              broker_->dependencies()
+                  ->DependOnArrayBufferDetachingProtector()) {
+            // Maglev and Turbolev will add the ArrayBufferDetachingProtector
+            // dependency themselves and handle the case where they cannot do
+            // so. Turbofan doesn't.
+            dependencies()->DependOnStablePrototypeChain(
+                receiver_map, kStartAtPrototype, holder);
+            return PropertyAccessInfo::TypedArrayLength(zone(), receiver_map);
+          }
         }
       }
     }
@@ -1412,12 +1419,11 @@ PropertyAccessInfo AccessInfoFactory::LookupTransition(
   // TODO(bmeurer): Handle transition to data constant?
   if (details.location() != PropertyLocation::kField) return Invalid();
 
-  int const index = details.field_index();
   Representation details_representation = details.representation();
   if (details_representation.IsNone()) return Invalid();
 
-  FieldIndex field_index = FieldIndex::ForPropertyIndex(
-      *transition_map.object(), index, details_representation);
+  FieldIndex field_index =
+      FieldIndex::ForDetails(*transition_map.object(), details);
   Type field_type = Type::NonInternal();
   OptionalMapRef field_map;
 
@@ -1477,19 +1483,22 @@ PropertyAccessInfo AccessInfoFactory::LookupTransition(
   PropertyConstness constness =
       transition_map.GetPropertyDetails(broker_, number).constness();
   switch (constness) {
+    case PropertyConstness::kConst:
+      if (auto constness_dep =
+              dependencies()->FieldConstnessDependencyOffTheRecord(
+                  transition_map, transition_map, number)) {
+        unrecorded_dependencies.push_back(*constness_dep);
+        return PropertyAccessInfo::FastDataConstant(
+            zone(), map, std::move(unrecorded_dependencies), field_index,
+            details_representation, field_type, transition_map, field_map,
+            holder, transition_map);
+      }
+      return PropertyAccessInfo::Invalid(zone());
     case PropertyConstness::kMutable:
       return PropertyAccessInfo::DataField(
           broker(), zone(), map, std::move(unrecorded_dependencies),
           field_index, details_representation, field_type, transition_map,
           field_map, holder, transition_map);
-    case PropertyConstness::kConst:
-      auto constness_dep = dependencies()->FieldConstnessDependencyOffTheRecord(
-          transition_map, transition_map, number);
-      unrecorded_dependencies.push_back(constness_dep);
-      return PropertyAccessInfo::FastDataConstant(
-          zone(), map, std::move(unrecorded_dependencies), field_index,
-          details_representation, field_type, transition_map, field_map, holder,
-          transition_map);
   }
   UNREACHABLE();
 }

@@ -4,7 +4,6 @@
 
 #include <cinttypes>
 #include <cstring>
-#include <type_traits>
 
 #include "include/v8-wasm.h"
 #include "src/base/memory.h"
@@ -17,12 +16,14 @@
 #include "src/objects/property-descriptor.h"
 #include "src/objects/smi.h"
 #include "src/trap-handler/trap-handler.h"
+#include "src/wasm/compilation-hints-generation.h"
 #include "src/wasm/function-body-decoder.h"
 #include "src/wasm/fuzzing/random-module-generation.h"
 #include "src/wasm/module-compiler.h"
 #include "src/wasm/wasm-code-manager.h"
 #include "src/wasm/wasm-code-pointer-table-inl.h"
 #include "src/wasm/wasm-engine.h"
+#include "src/wasm/wasm-module-builder.h"
 #include "src/wasm/wasm-module.h"
 #include "src/wasm/wasm-objects-inl.h"
 #include "src/wasm/wasm-result.h"
@@ -136,15 +137,6 @@ RUNTIME_FUNCTION(Runtime_SetWasmInstantiateControls) {
 
 namespace {
 
-void PrintIndentation(int stack_size) {
-  const int max_display = 80;
-  if (stack_size <= max_display) {
-    PrintF("%4d:%*s", stack_size, stack_size, "");
-  } else {
-    PrintF("%4d:%*s", stack_size, max_display, "...");
-  }
-}
-
 int WasmStackSize(Isolate* isolate) {
   // TODO(wasm): Fix this for mixed JS/Wasm stacks with both --trace and
   // --trace-wasm.
@@ -155,7 +147,7 @@ int WasmStackSize(Isolate* isolate) {
   return n;
 }
 
-}  // namespace
+}  // anonymous namespace
 
 // TODO(jkummerow): I think this should just iterate the WasmCodePointerTable
 // directly, not individual dispatch tables.
@@ -182,8 +174,8 @@ RUNTIME_FUNCTION(Runtime_CountUnoptimizedWasmToJSWrapper) {
     }
   }
   Tagged<ProtectedFixedArray> dispatch_tables = trusted_data->dispatch_tables();
-  int table_count = dispatch_tables->length();
-  for (int table_index = 0; table_index < table_count; ++table_index) {
+  uint32_t table_count = dispatch_tables->ulength().value();
+  for (uint32_t table_index = 0; table_index < table_count; ++table_index) {
     if (dispatch_tables->get(table_index) == Smi::zero()) continue;
     Tagged<WasmDispatchTable> table =
         TrustedCast<WasmDispatchTable>(dispatch_tables->get(table_index));
@@ -425,6 +417,110 @@ RUNTIME_FUNCTION(Runtime_IsWasmPartialOOBWriteNoop) {
   return isolate->heap()->ToBoolean(wasm::kPartialOOBWritesAreNoops);
 }
 
+RUNTIME_FUNCTION(Runtime_GenerateWasmCompilationHints) {
+  if (!v8_flags.wasm_generate_compilation_hints &&
+      !v8_flags.trace_wasm_generate_compilation_hints) {
+    return ReadOnlyRoots(isolate).undefined_value();
+  }
+  HandleScope scope(isolate);
+  if (args.length() != 1 || !IsWasmInstanceObject(args[0])) {
+    // TODO(manoskouk): What is a more elegant way to report an error here?
+    return CrashUnlessFuzzing(isolate);
+  }
+
+  DisallowGarbageCollection no_gc;
+
+  DirectHandle<WasmInstanceObject> instance = args.at<WasmInstanceObject>(0);
+
+  wasm::NativeModule* native_module =
+      instance->trusted_data(isolate)->native_module();
+  const wasm::WasmModule* module = native_module->module();
+
+  wasm::TransitiveTypeFeedbackProcessor::ProcessAll(
+      isolate, instance->trusted_data(isolate));
+
+  if (v8_flags.trace_wasm_generate_compilation_hints) {
+    base::MutexGuard compilation_hints_mutex_guard(
+        &module->compilation_hints_mutex);
+    base::MutexGuard mutex(&module->type_feedback.mutex);
+
+    int num_imported_functions = module->num_imported_functions;
+    int num_total_functions = static_cast<int>(module->functions.size());
+
+    for (int i = num_imported_functions; i < num_total_functions; i++) {
+      wasm::WasmCodeRefScope code_ref_scope;
+      wasm::WasmCode* code = native_module->GetCode(i);
+      if (code) {
+        DCHECK(code->is_liftoff());
+        if (module->marked_for_tierup.contains(i)) {
+          PrintF("%d: optimized\n", i);
+        } else {
+          PrintF("%d: compiled\n", i);
+        }
+      } else {
+        PrintF("%d: uncompiled\n", i);
+      }
+    }
+
+    std::unordered_map<uint32_t, wasm::FunctionTypeFeedback>& feedback =
+        module->type_feedback.feedback_for_function;
+
+    for (int func_index = num_imported_functions;
+         func_index < num_total_functions; func_index++) {
+      PrintF("%d", func_index);
+      auto it = feedback.find(func_index);
+      if (it == feedback.end()) {
+        PrintF(" no feedback\n");
+        continue;
+      }
+      PrintF("\n");
+      wasm::FunctionTypeFeedback& feedback_for_function = it->second;
+
+      for (size_t num_slot = 0;
+           num_slot < feedback_for_function.feedback_vector.size();
+           num_slot++) {
+        wasm::CallSiteFeedback& slot =
+            feedback_for_function.feedback_vector[num_slot];
+        int total_count_at_slot = 0;
+        for (int call = 0; call < slot.num_cases(); call++) {
+          total_count_at_slot += slot.call_count(call);
+        }
+
+        PrintF(
+            "  slot %d, offset %d: total relative call count %lf\n",
+            static_cast<int>(num_slot),
+            module->feedback_slots_to_wire_byte_offsets[func_index][num_slot],
+            static_cast<double>(total_count_at_slot) /
+                feedback_for_function.num_invocations);
+        if (feedback_for_function.call_targets[num_slot] !=
+                wasm::FunctionTypeFeedback::kCallIndirect &&
+            feedback_for_function.call_targets[num_slot] !=
+                wasm::FunctionTypeFeedback::kCallRef) {
+          PrintF("    direct call to %d\n", slot.function_index(0));
+        } else {
+          for (int call = 0; call < slot.num_cases(); call++) {
+            // We floor the percentage so we do not end up with a sum of over
+            // 100.
+            PrintF("    call to %d, percentage %d\n", slot.function_index(call),
+                   static_cast<int>(
+                       std::floor(static_cast<double>(slot.call_count(call)) *
+                                  100 / total_count_at_slot)));
+          }
+        }
+      }
+    }
+  }
+
+  if (v8_flags.wasm_generate_compilation_hints) {
+    Zone zone{isolate->allocator(), "wasm::EmitCompilationHintsToBuffer"};
+    wasm::ZoneBuffer buffer{&zone};
+    wasm::EmitCompilationHintsToBuffer(buffer, native_module);
+    wasm::WriteCompilationHintsToFile(buffer, native_module);
+  }
+
+  return ReadOnlyRoots(isolate).undefined_value();
+}
+
 RUNTIME_FUNCTION(Runtime_GetWasmRecoveredTrapCount) {
   HandleScope scope(isolate);
   size_t trap_count = trap_handler::GetRecoveredTrapCount();
@@ -450,8 +546,9 @@ RUNTIME_FUNCTION(Runtime_GetWasmExceptionTagId) {
       WasmExceptionPackage::GetExceptionTag(isolate, exception);
   CHECK(IsWasmExceptionTag(*tag));
   DirectHandle<FixedArray> tags_table(trusted_data->tags_table(), isolate);
-  for (int index = 0; index < tags_table->length(); ++index) {
-    if (tags_table->get(index) == *tag) return Smi::FromInt(index);
+  uint32_t tags_table_len = tags_table->ulength().value();
+  for (uint32_t index = 0; index < tags_table_len; ++index) {
+    if (tags_table->get(index) == *tag) return Smi::FromUInt(index);
   }
   return CrashUnlessFuzzing(isolate);
 }
@@ -470,14 +567,21 @@ RUNTIME_FUNCTION(Runtime_GetWasmExceptionValues) {
     return CrashUnlessFuzzing(isolate);
   }
   auto values = Cast<FixedArray>(values_obj);
+  const uint32_t values_len = values->length().value();
   DirectHandle<FixedArray> externalized_values =
-      isolate->factory()->NewFixedArray(values->length());
-  for (int i = 0; i < values->length(); i++) {
+      isolate->factory()->NewFixedArray(values_len);
+  for (uint32_t i = 0; i < values_len; i++) {
     DirectHandle<Object> value(values->get(i), isolate);
     if (!IsSmi(*value)) {
-      // Note: This will leak string views to JS. This should be fine for a
-      // debugging function.
+      // When fuzzers use this function, don't leak anything that the JS side
+      // can't handle.
+      if (IsByteArray(*value) ||  // Probably a stringview_wtf8.
+          IsWasmContinuationObject(*value) || IsWasmExceptionPackage(*value) ||
+          IsWasmStringViewIter(*value)) {
+        return CrashUnlessFuzzing(isolate);
+      }
       value = wasm::WasmToJSObject(isolate, value);
+      DCHECK(IsPrimitiveHeapObject(*value) || IsJSReceiver(*value));
     }
     externalized_values->set(i, *value);
   }
@@ -490,13 +594,14 @@ RUNTIME_FUNCTION(Runtime_WasmGetNumberOfInstances) {
     return CrashUnlessFuzzing(isolate);
   }
   DirectHandle<WasmModuleObject> module_obj = args.at<WasmModuleObject>(0);
-  int instance_count = 0;
+  uint32_t instance_count = 0;
   Tagged<WeakArrayList> weak_instance_list =
       module_obj->script()->wasm_weak_instance_list();
-  for (int i = 0; i < weak_instance_list->length(); ++i) {
+  const uint32_t weak_instance_len = weak_instance_list->length().value();
+  for (uint32_t i = 0; i < weak_instance_len; ++i) {
     if (weak_instance_list->Get(i).IsWeak()) instance_count++;
   }
-  return Smi::FromInt(instance_count);
+  return Smi::FromUInt(instance_count);
 }
 
 RUNTIME_FUNCTION(Runtime_WasmNumCodeSpaces) {
@@ -505,17 +610,19 @@ RUNTIME_FUNCTION(Runtime_WasmNumCodeSpaces) {
     return CrashUnlessFuzzing(isolate);
   }
   DirectHandle<JSObject> argument = args.at<JSObject>(0);
-  wasm::NativeModule* native_module;
+  size_t num_spaces;
   if (IsWasmInstanceObject(*argument)) {
-    native_module = Cast<WasmInstanceObject>(*argument)
-                        ->trusted_data(isolate)
-                        ->native_module();
+    num_spaces = Cast<WasmInstanceObject>(*argument)
+                     ->trusted_data(isolate)
+                     ->native_module()
+                     ->GetNumberOfCodeSpacesForTesting();
   } else if (IsWasmModuleObject(*argument)) {
-    native_module = Cast<WasmModuleObject>(*argument)->native_module();
+    num_spaces = Cast<WasmModuleObject>(*argument)
+                     ->native_module()
+                     ->GetNumberOfCodeSpacesForTesting();
   } else {
     return CrashUnlessFuzzing(isolate);
   }
-  size_t num_spaces = native_module->GetNumberOfCodeSpacesForTesting();
   return *isolate->factory()->NewNumberFromSize(num_spaces);
 }
 
@@ -606,8 +713,8 @@ RUNTIME_FUNCTION(Runtime_WasmTraceMemory) {
   const Address address =
       reinterpret_cast<Address>(frame->trusted_instance_data()
                                     ->memory_object(info->mem_index)
-                                    ->array_buffer()
-                                    ->backing_store()) +
+                                    ->backing_store()
+                                    ->buffer_start()) +
       info->offset;
 
   wasm::MemoryTraceEntry trace_entry = {
@@ -650,7 +757,7 @@ bool ValidateFunctionNowIfNeeded(Isolate* isolate,
   Zone validation_zone(isolate->allocator(), ZONE_NAME);
   wasm::WasmDetectedFeatures unused_detected_features;
   const wasm::WasmFunction* func = &module->functions[func_index];
-  bool is_shared = module->type(func->sig_index).is_shared;
+  SharedFlag is_shared = module->type(func->sig_index).is_shared;
   base::Vector<const uint8_t> wire_bytes = native_module->wire_bytes();
   wasm::FunctionBody body{
       func->sig, func->code.offset(), wire_bytes.begin() + func->code.offset(),
@@ -668,6 +775,12 @@ bool ValidateFunctionNowIfNeeded(Isolate* isolate,
 RUNTIME_FUNCTION(Runtime_WasmTierUpFunction) {
   DCHECK(!v8_flags.wasm_jitless);
 
+  if (V8_UNLIKELY(v8_flags.wasm_generate_compilation_hints ||
+                  v8_flags.trace_wasm_generate_compilation_hints)) {
+    // These flags expect functions to remain compiled with Liftoff.
+    return ReadOnlyRoots(isolate).undefined_value();
+  }
+
   HandleScope scope(isolate);
   if (args.length() != 1 ||
       !WasmExportedFunction::IsWasmExportedFunction(args[0])) {
@@ -679,7 +792,8 @@ RUNTIME_FUNCTION(Runtime_WasmTierUpFunction) {
   int func_index = func_data->function_index();
   wasm::NativeModule* native_module = trusted_data->native_module();
   const wasm::WasmModule* module = native_module->module();
-  if (static_cast<uint32_t>(func_index) < module->num_imported_functions) {
+  if (static_cast<uint32_t>(func_index) < module->num_imported_functions ||
+      static_cast<uint32_t>(func_index) >= module->functions.size()) {
     return CrashUnlessFuzzing(isolate);
   }
   if (!ValidateFunctionNowIfNeeded(isolate, native_module, func_index)) {
@@ -692,6 +806,12 @@ RUNTIME_FUNCTION(Runtime_WasmTierUpFunction) {
 RUNTIME_FUNCTION(Runtime_WasmTriggerTierUpForTesting) {
   DCHECK(!v8_flags.wasm_jitless);
 
+  if (V8_UNLIKELY(v8_flags.wasm_generate_compilation_hints ||
+                  v8_flags.trace_wasm_generate_compilation_hints)) {
+    // These flags expect functions to remain compiled with Liftoff.
+    return ReadOnlyRoots(isolate).undefined_value();
+  }
+
   HandleScope scope(isolate);
   if (args.length() != 1 ||
       !WasmExportedFunction::IsWasmExportedFunction(args[0])) {
@@ -703,7 +823,8 @@ RUNTIME_FUNCTION(Runtime_WasmTriggerTierUpForTesting) {
   int func_index = func_data->function_index();
   wasm::NativeModule* native_module = trusted_data->native_module();
   const wasm::WasmModule* module = native_module->module();
-  if (static_cast<uint32_t>(func_index) < module->num_imported_functions) {
+  if (static_cast<uint32_t>(func_index) < module->num_imported_functions ||
+      static_cast<uint32_t>(func_index) >= module->functions.size()) {
     return CrashUnlessFuzzing(isolate);
   }
   if (!ValidateFunctionNowIfNeeded(isolate, native_module, func_index)) {
@@ -758,7 +879,8 @@ static Tagged<Object> CreateWasmObject(Isolate* isolate,
   } else {
     DCHECK_EQ(module->array_type(type_index)->element_type(), wasm::kWasmI64);
     return *isolate->factory()->NewWasmArray(wasm::kWasmI64, 1, value,
-                                             direct_handle(map, isolate));
+                                             direct_handle(map, isolate),
+                                             SKIP_WRITE_BARRIER);
   }
 }
 
@@ -844,9 +966,10 @@ RUNTIME_FUNCTION(Runtime_IsWasmDebugFunction) {
   DirectHandle<WasmExportedFunction> exp_fun = args.at<WasmExportedFunction>(0);
   auto data = exp_fun->shared()->wasm_exported_function_data();
   wasm::NativeModule* native_module = data->instance_data()->native_module();
+  const wasm::WasmModule* module = native_module->module();
   uint32_t func_index = data->function_index();
-  if (static_cast<uint32_t>(func_index) <
-      data->instance_data()->module()->num_imported_functions) {
+  if (func_index < module->num_imported_functions ||
+      func_index >= module->functions.size()) {
     return CrashUnlessFuzzing(isolate);
   }
   wasm::WasmCodeRefScope code_ref_scope;
@@ -864,9 +987,10 @@ RUNTIME_FUNCTION(Runtime_IsLiftoffFunction) {
   DirectHandle<WasmExportedFunction> exp_fun = args.at<WasmExportedFunction>(0);
   auto data = exp_fun->shared()->wasm_exported_function_data();
   wasm::NativeModule* native_module = data->instance_data()->native_module();
+  const wasm::WasmModule* module = native_module->module();
   uint32_t func_index = data->function_index();
-  if (static_cast<uint32_t>(func_index) <
-      data->instance_data()->module()->num_imported_functions) {
+  if (func_index < module->num_imported_functions ||
+      func_index >= module->functions.size()) {
     return CrashUnlessFuzzing(isolate);
   }
   wasm::WasmCodeRefScope code_ref_scope;
@@ -883,9 +1007,10 @@ RUNTIME_FUNCTION(Runtime_IsTurboFanFunction) {
   DirectHandle<WasmExportedFunction> exp_fun = args.at<WasmExportedFunction>(0);
   auto data = exp_fun->shared()->wasm_exported_function_data();
   wasm::NativeModule* native_module = data->instance_data()->native_module();
+  const wasm::WasmModule* module = native_module->module();
   uint32_t func_index = data->function_index();
-  if (static_cast<uint32_t>(func_index) <
-      data->instance_data()->module()->num_imported_functions) {
+  if (func_index < module->num_imported_functions ||
+      func_index >= module->functions.size()) {
     return CrashUnlessFuzzing(isolate);
   }
   wasm::WasmCodeRefScope code_ref_scope;
@@ -902,9 +1027,10 @@ RUNTIME_FUNCTION(Runtime_IsUncompiledWasmFunction) {
   DirectHandle<WasmExportedFunction> exp_fun = args.at<WasmExportedFunction>(0);
   auto data = exp_fun->shared()->wasm_exported_function_data();
   wasm::NativeModule* native_module = data->instance_data()->native_module();
+  const wasm::WasmModule* module = native_module->module();
   uint32_t func_index = data->function_index();
-  if (static_cast<uint32_t>(func_index) <
-      data->instance_data()->module()->num_imported_functions) {
+  if (func_index < module->num_imported_functions ||
+      func_index >= module->functions.size()) {
     return CrashUnlessFuzzing(isolate);
   }
   return isolate->heap()->ToBoolean(!native_module->HasCode(func_index));
@@ -960,8 +1086,8 @@ RUNTIME_FUNCTION(Runtime_WasmDeoptsExecutedForFunction) {
   const wasm::WasmModule* module =
       func_data->instance_data()->native_module()->module();
   uint32_t func_index = func_data->function_index();
-  if (static_cast<uint32_t>(func_index) <
-      func_data->instance_data()->module()->num_imported_functions) {
+  if (func_index < module->num_imported_functions ||
+      func_index >= module->functions.size()) {
     return CrashUnlessFuzzing(isolate);
   }
   const wasm::TypeFeedbackStorage& feedback = module->type_feedback;
@@ -1002,10 +1128,10 @@ RUNTIME_FUNCTION(Runtime_BuildRefTypeBitfield) {
   const wasm::WasmModule* module = Cast<WasmInstanceObject>(args[1])->module();
   // If we get an invalid type index, make up the additional data; the result
   // may still be useful for fuzzers for causing interesting confusion.
-  wasm::ValueType t =
-      module->has_type(type_index)
-          ? wasm::ValueType::Ref(module->heap_type(type_index))
-          : wasm::ValueType::Ref(type_index, false, wasm::RefTypeKind::kStruct);
+  wasm::ValueType t = module->has_type(type_index)
+                          ? wasm::ValueType::Ref(module->heap_type(type_index))
+                          : wasm::ValueType::Ref(type_index, SharedFlag::kNo,
+                                                 wasm::RefTypeKind::kStruct);
   return Smi::FromInt(t.raw_bit_field());
 }
 

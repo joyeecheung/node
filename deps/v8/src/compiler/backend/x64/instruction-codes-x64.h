@@ -112,11 +112,11 @@ namespace compiler {
   V(X64Sub)                                          \
   V(X64Sub32)                                        \
   V(X64Imul)                                         \
+  V(X64ImulWide)                                     \
+  V(X64UmulWide)                                     \
   V(X64Imul32)                                       \
   V(X64ImulHigh32)                                   \
-  V(X64ImulHigh64)                                   \
   V(X64UmulHigh32)                                   \
-  V(X64UmulHigh64)                                   \
   V(X64Idiv)                                         \
   V(X64Idiv32)                                       \
   V(X64Udiv)                                         \
@@ -406,7 +406,8 @@ namespace compiler {
   V(X64F64x4Qfms)                                    \
   V(X64InsertI128)                                   \
   V(X64I32x8DotI8x32I7x32AddS)                       \
-  V(X64I16x16DotI8x32I7x32S)
+  V(X64I16x16DotI8x32I7x32S)                         \
+  V(X64F32x8Round)
 
 // Addressing modes represent the "shape" of inputs to an instruction.
 // Many instructions support multiple addressing modes. Addressing modes

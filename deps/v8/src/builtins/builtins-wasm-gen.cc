@@ -7,6 +7,7 @@
 #include "src/builtins/builtins-utils-gen.h"
 #include "src/codegen/code-stub-assembler-inl.h"
 #include "src/codegen/interface-descriptors.h"
+#include "src/execution/frames.h"
 #include "src/objects/map-inl.h"
 #include "src/objects/objects-inl.h"
 #include "src/wasm/wasm-objects.h"
@@ -17,45 +18,49 @@ namespace v8::internal {
 
 TNode<WasmTrustedInstanceData>
 WasmBuiltinsAssembler::LoadInstanceDataFromFrame() {
-  return CAST(LoadFromParentFrame(WasmFrameConstants::kWasmInstanceDataOffset));
+  return TrustedCast<WasmTrustedInstanceData>(
+      LoadFromParentFrame(WasmFrameConstants::kWasmInstanceDataOffset),
+      "from trusted stack slot");
 }
 
 TNode<WasmTrustedInstanceData>
 WasmBuiltinsAssembler::LoadTrustedDataFromInstance(
     TNode<WasmInstanceObject> instance_object) {
-  return CAST(LoadTrustedPointerFromObject(
-      instance_object, WasmInstanceObject::kTrustedDataOffset,
-      kWasmTrustedInstanceDataIndirectPointerTag));
+  return LoadTrustedPointerFromObject<
+      kWasmTrustedInstanceDataIndirectPointerTag>(
+      instance_object, WasmInstanceObject::kTrustedDataOffset);
 }
 
 TNode<NativeContext> WasmBuiltinsAssembler::LoadContextFromWasmOrJsFrame() {
   static_assert(BuiltinFrameConstants::kFunctionOffset ==
                 WasmFrameConstants::kWasmInstanceDataOffset);
   TVARIABLE(NativeContext, context_result);
-  TNode<HeapObject> function_or_instance =
-      CAST(LoadFromParentFrame(WasmFrameConstants::kWasmInstanceDataOffset));
+  TNode<Object> marker_or_context =
+      LoadFromParentFrame(CommonFrameConstants::kContextOrFrameTypeOffset);
+
   Label is_js_function(this);
-  Label is_import_data(this);
   Label done(this);
-  TNode<Uint16T> instance_type =
-      LoadMapInstanceType(LoadMap(function_or_instance));
-  GotoIf(IsJSFunctionInstanceType(instance_type), &is_js_function);
-  GotoIf(Word32Equal(instance_type, Int32Constant(WASM_IMPORT_DATA_TYPE)),
-         &is_import_data);
-  context_result = LoadContextFromInstanceData(CAST(function_or_instance));
+
+  // The marker is not really a Smi (see `StackFrame::TypeToMarker`, but it
+  // has a Smi tag, so the check does the right thing).
+  GotoIf(TaggedIsNotSmi(marker_or_context), &is_js_function);
+
+  // Otherwise this must be a proper `WASM` frame, holding a
+  // `WasmTrustedInstanceData` in the slot.
+  TNode<IntPtrT> marker = BitcastTaggedToWord(marker_or_context);
+  CSA_CHECK(this, WordEqual(marker, IntPtrConstant(StackFrame::TypeToMarker(
+                                        StackFrame::WASM))));
+  TNode<HeapObject> instance_data =
+      CAST(LoadFromParentFrame(WasmFrameConstants::kWasmInstanceDataOffset));
+  context_result =
+      LoadContextFromInstanceData(TrustedCast<WasmTrustedInstanceData>(
+          instance_data, "from trusted stack slot"));
   Goto(&done);
 
   BIND(&is_js_function);
-  TNode<JSFunction> function = CAST(function_or_instance);
-  TNode<Context> context =
-      LoadObjectField<Context>(function, JSFunction::kContextOffset);
+  CSA_DCHECK(this, IsContext(CAST(marker_or_context)));
+  TNode<Context> context = CAST(marker_or_context);
   context_result = LoadNativeContext(context);
-  Goto(&done);
-
-  BIND(&is_import_data);
-  TNode<WasmImportData> import_data = CAST(function_or_instance);
-  context_result = LoadObjectField<NativeContext>(
-      import_data, WasmImportData::kNativeContextOffset);
   Goto(&done);
 
   BIND(&done);
@@ -73,10 +78,8 @@ TNode<NativeContext> WasmBuiltinsAssembler::LoadContextFromInstanceData(
 TNode<WasmTrustedInstanceData>
 WasmBuiltinsAssembler::LoadSharedPartFromInstanceData(
     TNode<WasmTrustedInstanceData> trusted_data) {
-  return CAST(LoadProtectedPointerFromObject(
-      trusted_data,
-      IntPtrConstant(WasmTrustedInstanceData::kProtectedSharedPartOffset -
-                     kHeapObjectTag)));
+  return LoadProtectedPointerField<WasmTrustedInstanceData>(
+      trusted_data, WasmTrustedInstanceData::kProtectedSharedPartOffset);
 }
 
 TNode<FixedArray> WasmBuiltinsAssembler::LoadTablesFromInstanceData(

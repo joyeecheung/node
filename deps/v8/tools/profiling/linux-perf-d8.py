@@ -190,7 +190,7 @@ def main():
     datetime_str = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     perf_data_file = options.perf_data_dir / f"d8_{datetime_str}.perf.data"
     perf_cmd = [
-        "perf", "record", f"--call-graph={options.call_graph}",
+        "perf", "record", "--no-buildid", f"--call-graph={options.call_graph}",
         f"--clockid={options.clockid}", f"--output={perf_data_file}"
     ]
     if options.freq:
@@ -291,20 +291,20 @@ def main():
       print("# Checking gcert status for googlers")
       subprocess.check_call("gcertstatus >&/dev/null || gcert", shell=True)
       has_gcert = True
-
+      # TOOD: use -symbolize=local again once http://b/487399967 is fixed
       cmd = [
-          "pprof", "-symbolize=local", "-flame",
+          "pprof", "-symbolize=force", "-flame",
           f"-add_comment={shlex.join(sys.argv)}",
           str(result.absolute())
       ]
-      print("# Processing and uploading to pprofresult")
+      print("# Processing and uploading to pprof")
       url = subprocess.check_output(cmd).decode('utf-8').strip()
       print(url)
     except subprocess.CalledProcessError as e:
       if has_gcert:
         raise Exception("Could not generate pprof results") from e
       print("# Please run `gcert` for generating pprof results")
-      print(f"pprof -symbolize=local -flame {result}")
+      print(shlex.join(["pprof", "-symbolize=force", "-flame", str(result)]))
     except KeyboardInterrupt:
       return 1
 

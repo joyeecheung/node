@@ -861,7 +861,7 @@ Node* RepresentationChanger::GetFloat64RepresentationFor(
       } else if (use_info.truncation()
                      .TruncatesBooleanAndNullAndBigIntToNumber()) {
 #ifdef V8_ENABLE_UNDEFINED_DOUBLE
-        return jsgraph()->Float64Constant(UndefinedNan());
+        return jsgraph()->Float64Constant(Float64::undefined_nan());
 #else
         UNREACHABLE();
 #endif  // V8_ENABLE_UNDEFINED_DOUBLE
@@ -909,6 +909,9 @@ Node* RepresentationChanger::GetFloat64RepresentationFor(
     } else if (use_info.type_check() == TypeCheckKind::kNumberOrOddball) {
       op = simplified()->CheckedTaggedToFloat64(
           CheckTaggedInputMode::kNumberOrOddball, use_info.feedback());
+    } else if (output_type.Is(Type::Union(Type::SignedSmall(), Type::Hole(),
+                                          jsgraph()->zone()))) {
+      op = simplified()->ChangeSmiOrHoleToFloat64();
     } else if (output_type.Is(Type::NumberOrHole())) {
       op = simplified()->ChangeNumberOrHoleToFloat64();
     }
@@ -1089,6 +1092,9 @@ Node* RepresentationChanger::GetWord32RepresentationFor(
           op = simplified()->CheckedTruncateTaggedToWord32(
               CheckTaggedInputMode::kAdditiveSafeInteger, use_info.feedback());
         }
+      } else if (output_type.Is(Type::Union(Type::SignedSmall(), Type::Hole(),
+                                            jsgraph()->zone()))) {
+        op = simplified()->TruncateSmiOrHoleToWord32();
       } else if (output_type.Is(Type::NumberOrOddball())) {
         op = simplified()->TruncateNumberOrOddballToWord32();
       } else if (output_type.Is(Type::NumberOrOddballOrHole())) {

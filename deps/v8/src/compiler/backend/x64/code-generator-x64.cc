@@ -9,6 +9,7 @@
 #include "src/base/overflowing-math.h"
 #include "src/builtins/builtins.h"
 #include "src/codegen/assembler.h"
+#include "src/codegen/atomic-memory-order.h"
 #include "src/codegen/cpu-features.h"
 #include "src/codegen/external-reference.h"
 #include "src/codegen/interface-descriptors-inl.h"
@@ -26,7 +27,7 @@
 #include "src/compiler/osr.h"
 #include "src/execution/frame-constants.h"
 #include "src/heap/heap-write-barrier.h"
-#include "src/heap/mutable-page-metadata.h"
+#include "src/heap/mutable-page.h"
 #include "src/objects/code-kind.h"
 #include "src/objects/smi.h"
 #include "src/roots/roots-inl.h"
@@ -35,6 +36,10 @@
 #include "src/wasm/wasm-linkage.h"
 #include "src/wasm/wasm-objects.h"
 #endif  // V8_ENABLE_WEBASSEMBLY
+
+#if V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
+#include "src/sandbox/code-sandboxing-mode.h"
+#endif  // V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
 
 namespace v8::internal::compiler {
 
@@ -408,8 +413,13 @@ class OutOfLineRecordWrite final : public OutOfLineCode {
 #if V8_ENABLE_STICKY_MARK_BITS_BOOL
       // TODO(333906585): Optimize this path.
       Label stub_call_with_decompressed_value;
+#if CONTIGUOUS_COMPRESSED_READ_ONLY_SPACE_BOOL
+      __ JumpIfUnsignedLessThan(value_, kContiguousReadOnlyReservationSize,
+                                exit());
+#else   // !CONTIGUOUS_COMPRESSED_READ_ONLY_SPACE_BOOL
       __ CheckPageFlag(value_, scratch0_, MemoryChunk::kIsInReadOnlyHeapMask,
                        not_zero, exit());
+#endif  // !CONTIGUOUS_COMPRESSED_READ_ONLY_SPACE_BOOL
       __ CheckMarkBit(value_, scratch0_, scratch1_, carry, exit());
       __ jmp(&stub_call_with_decompressed_value);
 
@@ -531,7 +541,8 @@ template <std::memory_order order>
 int EmitStore(MacroAssembler* masm, Operand operand, Register value,
               MachineRepresentation rep) {
   int store_instr_offset;
-  if (order == std::memory_order_relaxed) {
+  if (order == std::memory_order_relaxed ||
+      order == std::memory_order_release) {
     store_instr_offset = masm->pc_offset();
     switch (rep) {
       case MachineRepresentation::kWord8:
@@ -668,9 +679,9 @@ void RecordTrapInfoIfNeeded(Zone* zone, CodeGenerator* codegen,
                             InstructionCode opcode, Instruction* instr,
                             int pc) {
   const MemoryAccessMode access_mode = instr->memory_access_mode();
-  if (access_mode == kMemoryAccessProtectedMemOutOfBounds ||
-      access_mode == kMemoryAccessProtectedNullDereference) {
-    codegen->RecordProtectedInstruction(pc);
+  if (access_mode == kMemoryAccessTrappingMemOutOfBounds ||
+      access_mode == kMemoryAccessTrappingNullDereference) {
+    codegen->RecordTrappingInstruction(pc);
   }
 }
 
@@ -862,6 +873,31 @@ void EmitTSANAwareStore(Zone* zone, CodeGenerator* codegen,
   }
 }
 
+void EmitTSANAwareStore(Zone* zone, CodeGenerator* codegen,
+                        MacroAssembler* masm, Operand operand, Register value,
+                        X64OperandConverter& i, StubCallMode stub_call_mode,
+                        MachineRepresentation rep, Instruction* instr,
+                        std::optional<AtomicMemoryOrder> order = std::nullopt) {
+  if (!order.has_value()) {
+    EmitTSANAwareStore<std::memory_order_relaxed>(
+        zone, codegen, masm, operand, value, i, stub_call_mode, rep, instr);
+    return;
+  }
+
+  switch (order.value()) {
+    case AtomicMemoryOrder::kAcqRel:
+      EmitTSANAwareStore<std::memory_order_release>(
+          zone, codegen, masm, operand, value, i, stub_call_mode, rep, instr);
+      break;
+    case AtomicMemoryOrder::kSeqCst:
+      EmitTSANAwareStore<std::memory_order_seq_cst>(
+          zone, codegen, masm, operand, value, i, stub_call_mode, rep, instr);
+      break;
+    default:
+      UNREACHABLE();
+  }
+}
+
 class OutOfLineTSANRelaxedLoad final : public OutOfLineCode {
  public:
   OutOfLineTSANRelaxedLoad(CodeGenerator* gen, Operand operand,
@@ -932,11 +968,37 @@ void EmitTSANAwareStore(Zone* zone, CodeGenerator* codegen,
                         X64OperandConverter& i, StubCallMode stub_call_mode,
                         MachineRepresentation rep, Instruction* instr) {
   DCHECK(order == std::memory_order_relaxed ||
-         order == std::memory_order_seq_cst);
+         order == std::memory_order_seq_cst ||
+         order == std::memory_order_release);
   int store_instr_off = EmitStore<order>(masm, operand, value, rep);
   if (instr->HasMemoryAccessMode()) {
     RecordTrapInfoIfNeeded(zone, codegen, instr->opcode(), instr,
                            store_instr_off);
+  }
+}
+
+void EmitTSANAwareStore(Zone* zone, CodeGenerator* codegen,
+                        MacroAssembler* masm, Operand operand, Register value,
+                        X64OperandConverter& i, StubCallMode stub_call_mode,
+                        MachineRepresentation rep, Instruction* instr,
+                        std::optional<AtomicMemoryOrder> order = std::nullopt) {
+  if (!order.has_value()) {
+    EmitTSANAwareStore<std::memory_order_relaxed>(
+        zone, codegen, masm, operand, value, i, stub_call_mode, rep, instr);
+    return;
+  }
+
+  switch (order.value()) {
+    case AtomicMemoryOrder::kAcqRel:
+      EmitTSANAwareStore<std::memory_order_release>(
+          zone, codegen, masm, operand, value, i, stub_call_mode, rep, instr);
+      break;
+    case AtomicMemoryOrder::kSeqCst:
+      EmitTSANAwareStore<std::memory_order_seq_cst>(
+          zone, codegen, masm, operand, value, i, stub_call_mode, rep, instr);
+      break;
+    default:
+      UNREACHABLE();
   }
 }
 
@@ -1338,13 +1400,13 @@ void EmitTSANRelaxedLoadOOLIfNeeded(Zone* zone, CodeGenerator* codegen,
     RecordTrapInfoIfNeeded(zone(), this, opcode, instr, load_offset);    \
   } while (false)
 
-#define ASSEMBLE_SEQ_CST_STORE(rep)                                            \
+#define ASSEMBLE_ATOMIC_STORE(rep)                                             \
   do {                                                                         \
     Register value = i.InputRegister(0);                                       \
     Operand operand = i.MemoryOperand(1);                                      \
-    EmitTSANAwareStore<std::memory_order_seq_cst>(                             \
-        zone(), this, masm(), operand, value, i, DetermineStubCallMode(), rep, \
-        instr);                                                                \
+    AtomicMemoryOrder order = AtomicMemoryOrderField::decode(instr->opcode()); \
+    EmitTSANAwareStore(zone(), this, masm(), operand, value, i,                \
+                       DetermineStubCallMode(), rep, instr, order);            \
   } while (false)
 
 void CodeGenerator::AssembleDeconstructFrame() {
@@ -1352,6 +1414,10 @@ void CodeGenerator::AssembleDeconstructFrame() {
   __ movq(rsp, rbp);
   __ popq(rbp);
 }
+
+#ifdef V8_DUMPLING
+void CodeGenerator::AssembleDumpFrame() { __ CallBuiltin(Builtin::kDumpFrame); }
+#endif  // V8_DUMPLING
 
 void CodeGenerator::AssemblePrepareTailCall() {
   if (frame_access_state()->has_frame()) {
@@ -1477,7 +1543,6 @@ void CodeGenerator::AssembleCodeStartRegisterCheck() {
   __ Assert(equal, AbortReason::kWrongFunctionCodeStart);
 }
 
-#ifdef V8_ENABLE_LEAPTIERING
 // Check that {kJavaScriptCallDispatchHandleRegister} is correct.
 void CodeGenerator::AssembleDispatchHandleRegisterCheck() {
   DCHECK(linkage()->GetIncomingDescriptor()->IsJSFunctionCall());
@@ -1501,9 +1566,8 @@ void CodeGenerator::AssembleDispatchHandleRegisterCheck() {
   __ cmpl(rbx, Immediate(parameter_count_));
   __ Assert(equal, AbortReason::kWrongFunctionDispatchHandle);
 }
-#endif  // V8_ENABLE_LEAPTIERING
 
-void CodeGenerator::BailoutIfDeoptimized() { __ BailoutIfDeoptimized(rbx); }
+void CodeGenerator::AssertNotDeoptimized() { __ AssertNotDeoptimized(rbx); }
 
 bool ShouldClearOutputRegisterBeforeInstruction(CodeGenerator* g,
                                                 Instruction* instr) {
@@ -1685,21 +1749,25 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
         if (Handle<JSFunction> function; TryCast(constant, &function)) {
           if (function->shared()->HasBuiltinId()) {
             Builtin builtin = function->shared()->builtin_id();
-            size_t expected = Builtins::GetFormalParameterCount(builtin);
-            if (num_arguments == expected) {
+            // Defer signature mismatch abort to run-time as optimized
+            // unreachable calls can have mismatched signatures.
+            if (Builtins::IsCompatibleJSBuiltin(builtin, num_arguments)) {
               __ CallBuiltin(builtin);
             } else {
-              __ AssertUnreachable(AbortReason::kJSSignatureMismatch);
+              __ Abort(AbortReason::kJSSignatureMismatch);
             }
           } else {
             JSDispatchHandle dispatch_handle = function->dispatch_handle();
-            size_t expected =
-                IsolateGroup::current()->js_dispatch_table()->GetParameterCount(
+            uint16_t expected =
+                isolate()->js_dispatch_table().GetParameterCount(
                     dispatch_handle);
+            // Defer signature mismatch abort to run-time as optimized
+            // unreachable calls can have mismatched signatures.
             if (num_arguments >= expected) {
+              __ RecordJSDispatchHandle(dispatch_handle, expected);
               __ CallJSDispatchEntry(dispatch_handle, expected);
             } else {
-              __ AssertUnreachable(AbortReason::kJSSignatureMismatch);
+              __ Abort(AbortReason::kJSSignatureMismatch);
             }
           }
         } else {
@@ -1843,6 +1911,23 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       __ int3();
       unwinding_info_writer_.MarkBlockWillExit();
       break;
+#ifdef V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
+    case kArchSwitchSandboxMode: {
+      CodeSandboxingMode const sandbox_mode =
+          static_cast<CodeSandboxingMode>(MiscField::decode(opcode));
+      switch (sandbox_mode) {
+        case CodeSandboxingMode::kUnsandboxed:
+          __ ExitSandbox();
+          break;
+        case CodeSandboxingMode::kSandboxed:
+          __ EnterSandbox();
+          break;
+        default:
+          UNREACHABLE();
+      }
+      break;
+    }
+#endif  // V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
     case kArchDebugBreak:
       __ DebugBreak();
       break;
@@ -1858,6 +1943,12 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       __ jmp(exit->label());
       break;
     }
+#if V8_ENABLE_WEBASSEMBLY
+    case kArchTrap: {
+      __ jmp(zone()->New<WasmOutOfLineTrap>(this, instr)->entry());
+      break;
+    }
+#endif  // V8_ENABLE_WEBASSEMBLY
     case kArchRet:
       AssembleReturn(instr->InputAt(0));
       break;
@@ -1932,6 +2023,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       RecordWriteMode mode = RecordWriteModeField::decode(instr->opcode());
       // Indirect pointer writes must use a different opcode.
       DCHECK_NE(mode, RecordWriteMode::kValueIsIndirectPointer);
+      AtomicMemoryOrder order = AtomicMemoryOrderField::decode(instr->opcode());
       Register object = i.InputRegister(0);
       size_t index = 0;
       Operand operand = i.MemoryOperand(&index);
@@ -1950,14 +2042,14 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
                                                    scratch0, scratch1, mode,
                                                    DetermineStubCallMode());
       if (arch_opcode == kArchStoreWithWriteBarrier) {
-        EmitTSANAwareStore<std::memory_order_relaxed>(
-            zone(), this, masm(), operand, value, i, DetermineStubCallMode(),
-            MachineRepresentation::kTagged, instr);
+        EmitTSANAwareStore(zone(), this, masm(), operand, value, i,
+                           DetermineStubCallMode(),
+                           MachineRepresentation::kTagged, instr);
       } else {
         DCHECK_EQ(arch_opcode, kArchAtomicStoreWithWriteBarrier);
-        EmitTSANAwareStore<std::memory_order_seq_cst>(
-            zone(), this, masm(), operand, value, i, DetermineStubCallMode(),
-            MachineRepresentation::kTagged, instr);
+        EmitTSANAwareStore(zone(), this, masm(), operand, value, i,
+                           DetermineStubCallMode(),
+                           MachineRepresentation::kTagged, instr, order);
       }
       if (mode > RecordWriteMode::kValueIsPointer) {
         __ JumpIfSmi(value, ool->exit());
@@ -1983,6 +2075,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       size_t index = 0;
       Operand operand = i.MemoryOperand(&index);
       Register value = i.InputRegister(index);
+      AtomicMemoryOrder order = AtomicMemoryOrderField::decode(instr->opcode());
 
       DCHECK(v8_flags.verify_write_barriers);
       auto ool = zone()->New<OutOfLineVerifySkippedWriteBarrier>(
@@ -1992,14 +2085,14 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       __ bind(ool->exit());
 
       if (arch_opcode == kArchStoreSkippedWriteBarrier) {
-        EmitTSANAwareStore<std::memory_order_relaxed>(
-            zone(), this, masm(), operand, value, i, DetermineStubCallMode(),
-            MachineRepresentation::kTagged, instr);
+        EmitTSANAwareStore(zone(), this, masm(), operand, value, i,
+                           DetermineStubCallMode(),
+                           MachineRepresentation::kTagged, instr);
       } else {
         DCHECK_EQ(arch_opcode, kArchAtomicStoreSkippedWriteBarrier);
-        EmitTSANAwareStore<std::memory_order_seq_cst>(
-            zone(), this, masm(), operand, value, i, DetermineStubCallMode(),
-            MachineRepresentation::kTagged, instr);
+        EmitTSANAwareStore(zone(), this, masm(), operand, value, i,
+                           DetermineStubCallMode(),
+                           MachineRepresentation::kTagged, instr, order);
       }
       break;
     }
@@ -2218,15 +2311,19 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
         __ mull(i.InputOperand(1));
       }
       break;
-    case kX64ImulHigh64:
-      if (HasRegisterInput(instr, 1)) {
+    case kX64ImulWide:
+      if (HasAddressingMode(instr)) {
+        __ imulq(i.MemoryOperand(1));
+      } else if (HasRegisterInput(instr, 1)) {
         __ imulq(i.InputRegister(1));
       } else {
         __ imulq(i.InputOperand(1));
       }
       break;
-    case kX64UmulHigh64:
-      if (HasRegisterInput(instr, 1)) {
+    case kX64UmulWide:
+      if (HasAddressingMode(instr)) {
+        __ mulq(i.MemoryOperand(1));
+      } else if (HasRegisterInput(instr, 1)) {
         __ mulq(i.InputRegister(1));
       } else {
         __ mulq(i.InputOperand(1));
@@ -4476,6 +4573,13 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       RoundingMode const mode =
           static_cast<RoundingMode>(MiscField::decode(instr->opcode()));
       __ Roundps(i.OutputSimd128Register(), i.InputSimd128Register(0), mode);
+      break;
+    }
+    case kX64F32x8Round: {
+      CpuFeatureScope avx_scope(masm(), AVX);
+      RoundingMode const mode =
+          static_cast<RoundingMode>(MiscField::decode(instr->opcode()));
+      __ vroundps(i.OutputSimd256Register(), i.InputSimd256Register(0), mode);
       break;
     }
     case kX64F16x8Round: {
@@ -7066,19 +7170,19 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       break;
     }
     case kAtomicStoreWord8: {
-      ASSEMBLE_SEQ_CST_STORE(MachineRepresentation::kWord8);
+      ASSEMBLE_ATOMIC_STORE(MachineRepresentation::kWord8);
       break;
     }
     case kAtomicStoreWord16: {
-      ASSEMBLE_SEQ_CST_STORE(MachineRepresentation::kWord16);
+      ASSEMBLE_ATOMIC_STORE(MachineRepresentation::kWord16);
       break;
     }
     case kAtomicStoreWord32: {
-      ASSEMBLE_SEQ_CST_STORE(MachineRepresentation::kWord32);
+      ASSEMBLE_ATOMIC_STORE(MachineRepresentation::kWord32);
       break;
     }
     case kX64Word64AtomicStoreWord64: {
-      ASSEMBLE_SEQ_CST_STORE(MachineRepresentation::kWord64);
+      ASSEMBLE_ATOMIC_STORE(MachineRepresentation::kWord64);
       break;
     }
     case kAtomicExchangeInt8: {
@@ -7538,7 +7642,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
 #undef ASSEMBLE_SIMD_IMM_SHUFFLE
 #undef ASSEMBLE_SIMD_ALL_TRUE
 #undef ASSEMBLE_SIMD_SHIFT
-#undef ASSEMBLE_SEQ_CST_STORE
+#undef ASSEMBLE_ATOMIC_STORE
 
 namespace {
 

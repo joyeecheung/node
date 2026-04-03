@@ -24,7 +24,7 @@
 
 namespace v8::internal::compiler::turboshaft {
 
-template <class Reducers>
+template <template <typename> typename... Reducers>
 class Assembler;
 
 class LoopUnrollingAnalyzer;
@@ -525,6 +525,11 @@ class Block : public RandomAccessStackDominatorNode<Block> {
 #endif
   }
 
+#ifdef BUILTIN_BLOCK_POSITION
+  void set_pgo_execution_count(uint64_t count) { pgo_execution_count_ = count; }
+  uint64_t pgo_execution_count() const { return pgo_execution_count_; }
+#endif
+
  private:
   // AddPredecessor should never be called directly except from Assembler's
   // AddPredecessor and SplitEdge methods, which takes care of maintaining
@@ -559,11 +564,14 @@ class Block : public RandomAccessStackDominatorNode<Block> {
   // True if this is a loop header of a loop with a peeled iteration.
   bool has_peeled_iteration_ = false;
 #endif
+#ifdef BUILTIN_BLOCK_POSITION
+  uint64_t pgo_execution_count_ = 0;
+#endif
 
   friend class Graph;
-  template <class Reducers>
+  template <template <typename> typename... Reducers>
   friend class Assembler;
-  template <class Assembler>
+  template <typename Next>
   friend class GraphVisitor;
 };
 
@@ -577,10 +585,19 @@ inline PredecessorIterator& PredecessorIterator::operator++() {
 
 class Graph {
  public:
+  enum class Origin {
+    kInvalid,
+    kCreatedFromTurbofan,
+    kCreatedFromMaglev,
+    kPureTurboshaft
+  };
+
   // A big initial capacity prevents many growing steps. It also makes sense
   // because the graph and its memory is recycled for following phases.
-  explicit Graph(Zone* graph_zone, size_t initial_capacity = 2048)
-      : operations_(graph_zone, initial_capacity),
+  explicit Graph(Zone* graph_zone, Origin origin,
+                 size_t initial_capacity = 2048)
+      : origin_(origin),
+        operations_(graph_zone, initial_capacity),
         bound_blocks_(graph_zone),
         all_blocks_(),
         op_to_block_(graph_zone, this),
@@ -608,9 +625,10 @@ class Graph {
     operation_origins_.Reset();
     operation_types_.Reset();
     dominator_tree_depth_ = 0;
+    max_merge_pred_count_ = 0;
 #ifdef DEBUG
     block_type_refinement_.Reset();
-    // Do not reset of graph_created_from_turbofan_ as it is propagated along
+    // Do not reset of graph_kind_ as it is propagated along
     // the phases.
 #endif
   }
@@ -776,6 +794,11 @@ class Graph {
 #ifdef DEBUG
     result->graph_generation_ = generation_;
 #endif
+#ifdef BUILTIN_BLOCK_POSITION
+    if (origin) {
+      result->set_pgo_execution_count(origin->pgo_execution_count());
+    }
+#endif
     result->SetOrigin(origin);
     return result;
   }
@@ -791,6 +814,8 @@ class Graph {
     bound_blocks_.push_back(block);
     uint32_t depth = block->ComputeDominator();
     dominator_tree_depth_ = std::max<uint32_t>(dominator_tree_depth_, depth);
+    max_merge_pred_count_ =
+        std::max<uint32_t>(max_merge_pred_count_, block->PredecessorCount());
 
 #ifdef DEBUG
     if (v8_flags.turboshaft_trace_emitted) {
@@ -1016,6 +1041,8 @@ class Graph {
 
   uint32_t DominatorTreeDepth() const { return dominator_tree_depth_; }
 
+  uint32_t max_merge_pred_count() const { return max_merge_pred_count_; }
+
   const GrowingOpIndexSidetable<Type>& operation_types() const {
     return operation_types_;
   }
@@ -1048,10 +1075,10 @@ class Graph {
 
   Graph& GetOrCreateCompanion() {
     if (!companion_) {
-      companion_ = graph_zone_->New<Graph>(graph_zone_, operations_.size());
+      companion_ =
+          graph_zone_->New<Graph>(graph_zone_, origin_, operations_.size());
 #ifdef DEBUG
       companion_->generation_ = generation_ + 1;
-      if (IsCreatedFromTurbofan()) companion_->SetCreatedFromTurbofan();
       companion_->broker_ = broker_;
 #endif  // DEBUG
     }
@@ -1068,6 +1095,7 @@ class Graph {
     std::swap(next_block_, companion.next_block_);
     std::swap(block_permutation_, companion.block_permutation_);
     std::swap(graph_zone_, companion.graph_zone_);
+    std::swap(max_merge_pred_count_, companion.max_merge_pred_count_);
     op_to_block_.SwapData(companion.op_to_block_);
     source_positions_.SwapData(companion.source_positions_);
     operation_origins_.SwapData(companion.operation_origins_);
@@ -1091,8 +1119,10 @@ class Graph {
     return idx.generation_mod2() == generation_mod2();
   }
 
-  void SetCreatedFromTurbofan() { graph_created_from_turbofan_ = true; }
-  bool IsCreatedFromTurbofan() const { return graph_created_from_turbofan_; }
+  bool IsCreatedFromTurbofan() const {
+    return origin_ == Origin::kCreatedFromTurbofan;
+  }
+  bool IsTurbolev() const { return origin_ == Origin::kCreatedFromMaglev; }
 #endif  // DEBUG
 
   void set_loop_unrolling_analyzer(
@@ -1126,6 +1156,11 @@ class Graph {
     DCHECK_NOT_NULL(broker_);
     return broker_;
   }
+#endif
+
+#ifdef BUILTIN_BLOCK_POSITION
+  bool has_profile() const { return has_profile_; }
+  void set_has_profile() { has_profile_ = true; }
 #endif
 
  private:
@@ -1188,6 +1223,7 @@ class Graph {
     bound_blocks_.reserve(all_blocks_.size());
   }
 
+  Origin origin_ = Origin::kInvalid;
   OperationBuffer operations_;
   ZoneVector<Block*> bound_blocks_;
   // The next two fields essentially form a `ZoneVector` but with pointer
@@ -1206,10 +1242,12 @@ class Graph {
   GrowingOpIndexSidetable<SourcePosition> source_positions_;
   GrowingOpIndexSidetable<OpIndex> operation_origins_;
   uint32_t dominator_tree_depth_ = 0;
+  // {max_merge_pred_count_} stores the maximum number of predecessors that any
+  // Merge in the graph has.
+  uint32_t max_merge_pred_count_ = 0;
   GrowingOpIndexSidetable<Type> operation_types_;
 #ifdef DEBUG
   GrowingBlockSidetable<TypeRefinements> block_type_refinement_;
-  bool graph_created_from_turbofan_ = false;
   JSHeapBroker* broker_ = nullptr;
 #endif
 
@@ -1217,6 +1255,10 @@ class Graph {
 #ifdef DEBUG
   size_t generation_ = 1;
 #endif  // DEBUG
+
+#ifdef BUILTIN_BLOCK_POSITION
+  bool has_profile_ = false;
+#endif
 
   // Phase specific data.
   // For some reducers/phases, we use the graph to pass data around. These data
@@ -1277,9 +1319,15 @@ V8_INLINE bool Block::HasPhis(const Graph& graph) const {
 struct PrintAsBlockHeader {
   const Block& block;
   BlockIndex block_id;
+#ifdef BUILTIN_BLOCK_POSITION
+  bool has_profile;
 
+  explicit PrintAsBlockHeader(const Block& block, bool has_profile = false)
+      : block(block), block_id(block.index()), has_profile(has_profile) {}
+#else
   explicit PrintAsBlockHeader(const Block& block)
       : block(block), block_id(block.index()) {}
+#endif
   PrintAsBlockHeader(const Block& block, BlockIndex block_id)
       : block(block), block_id(block_id) {}
 };

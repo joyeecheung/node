@@ -459,7 +459,7 @@ void InstructionSelector::VisitLoad(OpIndex node) {
   EmitLoad(this, node, opcode);
 }
 
-void InstructionSelector::VisitProtectedLoad(OpIndex node) {
+void InstructionSelector::VisitTrappingLoad(OpIndex node) {
   // TODO(eholk)
   UNIMPLEMENTED();
 }
@@ -562,7 +562,7 @@ void InstructionSelector::VisitStore(OpIndex node) {
   }
 }
 
-void InstructionSelector::VisitProtectedStore(OpIndex node) {
+void InstructionSelector::VisitTrappingStore(OpIndex node) {
   // TODO(eholk)
   UNIMPLEMENTED();
 }
@@ -757,6 +757,10 @@ void InstructionSelector::VisitUint64MulHigh(OpIndex node) {
 void InstructionSelector::VisitInt64Mul(OpIndex node) {
   // TODO(MIPS_dev): May could be optimized like in Turbofan.
   VisitBinop(this, node, kMips64Dmul, true, kMips64Dmul);
+}
+
+void InstructionSelector::VisitWord64MulWide(OpIndex node, bool is_signed) {
+  UNIMPLEMENTED();
 }
 
 void InstructionSelector::VisitInt32Div(OpIndex node) {
@@ -1044,10 +1048,9 @@ bool InstructionSelector::ZeroExtendsWord32ToWord64NoPhis(OpIndex node) {
   switch (op.opcode) {
     // Comparisons only emit 0/1, so the upper 32 bits must be zero.
     case Opcode::kComparison:
-      return op.Cast<ComparisonOp>().rep == RegisterRepresentation::Word32();
-    case Opcode::kOverflowCheckedBinop:
-      return op.Cast<OverflowCheckedBinopOp>().rep ==
-             WordRepresentation::Word32();
+      return true;
+    case Opcode::kProjection:
+      return ZeroExtendsWord32ToWord64NoPhis(op.Cast<ProjectionOp>().input());
     case Opcode::kLoad: {
       auto load = this->load_view(node);
       LoadRepresentation load_rep = load.loaded_rep();
@@ -1989,25 +1992,23 @@ void InstructionSelector::VisitWordCompareZero(OpIndex user, OpIndex value,
           // actual value, or was already defined, which means it is scheduled
           // *AFTER* this branch).
           OpIndex node = projection->input();
-          OptionalOpIndex result = FindProjection(node, 0);
-          if (!result.valid() || IsDefined(result.value())) {
-            if (const OverflowCheckedBinopOp* binop =
-                    TryCast<OverflowCheckedBinopOp>(node)) {
-              const bool is64 = binop->rep == WordRepresentation::Word64();
-              switch (binop->kind) {
-                case OverflowCheckedBinopOp::Kind::kSignedAdd:
-                  cont->OverwriteAndNegateIfEqual(kOverflow);
-                  return VisitBinop(this, node,
-                                    is64 ? kMips64DaddOvf : kMips64Dadd, cont);
-                case OverflowCheckedBinopOp::Kind::kSignedSub:
-                  cont->OverwriteAndNegateIfEqual(kOverflow);
-                  return VisitBinop(this, node,
-                                    is64 ? kMips64DsubOvf : kMips64Dsub, cont);
-                case OverflowCheckedBinopOp::Kind::kSignedMul:
-                  cont->OverwriteAndNegateIfEqual(kOverflow);
-                  return VisitBinop(
-                      this, node, is64 ? kMips64DMulOvf : kMips64MulOvf, cont);
-              }
+          if (const OverflowCheckedBinopOp* binop =
+                  TryCast<OverflowCheckedBinopOp>(node);
+              binop && CanDoBranchIfOverflowFusion(node)) {
+            const bool is64 = binop->rep == WordRepresentation::Word64();
+            switch (binop->kind) {
+              case OverflowCheckedBinopOp::Kind::kSignedAdd:
+                cont->OverwriteAndNegateIfEqual(kOverflow);
+                return VisitBinop(this, node,
+                                  is64 ? kMips64DaddOvf : kMips64Dadd, cont);
+              case OverflowCheckedBinopOp::Kind::kSignedSub:
+                cont->OverwriteAndNegateIfEqual(kOverflow);
+                return VisitBinop(this, node,
+                                  is64 ? kMips64DsubOvf : kMips64Dsub, cont);
+              case OverflowCheckedBinopOp::Kind::kSignedMul:
+                cont->OverwriteAndNegateIfEqual(kOverflow);
+                return VisitBinop(this, node,
+                                  is64 ? kMips64DMulOvf : kMips64MulOvf, cont);
             }
           }
         }

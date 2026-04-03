@@ -95,6 +95,14 @@ class BaselineAssembler {
   inline void JumpIfTagged(Condition cc, MemOperand operand, Register value,
                            Label* target,
                            Label::Distance distance = Label::kFar);
+#ifdef V8_STATIC_ROOTS
+  // Jumps to the true or false target if the value is a static root known to by
+  // truthy/falsy, fallthrough otherwise.
+  inline void JumpIfStaticRootToBoolean(Register value, Label* true_target,
+                                        Label::Distance true_distance,
+                                        Label* false_target,
+                                        Label::Distance false_distance);
+#endif
   inline void JumpIfByte(Condition cc, Register value, int32_t byte,
                          Label* target, Label::Distance distance = Label::kFar);
 
@@ -213,7 +221,8 @@ class BaselineAssembler {
   };
   inline void LdaContextSlotNoCell(
       Register context, uint32_t index, uint32_t depth,
-      CompressionMode compression_mode = CompressionMode::kDefault);
+      CompressionMode compression_mode = CompressionMode::kDefault,
+      Register output = kInterpreterAccumulatorRegister);
   inline void StaContextSlotNoCell(Register context, Register value,
                                    uint32_t index, uint32_t depth);
   inline void LdaModuleVariable(Register context, int cell_index,

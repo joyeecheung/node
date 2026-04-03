@@ -213,14 +213,13 @@ class StreamTester {
   explicit StreamTester(v8::Isolate* isolate)
       : zone_(&allocator_, "StreamTester") {
     Isolate* i_isolate = reinterpret_cast<i::Isolate*>(isolate);
-    v8::Local<v8::Context> context = isolate->GetCurrentContext();
 
     WasmEnabledFeatures features = WasmEnabledFeatures::FromIsolate(i_isolate);
     stream_ = GetWasmEngine()->StartStreamingCompilation(
-        i_isolate, features, CompileTimeImports{},
-        v8::Utils::OpenDirectHandle(*context), "WebAssembly.compileStreaming()",
+        features, CompileTimeImports{}, "WebAssembly.compileStreaming()",
         std::make_shared<TestResolver>(i_isolate, &state_, &error_message_,
                                        &module_object_));
+    stream_->InitializeIsolateSpecificInfo(i_isolate);
   }
 
   std::shared_ptr<StreamingDecoder> stream() const { return stream_; }
@@ -232,7 +231,7 @@ class StreamTester {
   }
 
   // Compiled native module, valid after successful compile.
-  NativeModule* native_module() const {
+  Managed<NativeModule>::Ptr native_module() const {
     return module_object()->native_module();
   }
   std::shared_ptr<NativeModule> shared_native_module() const {
@@ -337,10 +336,10 @@ ZoneBuffer GetValidCompiledModuleBytes(v8::Isolate* isolate, Zone* zone,
   tester.RunCompilerTasks();
   CHECK(tester.IsPromiseFulfilled());
 
-  NativeModule* native_module = tester.native_module();
+  Managed<NativeModule>::Ptr native_module = tester.native_module();
   CHECK_NOT_NULL(native_module);
 
-  auto* i_isolate = reinterpret_cast<i::Isolate*>(isolate);
+  i::Isolate* i_isolate = reinterpret_cast<i::Isolate*>(isolate);
   std::vector<IndirectHandle<WasmExportedFunction>> exported_functions;
   {
     ErrorThrower thrower{i_isolate, "GetValidCompiledModuleBytes"};
@@ -380,7 +379,7 @@ ZoneBuffer GetValidCompiledModuleBytes(v8::Isolate* isolate, Zone* zone,
   }
 
   // Serialize the NativeModule.
-  i::wasm::WasmSerializer serializer(native_module);
+  i::wasm::WasmSerializer serializer(native_module.raw());
   size_t size = serializer.GetSerializedNativeModuleSize();
   std::vector<uint8_t> buffer(size);
   CHECK(serializer.SerializeNativeModule(base::VectorOf(buffer)));
@@ -1299,7 +1298,7 @@ STREAM_TEST(TestIncrementalCaching) {
     CHECK(!thrower.error());
 
     WasmCodeRefScope code_scope;
-    NativeModule* module = tester.native_module();
+    Managed<NativeModule>::Ptr module = tester.native_module();
     CHECK(module->GetCode(0) == nullptr || module->GetCode(0)->is_liftoff());
     CHECK(module->GetCode(1) == nullptr || module->GetCode(1)->is_liftoff());
     CHECK(module->GetCode(2) == nullptr || module->GetCode(2)->is_liftoff());
@@ -1311,13 +1310,13 @@ STREAM_TEST(TestIncrementalCaching) {
   size_t serialized_size;
   {
     WasmCodeRefScope code_scope;
-    NativeModule* module = tester.native_module();
+    Managed<NativeModule>::Ptr module = tester.native_module();
     CHECK(!module->GetCode(0)->is_liftoff());
     CHECK(module->GetCode(1) == nullptr || module->GetCode(1)->is_liftoff());
     CHECK(module->GetCode(2) == nullptr || module->GetCode(2)->is_liftoff());
     CHECK_EQ(1, call_cache_counter);
     {
-      i::wasm::WasmSerializer serializer(tester.native_module());
+      i::wasm::WasmSerializer serializer(tester.native_module().raw());
       serialized_size = serializer.GetSerializedNativeModuleSize();
     }
     i::wasm::TriggerTierUp(i_isolate, instance->trusted_data(i_isolate), 1);
@@ -1325,13 +1324,13 @@ STREAM_TEST(TestIncrementalCaching) {
   tester.RunCompilerTasks();
   {
     WasmCodeRefScope code_scope;
-    NativeModule* module = tester.native_module();
+    Managed<NativeModule>::Ptr module = tester.native_module();
     CHECK(!module->GetCode(0)->is_liftoff());
     CHECK(!module->GetCode(1)->is_liftoff());
     CHECK(module->GetCode(2) == nullptr || module->GetCode(2)->is_liftoff());
     CHECK_EQ(2, call_cache_counter);
     {
-      i::wasm::WasmSerializer serializer(tester.native_module());
+      i::wasm::WasmSerializer serializer(tester.native_module().raw());
       CHECK_LT(serialized_size, serializer.GetSerializedNativeModuleSize());
     }
   }

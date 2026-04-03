@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Flags: --experimental-wasm-simd-opt
-
 d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
 d8.file.execute('test/mjsunit/value-helper.js');
 
@@ -273,6 +271,38 @@ const shuffle_8x8_tests = [
   {
     name: "DupLow_Lane12_Input1",
     shuffle: [28, 28, 28, 28, 28, 28, 28, 28],
+  },
+  {
+    name: "8x8DeinterleaveEvenEven",
+    shuffle: [0, 4, 8, 12, 16, 20, 24, 28],
+  },
+  {
+    name: "8x8DeinterleaveOddEven",
+    shuffle: [1, 5, 9, 13, 17, 21, 25, 29],
+  },
+  {
+    name: "8x8DeinterleaveEvenOdd",
+    shuffle: [2, 6, 10, 14, 18, 22, 26, 30],
+  },
+  {
+    name: "8x8DeinterleaveOddOdd",
+    shuffle: [3, 7, 11, 15, 19, 23, 27, 31],
+  },
+  {
+    name: "16x4DeinterleaveEvenEven",
+    shuffle: [0, 1, 8, 9, 16, 17, 24, 25],
+  },
+  {
+    name: "16x4DeinterleaveOddEven",
+    shuffle: [2, 3, 10, 11, 18, 19, 26, 27],
+  },
+  {
+    name: "16x4DeinterleaveEvenOdd",
+    shuffle: [4, 5, 12, 13, 20, 21, 28, 29],
+  },
+  {
+    name: "16x4DeinterleaveOddOdd",
+    shuffle: [6, 7, 14, 15, 22, 23, 30, 31],
   },
 ];
 

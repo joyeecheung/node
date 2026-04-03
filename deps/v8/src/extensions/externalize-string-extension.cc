@@ -12,33 +12,11 @@
 #include "src/heap/heap-layout-inl.h"
 #include "src/objects/heap-object-inl.h"
 #include "src/objects/objects-inl.h"
+#include "src/objects/string.h"
+#include "src/strings/owning-external-string-resource.h"
 
 namespace v8 {
 namespace internal {
-
-template <typename Char, typename Base>
-class SimpleStringResource : public Base {
- public:
-  // Takes ownership of |data|.
-  SimpleStringResource(Char* data, size_t length)
-      : data_(data),
-        length_(length) {}
-
-  ~SimpleStringResource() override { delete[] data_; }
-
-  const Char* data() const override { return data_; }
-
-  size_t length() const override { return length_; }
-
- private:
-  Char* const data_;
-  const size_t length_;
-};
-
-using SimpleOneByteStringResource =
-    SimpleStringResource<char, v8::String::ExternalOneByteStringResource>;
-using SimpleTwoByteStringResource =
-    SimpleStringResource<base::uc16, v8::String::ExternalStringResource>;
 
 static constexpr int kMinOneByteLength =
     kExternalPointerSlotSize - kTaggedSize + 1;
@@ -68,21 +46,28 @@ v8::Local<v8::FunctionTemplate>
 ExternalizeStringExtension::GetNativeFunctionTemplate(
     v8::Isolate* isolate, v8::Local<v8::String> str) {
   if (strcmp(*v8::String::Utf8Value(isolate, str), "externalizeString") == 0) {
-    return v8::FunctionTemplate::New(isolate,
-                                     ExternalizeStringExtension::Externalize);
+    return v8::FunctionTemplate::New(
+        isolate, ExternalizeStringExtension::Externalize,
+        v8::Local<v8::Value>(), v8::Local<v8::Signature>(), 0,
+        v8::ConstructorBehavior::kThrow);
   } else if (strcmp(*v8::String::Utf8Value(isolate, str),
                     "createExternalizableString") == 0) {
     return v8::FunctionTemplate::New(
-        isolate, ExternalizeStringExtension::CreateExternalizableString);
+        isolate, ExternalizeStringExtension::CreateExternalizableString,
+        v8::Local<v8::Value>(), v8::Local<v8::Signature>(), 0,
+        v8::ConstructorBehavior::kThrow);
   } else if (strcmp(*v8::String::Utf8Value(isolate, str),
                     "createExternalizableTwoByteString") == 0) {
     return v8::FunctionTemplate::New(
-        isolate, ExternalizeStringExtension::CreateExternalizableTwoByteString);
+        isolate, ExternalizeStringExtension::CreateExternalizableTwoByteString,
+        v8::Local<v8::Value>(), v8::Local<v8::Signature>(), 0,
+        v8::ConstructorBehavior::kThrow);
   } else {
     DCHECK_EQ(strcmp(*v8::String::Utf8Value(isolate, str), "isOneByteString"),
               0);
-    return v8::FunctionTemplate::New(isolate,
-                                     ExternalizeStringExtension::IsOneByte);
+    return v8::FunctionTemplate::New(
+        isolate, ExternalizeStringExtension::IsOneByte, v8::Local<v8::Value>(),
+        v8::Local<v8::Signature>(), 0, v8::ConstructorBehavior::kThrow);
   }
 }
 
@@ -121,19 +106,12 @@ void ExternalizeStringExtension::Externalize(
     }
     return;
   }
-  uint32_t length = string->length();
   if (externalize_as_one_byte) {
-    uint8_t* data = new uint8_t[length];
-    String::WriteToFlat(*string, data, 0, length);
-    SimpleOneByteStringResource* resource =
-        new SimpleOneByteStringResource(reinterpret_cast<char*>(data), length);
+    auto* resource = new OwningExternalOneByteStringResource(*string);
     result = Utils::ToLocal(string)->MakeExternal(info.GetIsolate(), resource);
     if (!result) delete resource;
   } else {
-    base::uc16* data = new base::uc16[length];
-    String::WriteToFlat(*string, data, 0, length);
-    SimpleTwoByteStringResource* resource =
-        new SimpleTwoByteStringResource(data, length);
+    auto* resource = new OwningExternalStringResource(*string);
     result = Utils::ToLocal(string)->MakeExternal(info.GetIsolate(), resource);
     if (!result) delete resource;
   }

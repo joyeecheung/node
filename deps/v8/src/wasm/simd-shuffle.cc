@@ -21,7 +21,8 @@ static constexpr uint8_t kShuffleSentinel = 0xFF;
 // [0..kActiveBytes-1] to the full shuffle indices and
 // [kActiveBytes...kSimd128Size-1] set to the sentinel value.
 template <size_t N, int kActiveBytes = kSimd128Size>
-  requires((kActiveBytes == kSimd128Size || kActiveBytes == kSimd128HalfSize) &&
+  requires((kActiveBytes == kSimd128Size || kActiveBytes == kSimd128HalfSize ||
+            kActiveBytes == kSimd128QuarterSize) &&
            kActiveBytes % N == 0)
 constexpr SimdShuffle::ShuffleArray<kSimd128Size> expand(
     const std::array<uint8_t, N>& in) {
@@ -51,7 +52,8 @@ constexpr SimdShuffle::ShuffleArray<kSimd128Size> expandHalf(
 // only shuffles are padded with the sentinel value. Half-size shuffles
 // only match the first half of each shuffle pattern.
 template <size_t N>
-  requires(N == kSimd128HalfSize || N == kSimd128Size)
+  requires(N == kSimd128QuarterSize || N == kSimd128HalfSize ||
+           N == kSimd128Size)
 SimdShuffle::CanonicalShuffle TryMatchCanonicalImpl(
     const SimdShuffle::ShuffleArray<N>& shuffle) {
   using CanonicalShuffle = SimdShuffle::CanonicalShuffle;
@@ -59,6 +61,7 @@ SimdShuffle::CanonicalShuffle TryMatchCanonicalImpl(
                                   const CanonicalShuffle>;
   static constexpr auto canonical_shuffle_list = std::to_array<CanonicalPair>({
       {expand<2>({0, 1}), CanonicalShuffle::kIdentity},
+      {expandHalf<1>({0}), CanonicalShuffle::kIdentity},
       {expand<2>({0, 2}), CanonicalShuffle::kS64x2Even},
       {expand<2>({1, 3}), CanonicalShuffle::kS64x2Odd},
       {expand<2>({1, 0}), CanonicalShuffle::kS64x2Reverse},
@@ -109,6 +112,22 @@ SimdShuffle::CanonicalShuffle TryMatchCanonicalImpl(
        CanonicalShuffle::kS8x16TransposeEven},
       {{1, 17, 3, 19, 5, 21, 7, 23, 9, 25, 11, 27, 13, 29, 15, 31},
        CanonicalShuffle::kS8x16TransposeOdd},
+      {{0, 4, 8, 12, 16, 20, 24, 28},
+       CanonicalShuffle::kS8x8DeinterleaveEvenEven},
+      {{1, 5, 9, 13, 17, 21, 25, 29},
+       CanonicalShuffle::kS8x8DeinterleaveOddEven},
+      {{2, 6, 10, 14, 18, 22, 26, 30},
+       CanonicalShuffle::kS8x8DeinterleaveEvenOdd},
+      {{3, 7, 11, 15, 19, 23, 27, 31},
+       CanonicalShuffle::kS8x8DeinterleaveOddOdd},
+      {expandHalf<4>({0, 4, 8, 12}),
+       CanonicalShuffle::kS16x4DeinterleaveEvenEven},
+      {expandHalf<4>({1, 5, 9, 13}),
+       CanonicalShuffle::kS16x4DeinterleaveOddEven},
+      {expandHalf<4>({2, 6, 10, 14}),
+       CanonicalShuffle::kS16x4DeinterleaveEvenOdd},
+      {expandHalf<4>({3, 7, 11, 15}),
+       CanonicalShuffle::kS16x4DeinterleaveOddOdd},
   });
   for (const auto& [lanes, canonical] : canonical_shuffle_list) {
     if (std::equal(lanes.begin(), lanes.begin() + N, shuffle.begin())) {
@@ -128,6 +147,11 @@ SimdShuffle::CanonicalShuffle SimdShuffle::TryMatchCanonical(
 SimdShuffle::CanonicalShuffle SimdShuffle::TryMatchCanonical(
     const ShuffleArray<kSimd128HalfSize>& shuffle) {
   return TryMatchCanonicalImpl<kSimd128HalfSize>(shuffle);
+}
+
+SimdShuffle::CanonicalShuffle SimdShuffle::TryMatchCanonical(
+    const ShuffleArray<kSimd128QuarterSize>& shuffle) {
+  return TryMatchCanonicalImpl<kSimd128QuarterSize>(shuffle);
 }
 
 bool SimdShuffle::TryMatchIdentity(const uint8_t* shuffle) {
@@ -165,8 +189,8 @@ bool SimdShuffle::TryMatch32x4OneLaneSwizzle(const uint8_t* shuffle32x4,
                                              uint8_t* from_lane,
                                              uint8_t* to_lane) {
   constexpr uint32_t patterns[12]{
-      0x30200000,  // 0 -> 1
-      0x30000100,  // 0 -> 2
+      0x03020000,  // 0 -> 1
+      0x03000100,  // 0 -> 2
       0x00020100,  // 0 -> 3
       0x03020101,  // 1 -> 0
       0x03010100,  // 1 -> 2

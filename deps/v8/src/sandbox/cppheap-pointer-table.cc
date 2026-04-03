@@ -171,6 +171,72 @@ void CppHeapPointerTable::ResolveEvacuationEntryDuringSweeping(
   *handle_location = new_handle;
 }
 
+void CppHeapPointerTable::Verify(Isolate* isolate, Space* space) {
+  IterateEntriesIn(space, [&](uint32_t index) {
+    auto payload = at(index).GetRawPayload();
+    CppHeapPointerTag tag = payload.ExtractTag();
+    if (tag == CppHeapPointerTag::kFreeEntryTag ||
+        tag == CppHeapPointerTag::kEvacuationEntryTag ||
+        tag == CppHeapPointerTag::kZappedEntryTag) {
+      return;
+    }
+
+    Address pointer = payload.Untag(tag);
+    if (pointer == kNullAddress) return;
+
+    // We don't know the C++ type of the referenced object, so we cannot do
+    // much verification on it. What we can do is try to load the first byte of
+    // the object (we assume we don't have zero-sized objects). This way, we
+    // can at least detect issues like use-after-free on ASan builds.
+    USE(*reinterpret_cast<const uint8_t*>(pointer));
+  });
+}
+
+#ifdef OBJECT_PRINT
+
+namespace {
+
+constexpr std::string_view entry_spacer =
+    "+-----------------------------------------+\n";
+
+}  // namespace
+
+// static
+void CppHeapPointerTableEntryPrinter::PrintHeader(const char* space_name) {
+  PrintF(stderr, "%s", entry_spacer.data());
+  PrintF(stderr, "| %*s |\n", static_cast<int>(entry_spacer.size() - 5),
+         space_name);
+  PrintF(stderr, "%s", entry_spacer.data());
+  PrintF(stderr, "|     handle |   tag |    CppHeap pointer |\n");
+  PrintF(stderr, "%s", entry_spacer.data());
+}
+
+// static
+void CppHeapPointerTableEntryPrinter::PrintIfInUse(
+    CppHeapPointerHandle handle, const CppHeapPointerTableEntry& entry,
+    std::function<bool(CppHeapPointerTag)> entry_callback) {
+  const auto payload = entry.GetRawPayload();
+  const CppHeapPointerTag tag = payload.ExtractTag();
+  if (tag == CppHeapPointerTag::kFreeEntryTag ||
+      tag == CppHeapPointerTag::kZappedEntryTag) {
+    return;
+  }
+  if (!entry_callback(tag)) {
+    return;
+  }
+
+  Address address = payload.Untag(tag);
+  PrintF(stderr, "| %10" PRIu32 " | %5" PRIu16 " | 0x%016" PRIxPTR " |\n",
+         handle, tag, address);
+}
+
+// static
+void CppHeapPointerTableEntryPrinter::PrintFooter() {
+  PrintF(stderr, "%s", entry_spacer.data());
+}
+
+#endif  // OBJECT_PRINT
+
 }  // namespace internal
 }  // namespace v8
 

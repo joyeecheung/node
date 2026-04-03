@@ -29,6 +29,7 @@ class Code;
   V(kExternalStringsTable, "(External strings)")               \
   V(kGlobalHandles, "(Global handles)")                        \
   V(kHandleScope, "(Handle scope)")                            \
+  V(kIdentityMap, "(Identity map)")                            \
   V(kMicroTasks, "(Micro tasks)")                              \
   V(kReadOnlyRootList, "(Read-only roots)")                    \
   V(kRelocatable, "(Relocatable)")                             \
@@ -210,6 +211,10 @@ class ObjectVisitor {
 
   virtual void VisitJSDispatchTableEntry(Tagged<HeapObject> host,
                                          JSDispatchHandle handle) {}
+  virtual void VisitJSDispatchTableEntry(Tagged<InstructionStream> host,
+                                         JSDispatchHandle handle) {
+    VisitJSDispatchTableEntry(Cast<HeapObject>(host), handle);
+  }
 
   virtual void VisitMapPointer(Tagged<HeapObject> host) { UNREACHABLE(); }
 };

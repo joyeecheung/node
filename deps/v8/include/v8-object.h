@@ -163,30 +163,48 @@ enum PropertyAttribute {
 };
 
 /**
- * Accessor[Getter|Setter] are used as callback functions when setting|getting
- * a particular data property. See Object::SetNativeDataProperty and
+ * This callback function is called when getting a particular data property
+ * (i.e. when performing [[Get]] operation).
+ *
+ * The callback returns the result by calling `info.GetReturnValue().Set(..)`.
+ *
+ * \param property The name of the property being requested.
+ * \param info Information about the intercepted request, such as
+ * isolate, object holding the property, return value. See
+ * `PropertyCallbackInfo`.
+ *
+ * See Object::SetNativeDataProperty and
  * ObjectTemplate::SetNativeDataProperty methods.
  */
 using AccessorNameGetterCallback =
     void (*)(Local<Name> property, const PropertyCallbackInfo<Value>& info);
 
+/**
+ * This callback function is called when setting a particular data property
+ * (i.e. when performing [[Set]] operation).
+ *
+ * In case of operation failure the callback should
+ *  - call `info.GetReturnValue().Set(false)`,
+ *  - (optionally) upon operation failure and info.ShouldThrowOnError()
+ *    is true (indicating execution in `'use strict'` mode) the callback can
+ *    throw TypeError if the error message needs to include more details than
+ *    a TypeError thrown by V8 in this case.
+ *
+ * \param property The name of the property being requested.
+ * \param info Information about the intercepted request, such as
+ * isolate, object holding the property, return value, or whether running in
+ * `'use strict'` mode. See `PropertyCallbackInfo`.
+ *
+ * See Object::SetNativeDataProperty and
+ * ObjectTemplate::SetNativeDataProperty methods.
+ */
+using AccessorNameSetterCallbackV2 =
+    void (*)(Local<Name> property, Local<Value> value,
+             const PropertyCallbackInfo<Boolean>& info);
+// TODO(https://crbug.com/348660658): deprecate and remove.
 using AccessorNameSetterCallback =
     void (*)(Local<Name> property, Local<Value> value,
              const PropertyCallbackInfo<void>& info);
-
-/**
- * Access control specifications.
- *
- * Some accessors should be accessible across contexts. These
- * accessors have an explicit access control parameter which specifies
- * the kind of cross-context access that should be allowed.
- *
- */
-enum V8_DEPRECATED(
-    "This enum is no longer used and will be removed in V8 14.3.")
-    AccessControl {
-      DEFAULT V8_ENUM_DEPRECATED("not used") = 0,
-    };
 
 /**
  * Property filter bits. They can be or'ed to build a composite filter.
@@ -373,11 +391,29 @@ class V8_EXPORT Object : public Value {
    */
   V8_WARN_UNUSED_RESULT Maybe<bool> SetNativeDataProperty(
       Local<Context> context, Local<Name> name,
-      AccessorNameGetterCallback getter,
-      AccessorNameSetterCallback setter = nullptr,
+      AccessorNameGetterCallback getter, AccessorNameSetterCallbackV2 setter,
       Local<Value> data = Local<Value>(), PropertyAttribute attributes = None,
       SideEffectType getter_side_effect_type = SideEffectType::kHasSideEffect,
       SideEffectType setter_side_effect_type = SideEffectType::kHasSideEffect);
+  V8_WARN_UNUSED_RESULT Maybe<bool> SetNativeDataProperty(
+      Local<Context> context, Local<Name> name,
+      AccessorNameGetterCallback getter, AccessorNameSetterCallback setter,
+      Local<Value> data = Local<Value>(), PropertyAttribute attributes = None,
+      SideEffectType getter_side_effect_type = SideEffectType::kHasSideEffect,
+      SideEffectType setter_side_effect_type = SideEffectType::kHasSideEffect);
+  // TODO(https://crbug.com/348660658): remove once AccessorNameSetterCallback
+  // is removed.
+  V8_WARN_UNUSED_RESULT Maybe<bool> SetNativeDataProperty(
+      Local<Context> context, Local<Name> name,
+      AccessorNameGetterCallback getter, nullptr_t setter = nullptr,
+      Local<Value> data = Local<Value>(), PropertyAttribute attributes = None,
+      SideEffectType getter_side_effect_type = SideEffectType::kHasSideEffect,
+      SideEffectType setter_side_effect_type = SideEffectType::kHasSideEffect) {
+    return SetNativeDataProperty(
+        context, name, getter,
+        static_cast<AccessorNameSetterCallbackV2>(setter), data, attributes,
+        getter_side_effect_type, setter_side_effect_type);
+  }
 
   /**
    * Attempts to create a property with the given name which behaves like a data
@@ -440,17 +476,24 @@ class V8_EXPORT Object : public Value {
   /**
    * Get the prototype object (same as calling Object.getPrototypeOf(..)).
    * This does not consult the security handler.
-   * TODO(http://crbug.com/333672197): rename back to GetPrototype().
    */
-  Local<Value> GetPrototypeV2();
+  Local<Value> GetPrototype();
+  // TODO(http://crbug.com/333672197): deprecate and remove.
+  V8_DEPRECATE_SOON("Use GetPrototype().")
+  inline Local<Value> GetPrototypeV2() { return GetPrototype(); }
 
   /**
    * Set the prototype object (same as calling Object.setPrototypeOf(..)).
    * This does not consult the security handler.
-   * TODO(http://crbug.com/333672197): rename back to SetPrototype().
    */
+  V8_WARN_UNUSED_RESULT Maybe<bool> SetPrototype(Local<Context> context,
+                                                 Local<Value> prototype);
+  // TODO(http://crbug.com/333672197): deprecate and remove.
+  V8_DEPRECATE_SOON("Use SetPrototype().")
   V8_WARN_UNUSED_RESULT Maybe<bool> SetPrototypeV2(Local<Context> context,
-                                                   Local<Value> prototype);
+                                                   Local<Value> prototype) {
+    return SetPrototype(context, prototype);
+  }
 
   /**
    * Finds an instance of the given function template in the prototype
@@ -517,38 +560,12 @@ class V8_EXPORT Object : public Value {
                                                      int index,
                                                      EmbedderDataTypeTag tag);
 
-  V8_DEPRECATE_SOON(
-      "Use GetAlignedPointerFromInternalField with EmbedderDataTypeTag "
-      "parameter instead.")
-  V8_INLINE void* GetAlignedPointerFromInternalField(int index) {
-    return GetAlignedPointerFromInternalField(index,
-                                              kEmbedderDataTypeTagDefault);
-  }
-
-  V8_DEPRECATE_SOON(
-      "Use GetAlignedPointerFromInternalField with EmbedderDataTypeTag "
-      "parameter instead.")
-  V8_INLINE void* GetAlignedPointerFromInternalField(v8::Isolate* isolate,
-                                                     int index) {
-    return GetAlignedPointerFromInternalField(isolate, index,
-                                              kEmbedderDataTypeTagDefault);
-  }
-
   /** Same as above, but works for PersistentBase. */
   V8_INLINE static void* GetAlignedPointerFromInternalField(
       const PersistentBase<Object>& object, int index,
       EmbedderDataTypeTag tag) {
     return object.template value<Object>()->GetAlignedPointerFromInternalField(
         index, tag);
-  }
-
-  V8_DEPRECATE_SOON(
-      "Use GetAlignedPointerFromInternalField with EmbedderDataTypeTag "
-      "parameter instead.")
-  V8_INLINE static void* GetAlignedPointerFromInternalField(
-      const PersistentBase<Object>& object, int index) {
-    return object.template value<Object>()->GetAlignedPointerFromInternalField(
-        index);
   }
 
   /** Same as above, but works for TracedReference. */
@@ -559,15 +576,6 @@ class V8_EXPORT Object : public Value {
         index, tag);
   }
 
-  V8_DEPRECATE_SOON(
-      "Use GetAlignedPointerFromInternalField with EmbedderDataTypeTag "
-      "parameter instead.")
-  V8_INLINE static void* GetAlignedPointerFromInternalField(
-      const BasicTracedReference<Object>& object, int index) {
-    return object.template value<Object>()->GetAlignedPointerFromInternalField(
-        index);
-  }
-
   /**
    * Sets a 2-byte-aligned native pointer in an internal field. To retrieve such
    * a field, GetAlignedPointerFromInternalField must be used, everything else
@@ -575,19 +583,6 @@ class V8_EXPORT Object : public Value {
    */
   void SetAlignedPointerInInternalField(int index, void* value,
                                         EmbedderDataTypeTag tag);
-
-  V8_DEPRECATE_SOON(
-      "Use SetAlignedPointerInInternalField with EmbedderDataTypeTag parameter "
-      "instead.")
-  void SetAlignedPointerInInternalField(int index, void* value) {
-    SetAlignedPointerInInternalField(index, value, kEmbedderDataTypeTagDefault);
-  }
-
-  V8_DEPRECATE_SOON(
-      "Use SetAlignedPointerInInternalField with EmbedderDataTypeTag "
-      "parameter instead.")
-  void SetAlignedPointerInInternalFields(int argc, int indices[],
-                                         void* values[]);
 
   // Type information for a Wrappable object that got wrapped with
   // `v8::Object::Wrap()`.
@@ -815,28 +810,16 @@ class V8_EXPORT Object : public Value {
    *
    * Prefer using version with Isolate parameter if you have an Isolate,
    * otherwise use the other one.
+   *
+   * The type tag has to match the type tag used for storing the value in the
+   * embedder field.
+   * If type tags are not used in the embedder, the default value
+   * `kEmbedderDataTypeTagDefault` can be used.
    */
   void* GetAlignedPointerFromEmbedderDataInCreationContext(
       v8::Isolate* isolate, int index, EmbedderDataTypeTag tag);
   void* GetAlignedPointerFromEmbedderDataInCreationContext(
       int index, EmbedderDataTypeTag tag);
-
-  V8_DEPRECATE_SOON(
-      "Use GetAlignedPointerFromEmbedderDataInCreationContext with "
-      "EmbedderDataTypeTag parameter instead.")
-  void* GetAlignedPointerFromEmbedderDataInCreationContext(v8::Isolate* isolate,
-                                                           int index) {
-    return GetAlignedPointerFromEmbedderDataInCreationContext(
-        isolate, index, kEmbedderDataTypeTagDefault);
-  }
-
-  V8_DEPRECATE_SOON(
-      "Use GetAlignedPointerFromEmbedderDataInCreationContext with "
-      "EmbedderDataTypeTag parameter instead.")
-  void* GetAlignedPointerFromEmbedderDataInCreationContext(int index) {
-    return GetAlignedPointerFromEmbedderDataInCreationContext(
-        index, kEmbedderDataTypeTagDefault);
-  }
 
   /**
    * Checks whether a callback is set by the

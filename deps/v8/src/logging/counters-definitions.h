@@ -48,8 +48,8 @@ namespace internal {
   HR(wasm_compile_huge_function_peak_memory_bytes,                             \
      V8.WasmCompileHugeFunctionPeakMemoryBytes, 1, GB, 51)                     \
   HR(asm_module_size_bytes, V8.AsmModuleSizeBytes, 1, GB, 51)                  \
-  HR(compile_script_cache_behaviour, V8.CompileScript.CacheBehaviour, 0, 21,   \
-     22)                                                                       \
+  HR(compile_script_cache_behaviour, V8.CompileScript.CacheBehaviour, 0, 22,   \
+     23)                                                                       \
   HR(wasm_memory_allocation_result, V8.WasmMemoryAllocationResult, 0, 3, 4)    \
   /* Committed code size per module, collected on GC. */                       \
   /* Older histogram, in MiB (0..1024MB). */                                   \
@@ -312,10 +312,7 @@ namespace internal {
      V8.CompileFunctionMicroSeconds.BackgroundThread, 1000000, MICROSECOND)    \
   HT(deserialize_script_on_background,                                         \
      V8.CompileScriptMicroSeconds.ConsumeCache.BackgroundThread, 1000000,      \
-     MICROSECOND)                                                              \
-  /* Debugger timers. */                                                       \
-  HT(debug_pause_to_paused_event, V8.DebugPauseToPausedEventMilliSeconds,      \
-     1000000, MILLISECOND)
+     MICROSECOND)
 
 #define AGGREGATABLE_HISTOGRAM_TIMER_LIST(AHT) \
   AHT(compile_lazy, V8.CompileLazyMicroSeconds)
@@ -347,6 +344,8 @@ namespace internal {
   /* the root SharedFunctionInfo. */                                           \
   SC(compilation_cache_partial_hits, V8.CompilationCachePartialHits)           \
   SC(deopts, V8.Deopts)                                                        \
+  /* Deopts without code invalidation (e.g., for OSR) */                       \
+  SC(utility_deopts, V8.UtilityDeopts)                                         \
   SC(objs_since_last_young, V8.ObjsSinceLastYoung)                             \
   SC(objs_since_last_full, V8.ObjsSinceLastFull)                               \
   SC(gc_compactor_caused_by_request, V8.GCCompactorCausedByRequest)            \

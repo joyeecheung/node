@@ -371,7 +371,8 @@ Simulator::Simulator(Decoder<DispatchingDecoderVisitor>* decoder,
       last_debugger_input_(nullptr),
       log_parameters_(NO_PARAM),
       icount_for_stop_sim_at_(0),
-      isolate_(isolate) {
+      isolate_(isolate),
+      builtins_(isolate_) {
   // Setup the decoder.
   decoder_->AppendVisitor(this);
 
@@ -388,7 +389,8 @@ Simulator::Simulator()
       guard_pages_(ENABLE_CONTROL_FLOW_INTEGRITY_BOOL),
       last_debugger_input_(nullptr),
       log_parameters_(NO_PARAM),
-      isolate_(nullptr) {
+      isolate_(nullptr),
+      builtins_(isolate_) {
   Init(stdout);
   CHECK(!v8_flags.trace_sim);
 }
@@ -515,8 +517,18 @@ using SimulatorRuntimeFPTaggedCall = double (*)(int64_t arg0, int64_t arg1,
 // (refer to InvocationCallback in v8.h).
 using SimulatorRuntimeDirectApiCall = void (*)(int64_t arg0);
 
-// This signature supports direct call to accessor getter callback.
-using SimulatorRuntimeDirectGetterCall = void (*)(int64_t arg0, int64_t arg1);
+// This signature supports direct call to accessor/interceptor getter callback.
+// Using v8::Local<v8::Name> instead of int64_t as a first argument type fixes
+// MSAN false positive report when using the value in the callback.
+using SimulatorRuntimeDirectGetterCall = int64_t (*)(v8::Local<v8::Name> arg0,
+                                                     int64_t arg1);
+
+// This signature supports direct call to accessor/interceptor setter callback.
+// Using v8::Local<v8::Name/Value> instead of int64_t as first two argument
+// types fixes MSAN false positive report when using the value in the callback.
+using SimulatorRuntimeDirectSetterCall = int64_t (*)(v8::Local<v8::Name> arg0,
+                                                     v8::Local<v8::Value> arg1,
+                                                     int64_t arg2);
 
 // Separate for fine-grained UBSan blocklisting. Casting any given C++
 // function to {SimulatorRuntimeCall} is undefined behavior; but since
@@ -666,7 +678,10 @@ void Simulator::DoRuntimeCall(Instruction* instr) {
   int64_t external =
       reinterpret_cast<int64_t>(redirection->external_function());
 
-  TraceSim("Call to host function at %p\n", redirection->external_function());
+  TraceSim("Call to host function at %p %s\n", redirection->external_function(),
+           ExternalReferenceTable::NameOfIsolateIndependentAddress(
+               reinterpret_cast<Address>(pc()),
+               IsolateGroup::current()->external_ref_table()));
 
   // SP must be 16-byte-aligned at the call interface.
   bool stack_alignment_exception = ((sp() & 0xF) != 0);
@@ -981,16 +996,38 @@ void Simulator::DoRuntimeCall(Instruction* instr) {
     }
 
     case ExternalReference::DIRECT_GETTER_CALL: {
-      // void f(v8::Local<String> property, v8::PropertyCallbackInfo& info)
+      // void f(v8::Local<v8::Name>, v8::PropertyCallbackInfo&);
+      // v8::Intercepted f(v8::Local<v8::Name>, v8::PropertyCallbackInfo&);
       TraceSim("Type: DIRECT_GETTER_CALL\n");
       TraceSim("Arguments: 0x%016" PRIx64 ", 0x%016" PRIx64 "\n", arg0, arg1);
       SimulatorRuntimeDirectGetterCall target =
           reinterpret_cast<SimulatorRuntimeDirectGetterCall>(external);
-      target(arg0, arg1);
-      TraceSim("No return value.");
+      int64_t result = target(base::bit_cast<v8::Local<v8::Name>>(arg0), arg1);
+      TraceSim("Returned: %" PRId64 "\n", result);
 #ifdef DEBUG
       CorruptAllCallerSavedCPURegisters();
 #endif
+      set_xreg(0, result);
+      break;
+    }
+    case ExternalReference::DIRECT_SETTER_CALL: {
+      // void f(v8::Local<Name>, v8::Local<v8::Value>,
+      //        v8::PropertyCallbackInfo&);
+      // v8::Intercepted f(v8::Local<Name>, v8::Local<v8::Value>,
+      //                   v8::PropertyCallbackInfo&);
+      TraceSim("Type: DIRECT_SETTER_CALL\n");
+      TraceSim("Arguments: 0x%016" PRIx64 ", 0x%016" PRIx64 ", 0x%016" PRIx64
+               "\n",
+               arg0, arg1, arg2);
+      SimulatorRuntimeDirectSetterCall target =
+          reinterpret_cast<SimulatorRuntimeDirectSetterCall>(external);
+      int64_t result = target(base::bit_cast<v8::Local<v8::Name>>(arg0),
+                              base::bit_cast<v8::Local<v8::Value>>(arg1), arg2);
+      TraceSim("Returned: %" PRId64 "\n", result);
+#ifdef DEBUG
+      CorruptAllCallerSavedCPURegisters();
+#endif
+      set_xreg(0, result);
       break;
     }
   }
@@ -1932,9 +1969,16 @@ void Simulator::VisitUnconditionalBranch(Instruction* instr) {
     case BL:
       set_lr(instr->following());
       [[fallthrough]];
-    case B:
+    case B: {
       set_pc(instr->ImmPCOffsetTarget());
+      if (v8_flags.trace_sim) {
+        const char* name = builtins_.Lookup(reinterpret_cast<Address>(pc()));
+        if (name != nullptr) {
+          TraceSim("Simulator: calling builtin %s\n", name);
+        }
+      }
       break;
+    }
     default:
       UNREACHABLE();
   }
@@ -4097,9 +4141,9 @@ bool Simulator::PrintValue(const char* desc) {
 }
 
 void Simulator::Debug() {
-  if (v8_flags.correctness_fuzzer_suppressions) {
-    PrintF("Debugger disabled for differential fuzzing.\n");
-    return;
+  if (!v8_flags.simulator_debugger) {
+    // Debugger not enabled; crash instead.
+    UNREACHABLE();
   }
   bool done = false;
   while (!done) {
@@ -6727,6 +6771,12 @@ void Simulator::VisitNEONSHA3(Instruction* instr) {
       eor(vf, temp, rm, ra);
       eor(vf, rd, rn, temp);
       break;
+    case NEON_XAR: {
+      int rot = instr->Bits(15, 10);
+      eor(kFormat2D, temp, rn, rm);
+      ror(kFormat2D, rd, temp, rot);
+      break;
+    }
     default:
       UNIMPLEMENTED();
   }
@@ -6895,6 +6945,22 @@ void Simulator::VisitSet(Instruction* instr) {
     case SETE:
       VisitSetE(instr);
       break;
+  }
+}
+
+void Simulator::VisitSVEBitPerm(Instruction* instr) {
+  SimVRegister& rd = vreg(instr->Rd());
+  SimVRegister& rm = vreg(instr->Rm());
+  SimVRegister& rn = vreg(instr->Rn());
+  SVESizeDecoder ssd(instr);
+  VectorFormat vf = ssd.GetVectorFormat();
+
+  DCHECK_EQ(instr->Mask(SVEBitPermFMask), SVEBitPermFixed);
+
+  if (instr->Mask(SVEBitPermMask) == BEXT) {
+    bgrp(vf, rd, rn, rm, true);
+  } else {
+    UNIMPLEMENTED();
   }
 }
 

@@ -193,6 +193,46 @@ TEST_F(TestWithNativeContext, CanOnlyAccessFixedFormalParameters) {
   run("'use strict'; (function() { () => { return eval(''); }})", true, false);
 }
 
+TEST_F(TestWithNativeContext, UnusedParameters) {
+  auto run = [this](const char* f, std::initializer_list<bool> used_bits) {
+    DirectHandle<JSFunction> function = RunJS<JSFunction>(f);
+    DirectHandle<ScopeInfo> scope_info(function->shared()->scope_info(),
+                                       i_isolate());
+    CHECK_EQ(scope_info->ParameterCount(), used_bits.size());
+    uint32_t bits = scope_info->unused_parameter_bits();
+    for (uint32_t i = 0; i < 32; i++) {
+      bool unused = (bits >> i) & 0x1;
+      if (i < used_bits.size()) {
+        CHECK_EQ(used_bits.begin()[i], !unused);
+      } else {
+        CHECK(!unused);
+      }
+    }
+  };
+  run("'use strict'; (function(){})", {});
+  run("'use strict'; (function(a) { a })", {true});
+  run("'use strict'; (function(a) { })", {false});
+  run("'use strict'; (function(a, b){})", {false, false});
+  run("'use strict'; (function(a, b){ a })", {true, false});
+  run("'use strict'; (function(a, b){ b })", {false, true});
+  run("'use strict'; (function(a, b){ a; b })", {true, true});
+  // initializers are non-simple
+  run("'use strict'; (function(a, b = a) {})", {true, true});
+  run("'use strict'; (function(a = b, b) {})", {true, true});
+  run("(() => {})", {});
+  run("((a) => { a })", {true});
+  run("((a) => { })", {false});
+  run("((a, b) => {})", {false, false});
+  run("((a, b) => { a })", {true, false});
+  run("((a, b) => { b })", {false, true});
+  run("((a, b) => { a; b })", {true, true});
+  // initializers, rest params are non-simple
+  run("((a, b = a) => {})", {true, true});
+  run("((a = b, b) => {})", {true, true});
+  run("((...a) => { })", {});
+  run("((...a) => { a })", {});
+}
+
 using ObjectTest = TestWithContext;
 
 static void CheckObject(Isolate* isolate, DirectHandle<Object> obj,
@@ -337,8 +377,8 @@ TEST_F(ObjectTest, EnumCache) {
     Tagged<EnumCache> enum_cache =
         cc->map()->instance_descriptors()->enum_cache();
     CHECK_NE(enum_cache, *factory->empty_enum_cache());
-    CHECK_EQ(enum_cache->keys()->length(), 3);
-    CHECK_EQ(enum_cache->indices()->length(), 3);
+    CHECK_EQ(enum_cache->keys()->length().value(), 3u);
+    CHECK_EQ(enum_cache->indices()->length().value(), 3u);
   }
 
   // Initializing the EnumCache for the the topmost map {a} will not create the
@@ -362,8 +402,8 @@ TEST_F(ObjectTest, EnumCache) {
     CHECK_EQ(b->map()->instance_descriptors()->enum_cache(), enum_cache);
     CHECK_EQ(c->map()->instance_descriptors()->enum_cache(), enum_cache);
 
-    CHECK_EQ(enum_cache->keys()->length(), 1);
-    CHECK_EQ(enum_cache->indices()->length(), 1);
+    CHECK_EQ(enum_cache->keys()->length().value(), 1u);
+    CHECK_EQ(enum_cache->indices()->length().value(), 1u);
   }
 
   // Creating the EnumCache for {c} will create a new EnumCache on the shared
@@ -388,10 +428,10 @@ TEST_F(ObjectTest, EnumCache) {
     CHECK_EQ(enum_cache, *previous_enum_cache);
     CHECK_NE(enum_cache->keys(), *previous_keys);
     CHECK_NE(enum_cache->indices(), *previous_indices);
-    CHECK_EQ(previous_keys->length(), 1);
-    CHECK_EQ(previous_indices->length(), 1);
-    CHECK_EQ(enum_cache->keys()->length(), 3);
-    CHECK_EQ(enum_cache->indices()->length(), 3);
+    CHECK_EQ(previous_keys->length().value(), 1u);
+    CHECK_EQ(previous_indices->length().value(), 1u);
+    CHECK_EQ(enum_cache->keys()->length().value(), 3u);
+    CHECK_EQ(enum_cache->indices()->length().value(), 3u);
 
     // The enum cache is shared on the descriptor array of maps {a}, {b} and
     // {c} only.
@@ -425,8 +465,8 @@ TEST_F(ObjectTest, EnumCache) {
     CHECK_EQ(enum_cache, *previous_enum_cache);
     CHECK_EQ(enum_cache->keys(), *previous_keys);
     CHECK_EQ(enum_cache->indices(), *previous_indices);
-    CHECK_EQ(enum_cache->keys()->length(), 3);
-    CHECK_EQ(enum_cache->indices()->length(), 3);
+    CHECK_EQ(enum_cache->keys()->length().value(), 3u);
+    CHECK_EQ(enum_cache->indices()->length().value(), 3u);
 
     // The enum cache is shared on the descriptor array of maps {a}, {b} and
     // {c} only.
@@ -535,6 +575,9 @@ bool FunctionKindIsConciseMethod(FunctionKind kind) {
     case FunctionKind::kAsyncConciseGeneratorMethod:
     case FunctionKind::kStaticAsyncConciseGeneratorMethod:
     case FunctionKind::kClassMembersInitializerFunction:
+    case FunctionKind::kClassMembersInitializerFunctionPrecededByStatic:
+    case FunctionKind::kClassStaticInitializerFunction:
+    case FunctionKind::kClassStaticInitializerFunctionPrecededByMember:
       return true;
     default:
       return false;
@@ -621,6 +664,9 @@ bool FunctionKindIsConstructable(FunctionKind kind) {
     case FunctionKind::kConciseMethod:
     case FunctionKind::kStaticConciseMethod:
     case FunctionKind::kClassMembersInitializerFunction:
+    case FunctionKind::kClassMembersInitializerFunctionPrecededByStatic:
+    case FunctionKind::kClassStaticInitializerFunction:
+    case FunctionKind::kClassStaticInitializerFunctionPrecededByMember:
       return false;
     default:
       return true;
@@ -670,7 +716,7 @@ TEST_F(ObjectTest, ConstructorInstanceTypes) {
 
       default:
         // All the other functions must have the default instance type.
-        CHECK_EQ(instance_type, JS_FUNCTION_TYPE);
+        CHECK(InstanceTypeChecker::IsJSFunction(instance_type));
         break;
     }
   }

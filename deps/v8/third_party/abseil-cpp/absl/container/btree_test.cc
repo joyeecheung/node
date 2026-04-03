@@ -24,6 +24,7 @@
 #include <map>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -47,7 +48,6 @@
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/compare.h"
-#include "absl/types/optional.h"
 
 ABSL_FLAG(int, test_values, 10000, "The number of values to use for tests");
 
@@ -2048,7 +2048,10 @@ TEST(Btree, ExtractAndGetNextEndIter) {
 
 TEST(Btree, ExtractDoesntCauseExtraMoves) {
 #ifdef _MSC_VER
-  GTEST_SKIP() << "This test fails on MSVC.";
+  // This conditional is to avoid an unreachable code warning.
+  if (_MSC_VER > 0) {
+    GTEST_SKIP() << "This test fails on MSVC.";
+  }
 #endif
 
   using Set = absl::btree_set<MovableOnlyInstance>;
@@ -3004,11 +3007,11 @@ TEST(Btree, InvalidComparatorsCaught) {
   // compare differently with each other from how they compare with instances
   // that don't have the optional field.
   struct ClockTime {
-    absl::optional<int> hour;
+    std::optional<int> hour;
     int minute;
   };
   // `comp(a,b) && comp(b,c) && !comp(a,c)` violates transitivity.
-  ClockTime a = {absl::nullopt, 1};
+  ClockTime a = {std::nullopt, 1};
   ClockTime b = {2, 5};
   ClockTime c = {6, 0};
   {
@@ -3539,6 +3542,109 @@ TEST(Btree, FieldTypeEqualsSlotType) {
   using set_type = absl::btree_set<uint8_t>;
   static_assert(BtreeNodePeer::FieldTypeEqualsSlotType<set_type>(), "");
   TestBasicFunctionality(set_type());
+}
+
+// Alias whose only purpose is to have the same length as set_params for better
+// alignment in the test below.
+template <typename... T>
+using set_p_impl = set_params_impl<T...>;
+
+TEST(BtreeTest, SetParamsStripsDefaults) {
+  using K = int;
+  using DA = btree_set_defaults<int>::Compare;
+  using DB = btree_set_defaults<int>::Alloc;
+  using DC = btree_set_defaults<int>::TargetNodeSize;
+  using DD = btree_set_defaults<int>::IsMulti;
+
+  using XA = std::greater<int>;
+  struct XB {};
+  using XC = std::integral_constant<int, 100>;
+  using XD = std::true_type;
+
+  EXPECT_TRUE((std::is_same_v<set_params<K, XA, XB, XC{}, XD{}>,
+                              set_p_impl<K, XA, XB, XC, XD>>));
+  EXPECT_TRUE((std::is_same_v<set_params<K, XA, XB, XC{}, DD{}>,
+                              set_p_impl<K, XA, XB, XC>>));
+  EXPECT_TRUE((std::is_same_v<set_params<K, XA, XB, DC{}, XD{}>,
+                              set_p_impl<K, XA, XB, DC, XD>>));
+  EXPECT_TRUE((std::is_same_v<set_params<K, XA, XB, DC{}, DD{}>,
+                              set_p_impl<K, XA, XB>>));
+  EXPECT_TRUE((std::is_same_v<set_params<K, XA, DB, XC{}, XD{}>,
+                              set_p_impl<K, XA, DB, XC, XD>>));
+  EXPECT_TRUE((std::is_same_v<set_params<K, XA, DB, XC{}, DD{}>,
+                              set_p_impl<K, XA, DB, XC>>));
+  EXPECT_TRUE((std::is_same_v<set_params<K, XA, DB, DC{}, XD{}>,
+                              set_p_impl<K, XA, DB, DC, XD>>));
+  EXPECT_TRUE((std::is_same_v<set_params<K, XA, DB, DC{}, DD{}>,
+                              set_p_impl<K, XA>>));
+  EXPECT_TRUE((std::is_same_v<set_params<K, DA, XB, XC{}, XD{}>,
+                              set_p_impl<K, DA, XB, XC, XD>>));
+  EXPECT_TRUE((std::is_same_v<set_params<K, DA, XB, XC{}, DD{}>,
+                              set_p_impl<K, DA, XB, XC>>));
+  EXPECT_TRUE((std::is_same_v<set_params<K, DA, XB, DC{}, XD{}>,
+                              set_p_impl<K, DA, XB, DC, XD>>));
+  EXPECT_TRUE((std::is_same_v<set_params<K, DA, XB, DC{}, DD{}>,
+                              set_p_impl<K, DA, XB>>));
+  EXPECT_TRUE((std::is_same_v<set_params<K, DA, DB, XC{}, XD{}>,
+                              set_p_impl<K, DA, DB, XC, XD>>));
+  EXPECT_TRUE((std::is_same_v<set_params<K, DA, DB, XC{}, DD{}>,
+                              set_p_impl<K, DA, DB, XC>>));
+  EXPECT_TRUE((std::is_same_v<set_params<K, DA, DB, DC{}, XD{}>,
+                              set_p_impl<K, DA, DB, DC, XD>>));
+  EXPECT_TRUE((std::is_same_v<set_params<K, DA, DB, DC{}, DD{}>,
+                              set_p_impl<K>>));
+}
+
+// Alias whose only purpose is to have the same length as map_params for better
+// alignment in the test below.
+template <typename... T>
+using map_p_impl = map_params_impl<T...>;
+
+TEST(BtreeTest, MapParamsStripsDefaults) {
+  using K = int;
+  using V = double;
+  using DA = btree_map_defaults<int, double>::Compare;
+  using DB = btree_map_defaults<int, double>::Alloc;
+  using DC = btree_map_defaults<int, double>::TargetNodeSize;
+  using DD = btree_map_defaults<int, double>::IsMulti;
+
+  using XA = std::greater<int>;
+  struct XB {};
+  using XC = std::integral_constant<int, 100>;
+  using XD = std::true_type;
+
+  EXPECT_TRUE((std::is_same_v<map_params<K, V, XA, XB, XC{}, XD{}>,
+                              map_p_impl<K, V, XA, XB, XC, XD>>));
+  EXPECT_TRUE((std::is_same_v<map_params<K, V, XA, XB, XC{}, DD{}>,
+                              map_p_impl<K, V, XA, XB, XC>>));
+  EXPECT_TRUE((std::is_same_v<map_params<K, V, XA, XB, DC{}, XD{}>,
+                              map_p_impl<K, V, XA, XB, DC, XD>>));
+  EXPECT_TRUE((std::is_same_v<map_params<K, V, XA, XB, DC{}, DD{}>,
+                              map_p_impl<K, V, XA, XB>>));
+  EXPECT_TRUE((std::is_same_v<map_params<K, V, XA, DB, XC{}, XD{}>,
+                              map_p_impl<K, V, XA, DB, XC, XD>>));
+  EXPECT_TRUE((std::is_same_v<map_params<K, V, XA, DB, XC{}, DD{}>,
+                              map_p_impl<K, V, XA, DB, XC>>));
+  EXPECT_TRUE((std::is_same_v<map_params<K, V, XA, DB, DC{}, XD{}>,
+                              map_p_impl<K, V, XA, DB, DC, XD>>));
+  EXPECT_TRUE((std::is_same_v<map_params<K, V, XA, DB, DC{}, DD{}>,
+                              map_p_impl<K, V, XA>>));
+  EXPECT_TRUE((std::is_same_v<map_params<K, V, DA, XB, XC{}, XD{}>,
+                              map_p_impl<K, V, DA, XB, XC, XD>>));
+  EXPECT_TRUE((std::is_same_v<map_params<K, V, DA, XB, XC{}, DD{}>,
+                              map_p_impl<K, V, DA, XB, XC>>));
+  EXPECT_TRUE((std::is_same_v<map_params<K, V, DA, XB, DC{}, XD{}>,
+                              map_p_impl<K, V, DA, XB, DC, XD>>));
+  EXPECT_TRUE((std::is_same_v<map_params<K, V, DA, XB, DC{}, DD{}>,
+                              map_p_impl<K, V, DA, XB>>));
+  EXPECT_TRUE((std::is_same_v<map_params<K, V, DA, DB, XC{}, XD{}>,
+                              map_p_impl<K, V, DA, DB, XC, XD>>));
+  EXPECT_TRUE((std::is_same_v<map_params<K, V, DA, DB, XC{}, DD{}>,
+                              map_p_impl<K, V, DA, DB, XC>>));
+  EXPECT_TRUE((std::is_same_v<map_params<K, V, DA, DB, DC{}, XD{}>,
+                              map_p_impl<K, V, DA, DB, DC, XD>>));
+  EXPECT_TRUE((std::is_same_v<map_params<K, V, DA, DB, DC{}, DD{}>,
+                              map_p_impl<K, V>>));
 }
 
 }  // namespace

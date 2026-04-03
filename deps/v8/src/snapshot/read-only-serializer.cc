@@ -51,8 +51,9 @@ class ObjectPreProcessor final {
   }
 
   void EncodeExternalPointerSlot(ExternalPointerSlot slot, Address value) {
-    // Note it's possible that `value != slot.load(...)`, e.g. for
-    // AccessorInfo::remove_getter_indirection.
+    // Note it's possible that `value != slot.load(...)`, e.g. after
+    // AccessorInfo::RemoveCallbackRedirectionForSerialization() and other
+    // similar functions.
     ExternalReferenceEncoder::Value encoder_value =
         extref_encoder_.Encode(value);
     DCHECK_LT(encoder_value.index(),
@@ -87,7 +88,7 @@ class ObjectPreProcessor final {
 
   void PreProcessAccessorInfo(Tagged<AccessorInfo> o) {
     EncodeExternalPointerSlot(
-        o->RawExternalPointerField(AccessorInfo::kMaybeRedirectedGetterOffset,
+        o->RawExternalPointerField(AccessorInfo::kGetterOffset,
                                    kAccessorInfoGetterTag),
         o->getter(isolate_));  // Pass the non-redirected value.
     EncodeExternalPointerSlot(o->RawExternalPointerField(
@@ -96,14 +97,25 @@ class ObjectPreProcessor final {
   void PreProcessInterceptorInfo(Tagged<InterceptorInfo> o) {
     const bool is_named = o->is_named();
 
-#define PROCESS_FIELD(Name, name)                       \
-  EncodeExternalPointerSlot(o->RawExternalPointerField( \
-      InterceptorInfo::k##Name##Offset,                 \
-      is_named ? kApiNamedProperty##Name##CallbackTag   \
-               : kApiIndexedProperty##Name##CallbackTag));
+#define PROCESS_NAMED_FIELD(Name, name)                                 \
+  EncodeExternalPointerSlot(                                            \
+      o->RawExternalPointerField(InterceptorInfo::k##Name##Offset,      \
+                                 kApiNamedProperty##Name##CallbackTag), \
+      o->named_##name(isolate_) /* non-redirected */);
 
-    INTERCEPTOR_INFO_CALLBACK_LIST(PROCESS_FIELD)
-#undef PROCESS_FIELD
+#define PROCESS_INDEXED_FIELD(Name, name)                                 \
+  EncodeExternalPointerSlot(                                              \
+      o->RawExternalPointerField(InterceptorInfo::k##Name##Offset,        \
+                                 kApiIndexedProperty##Name##CallbackTag), \
+      o->indexed_##name(isolate_) /* non-redirected */);
+
+    if (is_named) {
+      NAMED_INTERCEPTOR_INFO_CALLBACK_LIST(PROCESS_NAMED_FIELD)
+    } else {
+      INDEXED_INTERCEPTOR_INFO_CALLBACK_LIST(PROCESS_INDEXED_FIELD)
+    }
+#undef PROCESS_NAMED_FIELD
+#undef PROCESS_INDEXED_FIELD
   }
   void PreProcessJSExternalObject(Tagged<JSExternalObject> o) {
     ExternalPointerSlot value_slot = o->RawExternalPointerField(
@@ -113,9 +125,8 @@ class ObjectPreProcessor final {
   }
   void PreProcessFunctionTemplateInfo(Tagged<FunctionTemplateInfo> o) {
     EncodeExternalPointerSlot(
-        o->RawExternalPointerField(
-            FunctionTemplateInfo::kMaybeRedirectedCallbackOffset,
-            kFunctionTemplateInfoCallbackTag),
+        o->RawExternalPointerField(FunctionTemplateInfo::kCallbackOffset,
+                                   kFunctionTemplateInfoCallbackTag),
         o->callback(isolate_));  // Pass the non-redirected value.
   }
 #if V8_ENABLE_GEARBOX
@@ -145,9 +156,7 @@ class ObjectPreProcessor final {
     o->ClearInstructionStartForSerialization(isolate_);
     CHECK(!o->has_source_position_table_or_bytecode_offset_table());
     CHECK(!o->has_deoptimization_data_or_interpreter_data());
-#ifdef V8_ENABLE_LEAPTIERING
     CHECK_EQ(o->js_dispatch_handle(), kNullJSDispatchHandle);
-#endif
 #if V8_ENABLE_GEARBOX
     ResetGearboxPlaceholderBuiltin(o);
 #endif
@@ -158,8 +167,7 @@ class ObjectPreProcessor final {
 };
 
 struct ReadOnlySegmentForSerialization {
-  ReadOnlySegmentForSerialization(Isolate* isolate,
-                                  const ReadOnlyPageMetadata* page,
+  ReadOnlySegmentForSerialization(Isolate* isolate, const ReadOnlyPage* page,
                                   Address segment_start, size_t segment_size,
                                   ObjectPreProcessor* pre_processor)
       : page(page),
@@ -199,7 +207,7 @@ struct ReadOnlySegmentForSerialization {
 
   void EncodeTaggedSlots(Isolate* isolate);
 
-  const ReadOnlyPageMetadata* const page;
+  const ReadOnlyPage* const page;
   const Address segment_start;
   const size_t segment_size;
   const size_t segment_offset;
@@ -213,8 +221,7 @@ struct ReadOnlySegmentForSerialization {
 
 ro::EncodedTagged Encode(Isolate* isolate, Tagged<HeapObject> o) {
   Address o_address = o.address();
-  MemoryChunkMetadata* chunk =
-      MemoryChunkMetadata::FromAddress(isolate, o_address);
+  BasePage* chunk = BasePage::FromAddress(isolate, o_address);
 
   ReadOnlySpace* ro_space = isolate->read_only_heap()->read_only_space();
   int index = static_cast<int>(ro_space->IndexOf(chunk));
@@ -382,25 +389,26 @@ class ReadOnlyHeapImageSerializer {
 
     // Allocate all pages first s.t. the deserializer can easily handle forward
     // references (e.g.: an object on page i points at an object on page i+1).
-    for (const ReadOnlyPageMetadata* page : ro_space->pages()) {
+    for (const ReadOnlyPage* page : ro_space->pages()) {
       EmitAllocatePage(page);
     }
 
     // Now write the page contents.
-    for (const ReadOnlyPageMetadata* page : ro_space->pages()) {
+    for (const ReadOnlyPage* page : ro_space->pages()) {
       SerializePage(page);
     }
 
     EmitReadOnlyRootsTable();
     sink_->Put(Bytecode::kFinalizeReadOnlySpace, "space end");
+    sink_->PutUint30(isolate_->next_unique_sfi_id(), "shared function info ID");
   }
 
-  uint32_t IndexOf(const ReadOnlyPageMetadata* page) {
+  uint32_t IndexOf(const ReadOnlyPage* page) {
     ReadOnlySpace* ro_space = isolate_->read_only_heap()->read_only_space();
     return static_cast<uint32_t>(ro_space->IndexOf(page));
   }
 
-  void EmitAllocatePage(const ReadOnlyPageMetadata* page) {
+  void EmitAllocatePage(const ReadOnlyPage* page) {
     if (V8_STATIC_ROOTS_BOOL) {
       sink_->Put(Bytecode::kAllocatePageAt, "fixed page begin");
     } else {
@@ -426,16 +434,20 @@ class ReadOnlyHeapImageSerializer {
       return {{free_space.address() + sizeof(FreeSpace),
                free_space->Size() - static_cast<int>(sizeof(FreeSpace))}};
     }
+    if (Tagged<Hole> hole; TryCast<Hole>(obj, &hole)) {
+      return {{hole.address() + HeapObject::kHeaderSize,
+               sizeof(Hole) - HeapObject::kHeaderSize}};
+    }
 #ifdef V8_ENABLE_WEBASSEMBLY
     if (Tagged<WasmNull> wasm_null; TryCast<WasmNull>(obj, &wasm_null)) {
       return {{wasm_null.address() + WasmNull::kHeaderSize,
-               WasmNull::Size() - WasmNull::kHeaderSize}};
+               WasmNull::kSize - WasmNull::kHeaderSize}};
     }
 #endif
     return {};
   }
 
-  void SerializePage(const ReadOnlyPageMetadata* page) {
+  void SerializePage(const ReadOnlyPage* page) {
     Address pos = page->area_start();
     if (v8_flags.trace_serializer) {
       PrintF("[ro serializer] Serializing page %p -> %p\n",
@@ -464,10 +476,11 @@ class ReadOnlyHeapImageSerializer {
 
         // Either way, do the remaining serialization up to the water mark.
         ptrdiff_t segment_size = page->HighWaterMark() - pos;
-        CHECK_GE(segment_size, 0);
-        ReadOnlySegmentForSerialization segment(isolate_, page, pos,
-                                                segment_size, &pre_processor_);
-        EmitSegment(&segment);
+        if (segment_size > 0) {
+          ReadOnlySegmentForSerialization segment(
+              isolate_, page, pos, segment_size, &pre_processor_);
+          EmitSegment(&segment);
+        }
         return;
       }
 
@@ -481,7 +494,7 @@ class ReadOnlyHeapImageSerializer {
       // Serialize a segment from the current pos, up to the start of the
       // unmapped body.
       ptrdiff_t segment_size = unmapped_body->start - pos;
-      CHECK_GE(segment_size, 0);
+      CHECK_GT(segment_size, 0);
       ReadOnlySegmentForSerialization segment(isolate_, page, pos, segment_size,
                                               &pre_processor_);
       EmitSegment(&segment);
@@ -561,6 +574,7 @@ void ReadOnlySerializer::Serialize() {
       CountAllocation(o->map(), o->Size(), SnapshotSpace::kReadOnlyHeap);
     }
   }
+  Pad();
 }
 
 }  // namespace internal

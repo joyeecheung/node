@@ -201,15 +201,14 @@ int WriteBytes(const char* filename, const uint8_t* bytes, int size,
 
 // Returns false iff d is NaN, +0, or -0.
 bool DoubleToBoolean(double d) {
-  IeeeDoubleArchType u;
-  u.d = d;
-  if (u.bits.exp == 2047) {
+  IeeeDoubleArchType u{d};
+  if (u.exp() == 2047) {
     // Detect NaN for IEEE double precision floating point.
-    if ((u.bits.man_low | u.bits.man_high) != 0) return false;
+    if ((u.man_low() | u.man_high()) != 0) return false;
   }
-  if (u.bits.exp == 0) {
+  if (u.exp() == 0) {
     // Detect +0, and -0 for IEEE double precision floating point.
-    if ((u.bits.man_low | u.bits.man_high) == 0) return false;
+    if ((u.man_low() | u.man_high()) == 0) return false;
   }
   return true;
 }
@@ -250,9 +249,7 @@ bool PassesFilter(base::Vector<const char> name,
 
   if (name.size() < min_match_length) return !positive_filter;
 
-  // TODO(sigurds): Use the new version of std::mismatch here, once we
-  // can assume C++14.
-  auto res = std::mismatch(filter_it, filter.end(), name.begin());
+  auto res = std::mismatch(filter_it, filter.end(), name.begin(), name.end());
   if (res.first == filter.end()) {
     if (res.second == name.end()) {
       // The strings match, so {name} passes if we have a {positive_filter}.

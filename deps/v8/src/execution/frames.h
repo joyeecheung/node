@@ -7,6 +7,7 @@
 
 #include "include/v8-initialization.h"
 #include "src/base/bounds.h"
+#include "src/base/small-vector.h"
 #include "src/codegen/handler-table.h"
 #include "src/codegen/safepoint-table.h"
 #include "src/common/assert-scope.h"
@@ -116,19 +117,6 @@ class StackHandler {
   V(ENTRY, EntryFrame)                                                    \
   V(CONSTRUCT_ENTRY, ConstructEntryFrame)                                 \
   V(EXIT, ExitFrame)                                                      \
-  IF_WASM(V, WASM, WasmFrame)                                             \
-  IF_WASM(V, WASM_TO_JS, WasmToJsFrame)                                   \
-  IF_WASM(V, JS_TO_WASM, JsToWasmFrame)                                   \
-  IF_WASM(V, WASM_JSPI, WasmJspiFrame)                                    \
-  IF_WASM_DRUMBRAKE(V, WASM_INTERPRETER_ENTRY, WasmInterpreterEntryFrame) \
-  IF_WASM(V, WASM_DEBUG_BREAK, WasmDebugBreakFrame)                       \
-  IF_WASM(V, C_WASM_ENTRY, CWasmEntryFrame)                               \
-  /* Can only appear as the first frame of a wasm stack: */               \
-  IF_WASM(V, WASM_STACK_ENTRY, WasmStackEntryFrame)                       \
-  IF_WASM(V, WASM_STACK_EXIT, WasmStackExitFrame)                         \
-  IF_WASM(V, WASM_EXIT, WasmExitFrame)                                    \
-  IF_WASM(V, WASM_LIFTOFF_SETUP, WasmLiftoffSetupFrame)                   \
-  IF_WASM(V, WASM_SEGMENT_START, WasmSegmentStartFrame)                   \
   V(INTERPRETED, InterpretedFrame)                                        \
   V(BASELINE, BaselineFrame)                                              \
   V(MAGLEV, MaglevFrame)                                                  \
@@ -145,9 +133,24 @@ class StackHandler {
   V(BUILTIN, BuiltinFrame)                                                \
   V(BUILTIN_EXIT, BuiltinExitFrame)                                       \
   V(API_CALLBACK_EXIT, ApiCallbackExitFrame)                              \
-  V(API_ACCESSOR_EXIT, ApiAccessorExitFrame)                              \
+  V(API_CONSTRUCT_EXIT, ApiConstructExitFrame)                            \
+  V(API_NAMED_ACCESSOR_EXIT, ApiNamedAccessorExitFrame)                   \
+  V(API_INDEXED_ACCESSOR_EXIT, ApiIndexedAccessorExitFrame)               \
   V(NATIVE, NativeFrame)                                                  \
-  V(IRREGEXP, IrregexpFrame)
+  V(IRREGEXP, IrregexpFrame)                                              \
+  IF_WASM(V, WASM, WasmFrame)                                             \
+  IF_WASM(V, WASM_TO_JS, WasmToJsFrame)                                   \
+  IF_WASM(V, JS_TO_WASM, JsToWasmFrame)                                   \
+  IF_WASM(V, WASM_JSPI, WasmJspiFrame)                                    \
+  IF_WASM_DRUMBRAKE(V, WASM_INTERPRETER_ENTRY, WasmInterpreterEntryFrame) \
+  IF_WASM(V, WASM_DEBUG_BREAK, WasmDebugBreakFrame)                       \
+  IF_WASM(V, C_WASM_ENTRY, CWasmEntryFrame)                               \
+  /* Can only appear as the first frame of a wasm stack: */               \
+  IF_WASM(V, WASM_STACK_ENTRY, WasmStackEntryFrame)                       \
+  IF_WASM(V, WASM_STACK_EXIT, WasmStackExitFrame)                         \
+  IF_WASM(V, WASM_EXIT, WasmExitFrame)                                    \
+  IF_WASM(V, WASM_LIFTOFF_SETUP, WasmLiftoffSetupFrame)                   \
+  IF_WASM(V, WASM_SEGMENT_START, WasmSegmentStartFrame)
 
 // Abstract base class for all stack frames.
 class StackFrame {
@@ -183,6 +186,9 @@ class StackFrame {
     Address* constant_pool_address = nullptr;
     bool is_profiler_entry_frame = false;
     bool is_stack_exit_frame = false;
+    // The iteration depth of StackFrameIterator,
+    // see StackFrameIterator::Advance.
+    uint32_t iteration_depth = 0;
   };
 
   // Convert a stack frame type to a marker that can be stored on the stack.
@@ -277,8 +283,14 @@ class StackFrame {
   bool is_construct() const { return type() == CONSTRUCT; }
   bool is_fast_construct() const { return type() == FAST_CONSTRUCT; }
   bool is_builtin_exit() const { return type() == BUILTIN_EXIT; }
-  bool is_api_accessor_exit() const { return type() == API_ACCESSOR_EXIT; }
+  bool is_api_named_accessor_exit() const {
+    return type() == API_NAMED_ACCESSOR_EXIT;
+  }
+  bool is_api_indexed_accessor_exit() const {
+    return type() == API_INDEXED_ACCESSOR_EXIT;
+  }
   bool is_api_callback_exit() const { return type() == API_CALLBACK_EXIT; }
+  bool is_api_construct_exit() const { return type() == API_CONSTRUCT_EXIT; }
   bool is_irregexp() const { return type() == IRREGEXP; }
 
   static bool IsJavaScript(Type t) {
@@ -298,6 +310,7 @@ class StackFrame {
   Address callee_fp() const { return state_.callee_fp; }
   Address callee_pc() const { return state_.callee_pc; }
   Address caller_sp() const { return GetCallerStackPointer(); }
+  uint32_t iteration_depth() const { return state_.iteration_depth; }
   inline Address pc() const;
   bool is_profiler_entry_frame() const {
     return state_.is_profiler_entry_frame;
@@ -440,7 +453,7 @@ class V8_EXPORT_PRIVATE FrameSummary {
     JavaScriptFrameSummary(Isolate* isolate, Tagged<Object> receiver,
                            Tagged<JSFunction> function,
                            Tagged<AbstractCode> abstract_code, int code_offset,
-                           bool is_constructor, Tagged<FixedArray> parameters);
+                           bool is_constructor);
 
     void EnsureSourcePositionsAvailable();
     bool AreSourcePositionsAvailable() const;
@@ -450,7 +463,6 @@ class V8_EXPORT_PRIVATE FrameSummary {
     Handle<AbstractCode> abstract_code() const { return abstract_code_; }
     int code_offset() const { return code_offset_; }
     bool is_constructor() const { return is_constructor_; }
-    DirectHandle<FixedArray> parameters() const { return parameters_; }
     bool is_subject_to_debugging() const;
     int SourcePosition() const;
     int SourceStatementPosition() const;
@@ -464,7 +476,6 @@ class V8_EXPORT_PRIVATE FrameSummary {
     Handle<AbstractCode> abstract_code_;
     int code_offset_;
     bool is_constructor_;
-    Handle<FixedArray> parameters_;
   };
 
 #if V8_ENABLE_WEBASSEMBLY
@@ -628,7 +639,7 @@ class V8_EXPORT_PRIVATE FrameSummary {
 // The functions are ordered bottom-to-top (i.e. summaries.last() is the
 // top-most activation; caller comes before callee).
 struct FrameSummaries {
-  std::vector<FrameSummary> frames;
+  base::SmallVector<FrameSummary, 3> frames;
   bool top_frame_is_construct_call = false;
 
   FrameSummaries() = default;
@@ -657,7 +668,7 @@ class CommonFrame : public StackFrame {
   // Build a list with summaries for this frame including all inlined frames.
   // The functions are ordered bottom-to-top (i.e. summaries.last() is the
   // top-most activation; caller comes before callee).
-  virtual FrameSummaries Summarize() const;
+  virtual FrameSummaries Summarize(bool never_allocate = false) const;
 
   static CommonFrame* cast(StackFrame* frame) {
     // It is always safe to cast to common.
@@ -721,9 +732,8 @@ class CommonFrameWithJSLinkage : public CommonFrame {
   // Access the parameters.
   virtual Tagged<Object> receiver() const;
   virtual Tagged<Object> GetParameter(int index) const;
-  virtual int ComputeParametersCount() const;
-  DirectHandle<FixedArray> GetParameters() const;
-  virtual int GetActualArgumentCount() const;
+  virtual uint32_t ComputeParametersCount() const;
+  virtual uint32_t GetActualArgumentCount() const;
 
   Tagged<HeapObject> unchecked_code() const override;
 
@@ -738,7 +748,7 @@ class CommonFrameWithJSLinkage : public CommonFrame {
   virtual bool IsConstructor() const;
 
   // Summarize Frame
-  FrameSummaries Summarize() const override;
+  FrameSummaries Summarize(bool never_allocate = false) const override;
 
  protected:
   inline explicit CommonFrameWithJSLinkage(StackFrameIteratorBase* iterator);
@@ -766,7 +776,7 @@ class JavaScriptFrame : public CommonFrameWithJSLinkage {
   Tagged<Object> unchecked_function() const;
   Tagged<Script> script() const;
   Tagged<Object> context() const override;
-  int GetActualArgumentCount() const override;
+  uint32_t GetActualArgumentCount() const override;
 
   inline void set_receiver(Tagged<Object> value);
 
@@ -938,8 +948,8 @@ class BuiltinExitFrame : public ExitFrame {
 
   Tagged<Object> receiver() const;
   Tagged<Object> GetParameter(int i) const;
-  int ComputeParametersCount() const;
-  DirectHandle<FixedArray> GetParameters() const;
+  uint32_t ComputeParametersCount() const;
+  DirectHandle<FixedArray> GetParameters(bool never_allocate) const;
 
   // Check if this frame is a constructor frame invoked through 'new'.
   bool IsConstructor() const;
@@ -948,7 +958,7 @@ class BuiltinExitFrame : public ExitFrame {
              int index) const override;
 
   // Summarize Frame
-  FrameSummaries Summarize() const override;
+  FrameSummaries Summarize(bool never_allocate = false) const override;
 
  protected:
   inline explicit BuiltinExitFrame(StackFrameIteratorBase* iterator);
@@ -967,31 +977,34 @@ class BuiltinExitFrame : public ExitFrame {
 // called. Their main purpose is to support preprocessing of exceptions thrown
 // from Api functions and as a bonus it allows these functions to appear in
 // stack traces (see v8_flags.experimental_stack_trace_frames).
+// TODO(ishell, http://crbug.com/326505377): Rename the class and frame type
+// to ApiCallExitFrame and API_CALL_EXIT.
 class ApiCallbackExitFrame : public ExitFrame {
  public:
   Type type() const override { return API_CALLBACK_EXIT; }
 
   // In case function slot contains FunctionTemplateInfo, instantiate the
   // function, stores it in the function slot and returns JSFunction handle.
-  DirectHandle<JSFunction> GetFunction() const;
+  // Returns an empty handle if never_allocate is true and instantiation would
+  // be required.
+  DirectHandle<JSFunction> GetFunction(bool never_allocate = false) const;
 
   DirectHandle<FunctionTemplateInfo> GetFunctionTemplateInfo() const;
 
   inline Tagged<Object> receiver() const;
   inline Tagged<Object> GetParameter(int i) const;
-  inline int ComputeParametersCount() const;
-  DirectHandle<FixedArray> GetParameters() const;
+  inline uint32_t ComputeParametersCount() const;
+  DirectHandle<FixedArray> GetParameters(bool never_allocate) const;
 
   inline Tagged<Object> context() const override;
-
-  // Check if this frame is a constructor frame invoked through 'new'.
-  inline bool IsConstructor() const;
 
   void Print(StringStream* accumulator, PrintMode mode,
              int index) const override;
 
   // Summarize Frame
-  FrameSummaries Summarize() const override;
+  FrameSummaries Summarize(bool never_allocate = false) const override {
+    return SummarizeApiFrame(false, never_allocate);
+  }
 
   static ApiCallbackExitFrame* cast(StackFrame* frame) {
     DCHECK(frame->is_api_callback_exit());
@@ -1000,6 +1013,11 @@ class ApiCallbackExitFrame : public ExitFrame {
 
  protected:
   inline explicit ApiCallbackExitFrame(StackFrameIteratorBase* iterator);
+
+  FrameSummaries SummarizeApiFrame(bool is_constructor,
+                                   bool never_allocate) const;
+  void PrintApiFrame(StringStream* accumulator, PrintMode mode, int index,
+                     bool is_constructor) const;
 
  private:
   // ApiCallbackExitFrame might contain either FunctionTemplateInfo or
@@ -1013,38 +1031,107 @@ class ApiCallbackExitFrame : public ExitFrame {
   friend class StackFrameIteratorBase;
 };
 
+class ApiConstructExitFrame : public ApiCallbackExitFrame {
+ public:
+  Type type() const override { return API_CONSTRUCT_EXIT; }
+
+  // Garbage collection support.
+  void Iterate(RootVisitor* v) const override;
+
+  void Print(StringStream* accumulator, PrintMode mode,
+             int index) const override;
+
+  // Summarize Frame
+  FrameSummaries Summarize(bool never_allocate = false) const override {
+    return SummarizeApiFrame(true, never_allocate);
+  }
+
+  static ApiConstructExitFrame* cast(StackFrame* frame) {
+    DCHECK(frame->is_api_construct_exit());
+    return static_cast<ApiConstructExitFrame*>(frame);
+  }
+
+ protected:
+  inline explicit ApiConstructExitFrame(StackFrameIteratorBase* iterator);
+
+ private:
+  inline FullObjectSlot new_target_slot() const;
+
+  friend class StackFrameIteratorBase;
+};
+
 // Api accessor exit frames are a special case of exit frames, which are used
 // whenever an Api property accessor callbacks (v8::AccessorGetterCallback or
 // v8::AccessorSetterCallback) are called. Their main purpose is to support
 // preprocessing of exceptions thrown from these callbacks.
 class ApiAccessorExitFrame : public ExitFrame {
  public:
-  Type type() const override { return API_ACCESSOR_EXIT; }
-
-  inline Tagged<Name> property_name() const;
-
-  inline Tagged<Object> receiver() const;
   inline Tagged<Object> holder() const;
 
-  void Print(StringStream* accumulator, PrintMode mode,
-             int index) const override;
-
   // Summarize Frame
-  FrameSummaries Summarize() const override;
+  FrameSummaries Summarize(bool never_allocate = false) const override;
 
   static ApiAccessorExitFrame* cast(StackFrame* frame) {
-    DCHECK(frame->is_api_accessor_exit());
+    DCHECK(frame->is_api_named_accessor_exit() ||
+           frame->is_api_indexed_accessor_exit());
     return static_cast<ApiAccessorExitFrame*>(frame);
   }
 
  protected:
   inline explicit ApiAccessorExitFrame(StackFrameIteratorBase* iterator);
 
- private:
-  inline FullObjectSlot property_name_slot() const;
-  inline FullObjectSlot receiver_slot() const;
+  inline FullObjectSlot property_key_slot() const;
   inline FullObjectSlot holder_slot() const;
 
+  friend class StackFrameIteratorBase;
+};
+
+// Exit frame used for calling named Api accessor/interceptor callbacks.
+class ApiNamedAccessorExitFrame : public ApiAccessorExitFrame {
+ public:
+  Type type() const override { return API_NAMED_ACCESSOR_EXIT; }
+
+  inline Tagged<Name> property_name() const;
+
+  // GC support.
+  void Iterate(RootVisitor* v) const override;
+
+  void Print(StringStream* accumulator, PrintMode mode,
+             int index) const override;
+
+  static ApiNamedAccessorExitFrame* cast(StackFrame* frame) {
+    DCHECK(frame->is_api_named_accessor_exit());
+    return static_cast<ApiNamedAccessorExitFrame*>(frame);
+  }
+  static const ApiNamedAccessorExitFrame* cast(const StackFrame* frame) {
+    DCHECK(frame->is_api_named_accessor_exit());
+    return static_cast<const ApiNamedAccessorExitFrame*>(frame);
+  }
+
+ protected:
+  inline explicit ApiNamedAccessorExitFrame(StackFrameIteratorBase* iterator);
+
+ private:
+  friend class StackFrameIteratorBase;
+};
+
+// Exit frame used for calling indexed Api interceptor callbacks.
+class ApiIndexedAccessorExitFrame : public ApiAccessorExitFrame {
+ public:
+  Type type() const override { return API_INDEXED_ACCESSOR_EXIT; }
+
+  void Print(StringStream* accumulator, PrintMode mode,
+             int index) const override;
+
+  static ApiIndexedAccessorExitFrame* cast(StackFrame* frame) {
+    DCHECK(frame->is_api_indexed_accessor_exit());
+    return static_cast<ApiIndexedAccessorExitFrame*>(frame);
+  }
+
+ protected:
+  inline explicit ApiIndexedAccessorExitFrame(StackFrameIteratorBase* iterator);
+
+ private:
   friend class StackFrameIteratorBase;
 };
 
@@ -1058,7 +1145,7 @@ class StubFrame : public TypedFrame {
   // TurboFan stub frames are supported.
   int LookupExceptionHandlerInTable();
 
-  FrameSummaries Summarize() const override;
+  FrameSummaries Summarize(bool never_allocate = false) const override;
 
  protected:
   inline explicit StubFrame(StackFrameIteratorBase* iterator);
@@ -1075,10 +1162,15 @@ class OptimizedJSFrame : public JavaScriptFrame {
   void GetFunctions(
       std::vector<Tagged<SharedFunctionInfo>>* functions) const override;
 
-  FrameSummaries Summarize() const override;
+  FrameSummaries Summarize(bool never_allocate = false) const override;
 
   Tagged<DeoptimizationData> GetDeoptimizationData(Tagged<Code> code,
                                                    int* deopt_index) const;
+
+  // Like GetDeoptimizationData, but takes an explicit PC instead of reading
+  // it from the frame.  Can be used without a live frame.
+  static Tagged<DeoptimizationData> GetDeoptimizationDataForPC(
+      Isolate* isolate, Tagged<Code> code, Address pc, int* deopt_index);
 
   static int StackSlotOffsetRelativeToFp(int slot_index);
 
@@ -1088,6 +1180,13 @@ class OptimizedJSFrame : public JavaScriptFrame {
 
   virtual int FindReturnPCForTrampoline(Tagged<Code> code,
                                         int trampoline_pc) const = 0;
+
+ private:
+  // Full TranslatedState-based walk, used as fallback when the lightweight
+  // path in Summarize() encounters frames it cannot handle (e.g.
+  // wasm-inlined-into-JS frames).
+  FrameSummaries SummarizeFull(Tagged<DeoptimizationData> data, int deopt_index,
+                               bool never_allocate) const;
 
  protected:
   inline explicit OptimizedJSFrame(StackFrameIteratorBase* iterator);
@@ -1117,7 +1216,7 @@ class UnoptimizedJSFrame : public JavaScriptFrame {
   inline void SetFeedbackVector(Tagged<FeedbackVector> feedback_vector);
 
   // Build a list with summaries for this frame including all inlined frames.
-  FrameSummaries Summarize() const override;
+  FrameSummaries Summarize(bool never_allocate = false) const override;
 
   static UnoptimizedJSFrame* cast(StackFrame* frame) {
     DCHECK(frame->is_unoptimized_js());
@@ -1221,7 +1320,7 @@ class TurbofanJSFrame : public OptimizedJSFrame {
  public:
   Type type() const override { return TURBOFAN_JS; }
 
-  int ComputeParametersCount() const override;
+  uint32_t ComputeParametersCount() const override;
 
   void Iterate(RootVisitor* v) const override;
 
@@ -1249,7 +1348,7 @@ class BuiltinFrame final : public TypedFrameWithJSLinkage {
   }
 
   Tagged<JSFunction> function() const override;
-  int ComputeParametersCount() const override;
+  uint32_t ComputeParametersCount() const override;
 
  protected:
   inline explicit BuiltinFrame(StackFrameIteratorBase* iterator);
@@ -1288,7 +1387,7 @@ class WasmFrame : public TypedFrame {
   int generated_code_offset() const;
   bool is_inspectable() const;
 
-  FrameSummaries Summarize() const override;
+  FrameSummaries Summarize(bool never_allocate = false) const override;
 
   static WasmFrame* cast(StackFrame* frame) {
     DCHECK(frame->is_wasm()
@@ -1349,7 +1448,7 @@ class WasmInterpreterEntryFrame final : public WasmFrame {
   void Print(StringStream* accumulator, PrintMode mode,
              int index) const override;
 
-  FrameSummaries Summarize() const override;
+  FrameSummaries Summarize(bool never_allocate = false) const override;
 
   // Determine the code for the frame.
   Tagged<HeapObject> unchecked_code() const override;
@@ -1451,6 +1550,7 @@ class WasmStackEntryFrame : public TypedFrame {
  public:
   Type type() const override { return WASM_STACK_ENTRY; }
   void Iterate(RootVisitor* v) const override {}
+  wasm::WasmCode* wasm_code();
 
  protected:
   inline explicit WasmStackEntryFrame(StackFrameIteratorBase* iterator);
@@ -1493,6 +1593,7 @@ class WasmLiftoffSetupFrame : public TypedFrame {
 
   FullObjectSlot wasm_instance_data_slot() const;
 
+  Address CallingPC() const;
   int GetDeclaredFunctionIndex() const;
 
   wasm::NativeModule* GetNativeModule() const;
@@ -1596,7 +1697,7 @@ class JavaScriptBuiltinContinuationFrame : public TypedFrameWithJSLinkage {
   }
 
   Tagged<JSFunction> function() const override;
-  int ComputeParametersCount() const override;
+  uint32_t ComputeParametersCount() const override;
   intptr_t GetSPToFPDelta() const;
 
   Tagged<Object> context() const override;

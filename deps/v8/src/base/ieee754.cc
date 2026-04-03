@@ -28,14 +28,6 @@ namespace ieee754 {
 
 namespace {
 
-/* Disable "potential divide by 0" warning in Visual Studio compiler. */
-
-#if V8_CC_MSVC
-
-#pragma warning(disable : 4723)
-
-#endif
-
 /*
  * The original fdlibm code used statements like:
  *  n0 = ((*(int*)&one)>>29)^1;   * index of high word *
@@ -2958,65 +2950,6 @@ double sinh(double x) {
   // |x| > overflowthreshold or is NaN.
   // Return Infinity of the appropriate sign or NaN.
   return x * shuge;
-}
-
-/* Tanh(x)
- * Return the Hyperbolic Tangent of x
- *
- * Method :
- *                                 x    -x
- *                                e  - e
- *  0. tanh(x) is defined to be -----------
- *                                 x    -x
- *                                e  + e
- *  1. reduce x to non-negative by tanh(-x) = -tanh(x).
- *  2.  0      <= x <  2**-28 : tanh(x) := x with inexact if x != 0
- *                                          -t
- *      2**-28 <= x <  1      : tanh(x) := -----; t = expm1(-2x)
- *                                         t + 2
- *                                               2
- *      1      <= x <  22     : tanh(x) := 1 - -----; t = expm1(2x)
- *                                             t + 2
- *      22     <= x <= INF    : tanh(x) := 1.
- *
- * Special cases:
- *      tanh(NaN) is NaN;
- *      only tanh(0)=0 is exact for finite argument.
- */
-double tanh(double x) {
-  static const volatile double tiny = 1.0e-300;
-  static const double one = 1.0, two = 2.0, huge = 1.0e300;
-  double t, z;
-  int32_t jx, ix;
-
-  GET_HIGH_WORD(jx, x);
-  ix = jx & 0x7FFFFFFF;
-
-  /* x is INF or NaN */
-  if (ix >= 0x7FF00000) {
-    if (jx >= 0)
-      return one / x + one; /* tanh(+-inf)=+-1 */
-    else
-      return one / x - one; /* tanh(NaN) = NaN */
-  }
-
-  /* |x| < 22 */
-  if (ix < 0x40360000) {            /* |x|<22 */
-    if (ix < 0x3E300000) {          /* |x|<2**-28 */
-      if (huge + x > one) return x; /* tanh(tiny) = tiny with inexact */
-    }
-    if (ix >= 0x3FF00000) { /* |x|>=1  */
-      t = expm1(two * fabs(x));
-      z = one - two / (t + two);
-    } else {
-      t = expm1(-two * fabs(x));
-      z = -t / (t + two);
-    }
-    /* |x| >= 22, return +-1 */
-  } else {
-    z = one - tiny; /* raise inexact flag */
-  }
-  return (jx >= 0) ? z : -z;
 }
 
 #undef EXTRACT_WORDS

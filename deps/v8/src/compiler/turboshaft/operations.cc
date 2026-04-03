@@ -24,6 +24,7 @@
 #include "src/compiler/turboshaft/deopt-data.h"
 #include "src/compiler/turboshaft/graph.h"
 #include "src/compiler/turboshaft/opmasks.h"
+#include "src/flags/flags.h"
 #include "src/handles/handles-inl.h"
 #include "src/handles/maybe-handles-inl.h"
 #include "src/objects/code-inl.h"
@@ -32,12 +33,6 @@
 // For InWritableSharedSpace
 #include "src/objects/objects-inl.h"
 #endif
-
-namespace v8::internal {
-std::ostream& operator<<(std::ostream& os, AbortReason reason) {
-  return os << GetAbortReason(reason);
-}
-}  // namespace v8::internal
 
 namespace v8::internal::compiler::turboshaft {
 
@@ -112,8 +107,17 @@ void ValidateOpInputRep(
           OpcodeName(input_op.opcode));
   }
   for (RegisterRepresentation expected_rep : expected_reps) {
+    if (input_op.Is<Opmask::kTaggedIndexConstant>()) {
+      // TODO(dmercadier): TaggedIndex is sometimes treated as a WordPtr and
+      // sometimes as Tagged. We should clean this up and have a single
+      // consistent representation for TaggedIndex.
+      if (expected_rep == any_of(RegisterRepresentation::Tagged(),
+                                 RegisterRepresentation::WordPtr())) {
+        return;
+      }
+    }
     if (input_rep.AllowImplicitRepresentationChangeTo(
-            expected_rep, graph.IsCreatedFromTurbofan())) {
+            expected_rep, graph.IsCreatedFromTurbofan(), graph.IsTurbolev())) {
       return;
     }
   }
@@ -181,12 +185,16 @@ std::ostream& operator<<(std::ostream& os, GenericUnopOp::Kind kind) {
   }
 }
 
-std::ostream& operator<<(std::ostream& os, Word32SignHintOp::Sign sign) {
-  switch (sign) {
-    case Word32SignHintOp::Sign::kSigned:
-      return os << "Signed";
-    case Word32SignHintOp::Sign::kUnsigned:
-      return os << "Unsigned";
+std::ostream& operator<<(std::ostream& os, TypeHintOp::Type type) {
+  switch (type) {
+    case TypeHintOp::Type::kInt32:
+      return os << "Int32";
+    case TypeHintOp::Type::kUint32:
+      return os << "Uint32";
+    case TypeHintOp::Type::kFloat64:
+      return os << "Float64";
+    case TypeHintOp::Type::kHoleyFloat64:
+      return os << "HoleyFloat64";
   }
 }
 
@@ -449,10 +457,12 @@ std::ostream& operator<<(std::ostream& os, ChangeOp::Assumption assumption) {
 
 std::ostream& operator<<(std::ostream& os, SelectOp::Implementation kind) {
   switch (kind) {
-    case SelectOp::Implementation::kBranch:
+    case SelectOp::Implementation::kForceBranch:
       return os << "Branch";
-    case SelectOp::Implementation::kCMove:
+    case SelectOp::Implementation::kForceCMove:
       return os << "CMove";
+    case SelectOp::Implementation::kAny:
+      return os << "Any";
   }
 }
 
@@ -636,7 +646,8 @@ void LoadOp::PrintOptions(std::ostream& os) const {
   os << '[';
   os << (kind.tagged_base ? "tagged base" : "raw");
   if (kind.maybe_unaligned) os << ", unaligned";
-  if (kind.with_trap_handler) os << ", protected";
+  if (kind.with_trap_handler) os << ", trapping";
+  if (kind.is_immutable) os << ", immutable";
   os << ", " << loaded_rep;
   os << ", " << result_rep;
   if (element_size_log2 != 0)
@@ -689,6 +700,12 @@ void AtomicWord32PairOp::PrintOptions(std::ostream& os) const {
   os << "[opkind: " << kind << ']';
 }
 
+#ifdef V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
+void SwitchSandboxModeOp::PrintOptions(std::ostream& os) const {
+  os << "[sandbox mode: " << static_cast<int>(sandbox_mode) << ']';
+}
+#endif  // V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
+
 void MemoryBarrierOp::PrintOptions(std::ostream& os) const {
   os << "[memory order: " << memory_order << ']';
 }
@@ -717,14 +734,45 @@ void StoreOp::PrintOptions(std::ostream& os) const {
   os << '[';
   os << (kind.tagged_base ? "tagged base" : "raw");
   if (kind.maybe_unaligned) os << ", unaligned";
-  if (kind.with_trap_handler) os << ", protected";
+  if (kind.with_trap_handler) os << ", trapping";
   os << ", " << stored_rep;
   os << ", " << write_barrier;
+  if (kind.is_atomic) os << ", atomic with memory order " << memory_order_;
   if (element_size_log2 != 0)
     os << ", element size: 2^" << int{element_size_log2};
   if (offset != 0) os << ", offset: " << offset;
   if (maybe_initializing_or_transitioning) os << ", initializing";
   os << ']';
+}
+
+void TaggedBitcastOp::Validate(const Graph& graph) const {
+  if (kind == Kind::kSmi) {
+    DCHECK((from.IsWord() && to.IsTaggedOrCompressed()) ||
+           (from.IsTaggedOrCompressed() && to.IsWord()));
+    DCHECK_IMPLIES(from == RegisterRepresentation::Word64() ||
+                       to == RegisterRepresentation::Word64(),
+                   Is64());
+  } else {
+    // TODO(nicohartmann@): Without implicit truncation, the first case might
+    // not be correct anymore.
+    DCHECK((from.IsWord() && to == RegisterRepresentation::Tagged()) ||
+           (from == RegisterRepresentation::Tagged() &&
+            to == RegisterRepresentation::WordPtr()) ||
+           (from == RegisterRepresentation::Compressed() &&
+            to == RegisterRepresentation::Word32()));
+
+    if (to == RegisterRepresentation::Tagged() ||
+        to == RegisterRepresentation::Compressed()) {
+      // We shouldn't bitcast-to-tagged load results. Instead, we should
+      // correctly load tagged values as RegisterRepresentation::Tagged().
+      // There is one exception to this rule: tagged atomic loads, which aren't
+      // supported by the instruction selector and thus need to be bitcasted to
+      // Tagged. This is safe for load elimination because we don't
+      // load-eliminate atomic loads anyways.
+      DCHECK(!graph.Get(input()).Is<LoadOp>() ||
+             graph.Get(input()).Cast<LoadOp>().kind.is_atomic);
+    }
+  }
 }
 
 void AllocateOp::PrintOptions(std::ostream& os) const {
@@ -743,11 +791,22 @@ void AllocateOp::PrintOptions(std::ostream& os) const {
   os << ']';
 }
 
-void DecodeExternalPointerOp::PrintOptions(std::ostream& os) const {
+#if V8_ENABLE_SANDBOX
+void LoadExternalPointerOp::PrintOptions(std::ostream& os) const {
   os << '[';
   os << "tag_range: [" << tag_range.first << ", " << tag_range.last << "]";
   os << ']';
 }
+#endif
+
+#if V8_ENABLE_SANDBOX
+void LoadTrustedPointerOp::PrintOptions(std::ostream& os) const {
+  os << '[';
+  os << "is_immutable: " << is_immutable << ", ";
+  os << "tag_range: [" << tag_range.first << ", " << tag_range.last << "]";
+  os << ']';
+}
+#endif
 
 void FrameStateOp::PrintOptions(std::ostream& os) const {
   os << '[';
@@ -1061,6 +1120,10 @@ void Word32PairBinopOp::PrintOptions(std::ostream& os) const {
   os << ']';
 }
 
+void Word64MulWideOp::PrintOptions(std::ostream& os) const {
+  os << (kind == Kind::kSigned ? "signed" : "unsigned");
+}
+
 void WordBinopDeoptOnOverflowOp::PrintOptions(std::ostream& os) const {
   os << '[';
   switch (kind) {
@@ -1137,7 +1200,10 @@ std::ostream& operator<<(std::ostream& os, EffectHandler h) {
 std::ostream& operator<<(std::ostream& os, base::Vector<EffectHandler> hs) {
   os << "effect handlers: ";
   for (auto& h : hs) {
-    os << h.tag_index << ":" << h.block << (&h == &hs.last() ? "" : " ");
+    if (h.is_switch())
+      os << h.tag_index() << "[switch]" << (&h == &hs.last() ? "" : " ");
+    else
+      os << h.tag_index() << ":" << h.block << (&h == &hs.last() ? "" : " ");
   }
   return os;
 }
@@ -1346,20 +1412,11 @@ std::ostream& operator<<(
 
 std::ostream& operator<<(
     std::ostream& os,
-    ConvertUntaggedToJSPrimitiveOrDeoptOp::JSPrimitiveKind kind) {
-  switch (kind) {
-    case ConvertUntaggedToJSPrimitiveOrDeoptOp::JSPrimitiveKind::kSmi:
-      return os << "Smi";
-  }
-}
-
-std::ostream& operator<<(
-    std::ostream& os, ConvertUntaggedToJSPrimitiveOrDeoptOp::InputInterpretation
-                          input_interpretation) {
+    ConvertWordToSmiOrDeoptOp::InputInterpretation input_interpretation) {
   switch (input_interpretation) {
-    case ConvertUntaggedToJSPrimitiveOrDeoptOp::InputInterpretation::kSigned:
+    case ConvertWordToSmiOrDeoptOp::InputInterpretation::kSigned:
       return os << "Signed";
-    case ConvertUntaggedToJSPrimitiveOrDeoptOp::InputInterpretation::kUnsigned:
+    case ConvertWordToSmiOrDeoptOp::InputInterpretation::kUnsigned:
       return os << "Unsigned";
   }
 }
@@ -1377,10 +1434,8 @@ std::ostream& operator<<(std::ostream& os,
       return os << "Bit";
     case ConvertJSPrimitiveToUntaggedOp::UntaggedKind::kFloat64:
       return os << "Float64";
-#ifdef V8_ENABLE_UNDEFINED_DOUBLE
     case ConvertJSPrimitiveToUntaggedOp::UntaggedKind::kHoleyFloat64:
       return os << "HoleyFloat64";
-#endif  // V8_ENABLE_UNDEFINED_DOUBLE
   }
 }
 
@@ -1392,6 +1447,8 @@ std::ostream& operator<<(
       return os << "Boolean";
     case ConvertJSPrimitiveToUntaggedOp::InputAssumptions::kSmi:
       return os << "Smi";
+    case ConvertJSPrimitiveToUntaggedOp::InputAssumptions::kSmiOrHole:
+      return os << "SmiOrHole";
     case ConvertJSPrimitiveToUntaggedOp::InputAssumptions::kNumberOrHole:
       return os << "NumberOrHole";
     case ConvertJSPrimitiveToUntaggedOp::InputAssumptions::kNumberOrOddball:
@@ -1467,6 +1524,8 @@ std::ostream& operator<<(
   switch (input_assumptions) {
     case TruncateJSPrimitiveToUntaggedOp::InputAssumptions::kBigInt:
       return os << "BigInt";
+    case TruncateJSPrimitiveToUntaggedOp::InputAssumptions::kSmiOrHole:
+      return os << "SmiOrHole";
     case TruncateJSPrimitiveToUntaggedOp::InputAssumptions::kNumberOrOddball:
       return os << "NumberOrOddball";
     case TruncateJSPrimitiveToUntaggedOp::InputAssumptions::
@@ -1683,6 +1742,7 @@ const RegisterRepresentation& RepresentationFor(wasm::ValueType type) {
     case wasm::kI8:
     case wasm::kI16:
     case wasm::kI32:
+    case wasm::kWaitQueue:
       return kWord32;
     case wasm::kI64:
       return kWord64;
@@ -1826,8 +1886,9 @@ void Simd128ExtractLaneOp::PrintOptions(std::ostream& os) const {
   os << ", " << static_cast<int32_t>(lane) << ']';
 }
 
-void Simd128ReplaceLaneOp::PrintOptions(std::ostream& os) const {
-  os << '[';
+static void PrintReplaceLaneKind(Simd128ReplaceLaneOp::Kind kind,
+                                 std::ostream& os) {
+  using Kind = Simd128ReplaceLaneOp::Kind;
   switch (kind) {
     case Kind::kI8x16:
       os << "I8x16";
@@ -1851,13 +1912,25 @@ void Simd128ReplaceLaneOp::PrintOptions(std::ostream& os) const {
       os << "F64x2";
       break;
   }
+}
+
+void Simd128MoveLaneOp::PrintOptions(std::ostream& os) const {
+  os << '[';
+  PrintReplaceLaneKind(kind, os);
+  os << ", " << static_cast<int32_t>(into_lane) << ", "
+     << static_cast<int32_t>(from_lane) << ']';
+}
+
+void Simd128ReplaceLaneOp::PrintOptions(std::ostream& os) const {
+  os << '[';
+  PrintReplaceLaneKind(kind, os);
   os << ", " << static_cast<int32_t>(lane) << ']';
 }
 
 void Simd128LaneMemoryOp::PrintOptions(std::ostream& os) const {
   os << '[' << (mode == Mode::kLoad ? "Load" : "Store") << ", ";
   if (kind.maybe_unaligned) os << "unaligned, ";
-  if (kind.with_trap_handler) os << "protected, ";
+  if (kind.with_trap_handler) os << "trapping, ";
   switch (lane_kind) {
     case LaneKind::k8:
       os << '8';
@@ -1880,7 +1953,7 @@ void Simd128LaneMemoryOp::PrintOptions(std::ostream& os) const {
 void Simd128LoadTransformOp::PrintOptions(std::ostream& os) const {
   os << '[';
   if (load_kind.maybe_unaligned) os << "unaligned, ";
-  if (load_kind.with_trap_handler) os << "protected, ";
+  if (load_kind.with_trap_handler) os << "trapping, ";
 
   switch (transform_kind) {
 #define PRINT_KIND(kind)       \
@@ -1897,6 +1970,9 @@ void Simd128LoadTransformOp::PrintOptions(std::ostream& os) const {
 void Simd128ShuffleOp::PrintOptions(std::ostream& os) const {
   os << '[';
   switch (kind) {
+    case Kind::kI8x1:
+      os << "I8x1, ";
+      break;
     case Kind::kI8x2:
       os << "I8x2, ";
       break;
@@ -1914,11 +1990,10 @@ void Simd128ShuffleOp::PrintOptions(std::ostream& os) const {
   os << ']';
 }
 
-#if V8_ENABLE_WASM_DEINTERLEAVED_MEM_OPS
 void Simd128LoadPairDeinterleaveOp::PrintOptions(std::ostream& os) const {
   os << '[';
   if (load_kind.maybe_unaligned) os << "unaligned, ";
-  if (load_kind.with_trap_handler) os << "protected, ";
+  if (load_kind.with_trap_handler) os << "trapping, ";
 
   switch (kind) {
     case Kind::k8x32:
@@ -1936,7 +2011,6 @@ void Simd128LoadPairDeinterleaveOp::PrintOptions(std::ostream& os) const {
   }
   os << ']';
 }
-#endif  // V8_ENABLE_WASM_DEINTERLEAVED_MEM_OPS
 
 #if V8_ENABLE_WASM_SIMD256_REVEC
 void Simd256ConstantOp::PrintOptions(std::ostream& os) const {
@@ -1950,7 +2024,7 @@ void Simd256Extract128LaneOp::PrintOptions(std::ostream& os) const {
 void Simd256LoadTransformOp::PrintOptions(std::ostream& os) const {
   os << '[';
   if (load_kind.maybe_unaligned) os << "unaligned, ";
-  if (load_kind.with_trap_handler) os << "protected, ";
+  if (load_kind.with_trap_handler) os << "trapping, ";
 
   switch (transform_kind) {
 #define PRINT_KIND(kind)       \
@@ -2037,7 +2111,8 @@ std::ostream& operator<<(std::ostream& os, Simd256UnpackOp::Kind kind) {
 
 void WasmAllocateArrayOp::PrintOptions(std::ostream& os) const {
   os << '[' << array_type->element_type()
-     << ", is_shared: " << (is_shared ? "true" : "false") << "]";
+     << ", is_shared: " << (is_shared == SharedFlag::kYes ? "true" : "false")
+     << "]";
 }
 
 void StructGetOp::PrintOptions(std::ostream& os) const {
@@ -2064,7 +2139,7 @@ void StructSetOp::PrintOptions(std::ostream& os) const {
   } else {
     os << "non-atomic";
   }
-  os << ']';
+  os << ", " << write_barrier << ']';
 }
 
 void ArrayGetOp::PrintOptions(std::ostream& os) const {
@@ -2086,7 +2161,7 @@ void ArraySetOp::PrintOptions(std::ostream& os) const {
   } else {
     os << "non-atomic";
   }
-  os << ']';
+  os << ", " << write_barrier << ']';
 }
 
 #endif  // V8_ENABLE_WEBASSEBMLY
@@ -2284,6 +2359,9 @@ bool IsUnlikelySuccessor(const Block* block, const Block* successor,
     case Opcode::kTailCall:
     case Opcode::kUnreachable:
     case Opcode::kReturn:
+#if V8_ENABLE_WEBASSEMBLY
+    case Opcode::kWasmTrap:
+#endif
       UNREACHABLE();
 
 #define NON_TERMINATOR_CASE(op) case Opcode::k##op:
@@ -2296,24 +2374,101 @@ bool IsUnlikelySuccessor(const Block* block, const Block* successor,
 bool Operation::IsOnlyUserOf(const Operation& value, const Graph& graph) const {
   DCHECK_GE(std::count(inputs().begin(), inputs().end(), graph.Index(value)),
             1);
-  if (value.saturated_use_count.IsOne()) return true;
-  return std::count(inputs().begin(), inputs().end(), graph.Index(value)) ==
-         value.saturated_use_count.Get();
+  if (value.saturated_use_count.Is(1)) return true;
+  size_t use_count_in_this =
+      std::count(inputs().begin(), inputs().end(), graph.Index(value));
+  return value.saturated_use_count.Is(static_cast<int>(use_count_in_this));
 }
 
 #if V8_ENABLE_WEBASSEMBLY
-bool Operation::IsProtectedLoad() const {
+bool Operation::IsTrappingLoad() const {
   if (const auto* load = TryCast<LoadOp>()) {
     return load->kind.with_trap_handler;
   } else if (const auto* load_t = TryCast<Simd128LoadTransformOp>()) {
     return load_t->load_kind.with_trap_handler;
-#ifdef V8_ENABLE_WASM_DEINTERLEAVED_MEM_OPS
-  } else if (const auto* load_t = TryCast<Simd128LoadPairDeinterleaveOp>()) {
-    return load_t->load_kind.with_trap_handler;
-#endif  // V8_ENABLE_WASM_DEINTERLEAVED_MEM_OPS
+  } else if (const auto* load_pd = TryCast<Simd128LoadPairDeinterleaveOp>()) {
+    return load_pd->load_kind.with_trap_handler;
+  } else if (const auto* load_lane = TryCast<Simd128LaneMemoryOp>()) {
+    return load_lane->kind.with_trap_handler;
   }
   return false;
 }
 #endif  // V8_ENABLE_WEBASSEMBLY
+
+IsSmiDecision CombineDecisions(IsSmiDecision left, IsSmiDecision right) {
+  if (left == right) return left;
+  return IsSmiDecision::kUnknown;
+}
+IsSmiDecision DecideObjectIsSmi(const Graph& graph, V<Object> idx, int depth) {
+  constexpr int kMaxDepth = 3;
+  DCHECK_LE(depth, kMaxDepth);
+
+  const Operation& op = graph.Get(idx);
+  switch (op.opcode) {
+    case Opcode::kConstant: {
+      const ConstantOp& cst = op.Cast<ConstantOp>();
+      if (cst.kind == ConstantOp::Kind::kNumber) {
+        // For kNumber, we don't know yet whether this will turn into a Smi or
+        // a HeapNumber.
+        return IsSmiDecision::kUnknown;
+      }
+      return (cst.IsIntegral() || cst.kind == ConstantOp::Kind::kSmi)
+                 ? IsSmiDecision::kTrue
+                 : IsSmiDecision::kFalse;
+    }
+    case Opcode::kAllocate:
+      return IsSmiDecision::kFalse;
+    case Opcode::kConvertUntaggedToJSPrimitive: {
+      using Kind = ConvertUntaggedToJSPrimitiveOp::JSPrimitiveKind;
+      switch (op.Cast<ConvertUntaggedToJSPrimitiveOp>().kind) {
+        case Kind::kBigInt:
+        case Kind::kBoolean:
+        case Kind::kHeapNumber:
+        case Kind::kHeapNumberOrUndefined:
+        case Kind::kString:
+          return IsSmiDecision::kFalse;
+        case Kind::kSmi:
+          return IsSmiDecision::kTrue;
+        case Kind::kNumber:
+          return IsSmiDecision::kUnknown;
+      }
+      UNREACHABLE();
+    }
+    case Opcode::kTaggedBitcast: {
+      switch (op.Cast<TaggedBitcastOp>().kind) {
+        case TaggedBitcastOp::Kind::kSmi:
+          return IsSmiDecision::kTrue;
+        case TaggedBitcastOp::Kind::kHeapObject:
+          return IsSmiDecision::kFalse;
+        case TaggedBitcastOp::Kind::kTagAndSmiBits:
+        case TaggedBitcastOp::Kind::kAny:
+          return IsSmiDecision::kUnknown;
+      }
+    }
+    case Opcode::kLoad: {
+      switch (op.Cast<LoadOp>().loaded_rep) {
+        case MemoryRepresentation::TaggedPointer():
+          return IsSmiDecision::kFalse;
+        case MemoryRepresentation::TaggedSigned():
+          return IsSmiDecision::kTrue;
+        default:
+          return IsSmiDecision::kUnknown;
+      }
+    }
+    case Opcode::kPhi:
+      if (depth == kMaxDepth) return IsSmiDecision::kUnknown;
+      return std::accumulate(
+          op.inputs().begin() + 1, op.inputs().end(),
+          DecideObjectIsSmi(graph, op.input(0), depth + 1),
+          [&](IsSmiDecision acc, OpIndex input_idx) {
+            return CombineDecisions(
+                acc, DecideObjectIsSmi(graph, input_idx, depth + 1));
+          });
+    default:
+      break;
+  }
+
+  return IsSmiDecision::kUnknown;
+}
 
 }  // namespace v8::internal::compiler::turboshaft

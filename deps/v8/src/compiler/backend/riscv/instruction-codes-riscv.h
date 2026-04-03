@@ -28,9 +28,11 @@ namespace compiler {
   V(RiscvLw)                                               \
   V(RiscvSw)                                               \
   V(RiscvLoadDouble)                                       \
+  V(RiscvLoadFloat)                                        \
+  V(RiscvLoadHalf)                                         \
   V(RiscvStoreDouble)                                      \
   V(RiscvStoreFloat)                                       \
-  V(RiscvLoadFloat)                                        \
+  V(RiscvStoreHalf)                                        \
   V(RiscvStoreCompressTagged)                              \
   V(RiscvLoadDecompressTaggedSigned)                       \
   V(RiscvLoadDecompressTagged)                             \
@@ -70,6 +72,8 @@ namespace compiler {
   V(RiscvTruncLS)                                    \
   V(RiscvTruncLD)                                    \
   V(RiscvTruncUlS)                                   \
+  V(RiscvFloat64ToFloat16RawBits)                    \
+  V(RiscvFloat16RawBitsToFloat64)                    \
   V(RiscvTruncUlD)                                   \
   V(RiscvCvtSL)                                      \
   V(RiscvCvtSUl)                                     \
@@ -90,7 +94,7 @@ namespace compiler {
   V(RiscvStoreIndirectPointer)                       \
   V(RiscvAtomicLoadDecompressTaggedSigned)           \
   V(RiscvAtomicLoadDecompressTagged)                 \
-  V(RiscvLoadDecompressProtected)                    \
+  V(RiscvLoadDecompressTrapping)                     \
   V(RiscvAtomicStoreCompressTagged)                  \
   V(RiscvWord64AtomicCompareExchangeUint64)          \
   V(RiscvCmp32)                                      \

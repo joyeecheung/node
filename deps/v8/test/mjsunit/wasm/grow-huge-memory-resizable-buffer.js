@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 // Save some memory on Linux; other platforms ignore this flag.
-// Flags: --multi-mapped-mock-allocator --experimental-wasm-rab-integration
+// Flags: --multi-mapped-mock-allocator
 
 // Test that we can grow memories to sizes beyond 2GB.
 
@@ -23,6 +23,7 @@ function GetMemoryPages(memory) {
 (function TestGrowFromJSSAB() {
   let mem = new WebAssembly.Memory({initial: 200, maximum: 50000});
   let buf = mem.toResizableBuffer();
+  assertEquals(true, buf.resizable);
   buf.resize(buf.byteLength + 40000 * kPageSize);
   assertEquals(40200, GetMemoryPages(mem));
 })();

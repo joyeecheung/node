@@ -8,6 +8,7 @@
 #include "src/codegen/code-stub-assembler-inl.h"
 #include "src/objects/js-generator.h"
 #include "src/objects/js-promise.h"
+#include "src/objects/microtask.h"
 #include "src/objects/objects-inl.h"
 
 namespace v8 {
@@ -127,6 +128,16 @@ TF_BUILTIN(AsyncFunctionEnter, AsyncFunctionBuiltinsAssembler) {
   StoreObjectFieldNoWriteBarrier(
       async_function_object, JSAsyncFunctionObject::kPromiseOffset, promise);
 
+  // Initialize closure fields to undefined. They will be lazily allocated
+  // on first await. This saves memory for async functions that never suspend
+  // (e.g., conditional awaits, early returns).
+  StoreObjectFieldRoot(async_function_object,
+                       JSAsyncFunctionObject::kAwaitResolveClosureOffset,
+                       RootIndex::kUndefinedValue);
+  StoreObjectFieldRoot(async_function_object,
+                       JSAsyncFunctionObject::kAwaitRejectClosureOffset,
+                       RootIndex::kUndefinedValue);
+
   Return(async_function_object);
 }
 
@@ -204,11 +215,74 @@ void AsyncFunctionBuiltinsAssembler::AsyncFunctionAwait() {
 
   TNode<JSPromise> outer_promise = LoadObjectField<JSPromise>(
       async_function_object, JSAsyncFunctionObject::kPromiseOffset);
-  Await(context, async_function_object, value, outer_promise,
-        RootIndex::kAsyncFunctionAwaitResolveClosureSharedFun,
-        RootIndex::kAsyncFunctionAwaitRejectClosureSharedFun);
 
-  // Return outer promise to avoid adding an load of the outer promise before
+  // Fast path: if value is an already-fulfilled JSPromise with intact species
+  // protector and no hooks/debug active, skip closures entirely and enqueue
+  // an AsyncResumeTask directly.  This eliminates the AwaitContext, closure
+  // allocation, PromiseFulfillReactionJobTask allocation, and the indirect
+  // closure dispatch (AsyncFunctionAwaitResolveClosure).
+  Label slow_path(this);
+  {
+    // Must be a heap object.
+    GotoIf(TaggedIsSmi(value), &slow_path);
+    TNode<HeapObject> value_obj = CAST(value);
+
+    // No hooks or debug support active.
+    // TODO(jgruber): fold the species-protector bit into PromiseHookFlags()
+    // so both checks can be combined into a single load.
+    TNode<Uint32T> promiseHookFlags = PromiseHookFlags();
+    GotoIf(IsIsolatePromiseHookEnabledOrDebugIsActiveOrHasAsyncEventDelegate(
+               promiseHookFlags),
+           &slow_path);
+#ifdef V8_ENABLE_JAVASCRIPT_PROMISE_HOOKS
+    GotoIf(IsContextPromiseHookEnabled(promiseHookFlags), &slow_path);
+#endif
+
+    // value must be a JSPromise on the canonical initial map for this
+    // native context.  Checking the initial map (rather than just the
+    // instance type) guarantees:
+    //   - no custom "constructor" property on the instance, and
+    //   - the promise was created in the current native context (initial
+    //     maps are per-context), so microtasks enqueue on the right queue.
+    TNode<NativeContext> native_context = LoadNativeContext(context);
+    TNode<Map> value_map = LoadMap(value_obj);
+    TNode<JSFunction> promise_fun = CAST(LoadContextElementNoCell(
+        native_context, Context::PROMISE_FUNCTION_INDEX));
+    TNode<Map> initial_promise_map =
+        CAST(LoadJSFunctionPrototypeOrInitialMap(promise_fun));
+    GotoIfNot(TaggedEqual(value_map, initial_promise_map), &slow_path);
+    TNode<JSPromise> js_promise = CAST(value_obj);
+
+    // Promise must be fulfilled.
+    TNode<Smi> promise_flags =
+        LoadObjectField<Smi>(js_promise, JSPromise::kFlagsOffset);
+    GotoIfNot(IsSetSmi(promise_flags, v8::Promise::kFulfilled), &slow_path);
+
+    // Species protector must be intact.  Together with the initial map check
+    // above this ensures the "constructor" lookup resolves to %Promise%, so
+    // PromiseResolve(Promise, value) returns value unchanged.
+    GotoIf(IsPromiseSpeciesProtectorCellInvalid(), &slow_path);
+
+    // Mark the promise as handled.
+    StoreObjectFieldNoWriteBarrier(
+        js_promise, JSPromise::kFlagsOffset,
+        SmiOr(promise_flags, SmiConstant(JSPromise::HasHandlerBit::kMask)));
+
+    // Extract the fulfilled value.
+    TNode<Object> fulfilled_value =
+        LoadObjectField(js_promise, JSPromise::kReactionsOrResultOffset);
+
+    EnqueueAsyncResumeTask(native_context, async_function_object,
+                           fulfilled_value,
+                           AsyncResumeTask::kAsyncFunctionAwait);
+    Return(outer_promise);
+  }
+
+  BIND(&slow_path);
+  AwaitWithReusableClosures(context, async_function_object, value,
+                            outer_promise);
+
+  // Return outer promise to avoid adding a load of the outer promise before
   // suspending in BytecodeGenerator.
   Return(outer_promise);
 }

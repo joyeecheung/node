@@ -54,14 +54,7 @@ class IsolateSafepoint final {
   std::optional<IsolateSafepointScope> ReachSafepointWithoutTriggeringGC();
 
  private:
-  struct RunningLocalHeap {
-    LocalHeap* local_heap;
-#if V8_OS_DARWIN
-    pthread_override_t qos_override;
-#endif
-  };
-
-  using RunningLocalHeaps = base::SmallVector<RunningLocalHeap, 4>;
+  using RunningLocalHeaps = base::SmallVector<LocalHeap*, 4>;
 
   class Barrier {
     base::Mutex mutex_;
@@ -102,12 +95,8 @@ class IsolateSafepoint final {
   void LeaveLocalSafepointScope();
 
   // Methods for entering/leaving global safepoint scopes.
-  void TryInitiateGlobalSafepointScope(Isolate* initiator,
-                                       PerClientSafepointData* client_data);
   void InitiateGlobalSafepointScope(Isolate* initiator,
                                     PerClientSafepointData* client_data);
-  void InitiateGlobalSafepointScopeRaw(Isolate* initiator,
-                                       PerClientSafepointData* client_data);
   void LeaveGlobalSafepointScope(Isolate* initiator);
 
   // Blocks until all running threads reached a safepoint.

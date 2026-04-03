@@ -196,10 +196,10 @@ static void EmitInstrToFold(InstructionSelector* selector,
 // TODO(zhijin): Refactoring is needed to make the function's implementation
 // match its name. The bailout path in case 2 does not use the shxadd
 // instruction.
-static bool TryUseShxaddToFoldImpl(InstructionSelector* selector, OpIndex node,
-                                   InstructionCode opcode, OpIndex base,
-                                   OpIndex index, InstructionOperand output,
-                                   OpIndex value, bool read) {
+static bool TryFoldLoadStoreImpl(InstructionSelector* selector, OpIndex node,
+                                 InstructionCode opcode, OpIndex base,
+                                 OpIndex index, InstructionOperand output,
+                                 OpIndex value, bool read) {
   RiscvOperandGenerator g(selector);
 
   const Operation& base_op = selector->Get(base);
@@ -409,7 +409,7 @@ static bool TryFoldLoad(InstructionSelector* selector, OpIndex node,
                         InstructionCode opcode, OpIndex base, OpIndex index,
                         OpIndex output) {
   RiscvOperandGenerator g(selector);
-  return TryUseShxaddToFoldImpl(
+  return TryFoldLoadStoreImpl(
       selector, node, opcode, base, index,
       g.DefineAsRegister(output.valid() ? output : node), OpIndex(), true);
 }
@@ -417,8 +417,8 @@ static bool TryFoldLoad(InstructionSelector* selector, OpIndex node,
 static bool TryFoldStore(InstructionSelector* selector, OpIndex node,
                          InstructionCode opcode, OpIndex base, OpIndex index,
                          InstructionOperand output, OpIndex value) {
-  return TryUseShxaddToFoldImpl(selector, node, opcode, base, index, output,
-                                value, false);
+  return TryFoldLoadStoreImpl(selector, node, opcode, base, index, output,
+                              value, false);
 }
 
 void EmitLoad(InstructionSelector* selector, OpIndex node,
@@ -520,7 +520,7 @@ void InstructionSelector::VisitStoreLane(OpIndex node) {
   InstructionCode opcode = kRiscvS128StoreLane;
   opcode |= EncodeElementWidth(ByteSizeToSew(store.lane_size()));
   if (store.kind.with_trap_handler) {
-    opcode |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
+    opcode |= AccessModeField::encode(kMemoryAccessTrappingMemOutOfBounds);
   }
 
   RiscvOperandGenerator g(this);
@@ -529,14 +529,21 @@ void InstructionSelector::VisitStoreLane(OpIndex node) {
   OpIndex base = op.input(0);
   OpIndex index = op.input(1);
   InstructionOperand addr_reg = g.TempRegister();
-  Emit(kRiscvAdd64, addr_reg, g.UseRegister(base), g.UseRegister(index));
+  if (g.CanBeImmediate(index, kRiscvAdd64)) {
+    Emit(kRiscvAdd64 | AddressingModeField::encode(kMode_MRR), addr_reg,
+         g.UseRegister(base), g.UseImmediate(index));
+
+  } else {
+    Emit(kRiscvAdd64 | AddressingModeField::encode(kMode_MRR), addr_reg,
+         g.UseRegister(base), g.UseRegister(index));
+  }
+  opcode |= AddressingModeField::encode(kMode_MRI);
   InstructionOperand inputs[4] = {
       g.UseRegister(op.input(2)),
       g.UseImmediate(store.lane),
       addr_reg,
       g.TempImmediate(0),
   };
-  opcode |= AddressingModeField::encode(kMode_MRI);
   Emit(opcode, 0, nullptr, 4, inputs);
 }
 
@@ -545,7 +552,7 @@ void InstructionSelector::VisitLoadLane(OpIndex node) {
   InstructionCode opcode = kRiscvS128LoadLane;
   opcode |= EncodeElementWidth(ByteSizeToSew(load.lane_size()));
   if (load.kind.with_trap_handler) {
-    opcode |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
+    opcode |= AccessModeField::encode(kMemoryAccessTrappingMemOutOfBounds);
   }
 
   RiscvOperandGenerator g(this);
@@ -554,7 +561,13 @@ void InstructionSelector::VisitLoadLane(OpIndex node) {
   OpIndex base = op.input(0);
   OpIndex index = op.input(1);
   InstructionOperand addr_reg = g.TempRegister();
-  Emit(kRiscvAdd64, addr_reg, g.UseRegister(base), g.UseRegister(index));
+  if (g.CanBeImmediate(index, kRiscvAdd64)) {
+    Emit(kRiscvAdd64 | AddressingModeField::encode(kMode_MRI), addr_reg,
+         g.UseRegister(base), g.UseImmediate(index));
+  } else {
+    Emit(kRiscvAdd64 | AddressingModeField::encode(kMode_MRR), addr_reg,
+         g.UseRegister(base), g.UseRegister(index));
+  }
   opcode |= AddressingModeField::encode(kMode_MRI);
   Emit(opcode, g.DefineSameAsFirst(node), g.UseRegister(op.input(2)),
        g.UseImmediate(load.lane), addr_reg, g.TempImmediate(0));
@@ -591,7 +604,7 @@ ArchOpcode GetLoadOpcode(MemoryRepresentation loaded_rep,
       DCHECK_EQ(result_rep, RegisterRepresentation::Word64());
       return kRiscvLd;
     case MemoryRepresentation::Float16():
-      UNIMPLEMENTED();
+      return kRiscvLoadHalf;
     case MemoryRepresentation::Float32():
       DCHECK_EQ(result_rep, RegisterRepresentation::Float32());
       return kRiscvLoadFloat;
@@ -626,7 +639,7 @@ ArchOpcode GetLoadOpcode(MemoryRepresentation loaded_rep,
       return kRiscvLd;
     case MemoryRepresentation::ProtectedPointer():
       CHECK(V8_ENABLE_SANDBOX_BOOL);
-      return kRiscvLoadDecompressProtected;
+      return kRiscvLoadDecompressTrapping;
     case MemoryRepresentation::IndirectPointer():
       UNREACHABLE();
     case MemoryRepresentation::SandboxedPointer():
@@ -653,7 +666,7 @@ ArchOpcode GetStoreOpcode(MemoryRepresentation stored_rep) {
     case MemoryRepresentation::Uint64():
       return kRiscvSd;
     case MemoryRepresentation::Float16():
-      UNIMPLEMENTED();
+      return kRiscvStoreHalf;
     case MemoryRepresentation::Float32():
       return kRiscvStoreFloat;
     case MemoryRepresentation::Float64():
@@ -686,11 +699,11 @@ void InstructionSelector::VisitLoad(OpIndex node) {
   InstructionCode opcode = kArchNop;
   opcode = GetLoadOpcode(load.ts_loaded_rep(), load.ts_result_rep());
   bool traps_on_null;
-  if (load.is_protected(&traps_on_null)) {
+  if (load.is_trapping(&traps_on_null)) {
     if (traps_on_null) {
-      opcode |= AccessModeField::encode(kMemoryAccessProtectedNullDereference);
+      opcode |= AccessModeField::encode(kMemoryAccessTrappingNullDereference);
     } else {
-      opcode |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
+      opcode |= AccessModeField::encode(kMemoryAccessTrappingMemOutOfBounds);
     }
   }
   EmitLoad(this, node, opcode);
@@ -698,7 +711,7 @@ void InstructionSelector::VisitLoad(OpIndex node) {
 
 void InstructionSelector::VisitStorePair(OpIndex node) { UNREACHABLE(); }
 
-void InstructionSelector::VisitProtectedLoad(OpIndex node) { VisitLoad(node); }
+void InstructionSelector::VisitTrappingLoad(OpIndex node) { VisitLoad(node); }
 
 void InstructionSelector::VisitStore(OpIndex node) {
   RiscvOperandGenerator g(this);
@@ -720,33 +733,37 @@ void InstructionSelector::VisitStore(OpIndex node) {
       V8_LIKELY(!v8_flags.disable_write_barriers)) {
     DCHECK(CanBeTaggedOrCompressedOrIndirectPointer(rep));
     InstructionOperand inputs[4];
+    InstructionCode code;
     size_t input_count = 0;
     inputs[input_count++] = g.UseUniqueRegister(base);
-    inputs[input_count++] = g.UseUniqueRegister(index);
+    inputs[input_count++] = g.CanBeImmediate(index, kRiscvAdd64)
+                                ? g.UseImmediate(index)
+                                : g.UseUniqueRegister(index);
     inputs[input_count++] = g.UseUniqueRegister(value);
     InstructionOperand temps[] = {g.TempRegister(), g.TempRegister()};
     size_t const temp_count = arraysize(temps);
 
-    InstructionCode code;
-    if (write_barrier_kind == kSkippedWriteBarrier) {
+    if (rep == MachineRepresentation::kIndirectPointer) {
+      DCHECK(write_barrier_kind == kIndirectPointerWriteBarrier ||
+             write_barrier_kind == kSkippedWriteBarrier);
+      // In this case we need to add the IndirectPointerTag as additional input.
+      code = write_barrier_kind == kSkippedWriteBarrier
+                 ? kArchStoreIndirectSkippedWriteBarrier
+                 : kArchStoreIndirectWithWriteBarrier;
+      code |= RecordWriteModeField::encode(
+          RecordWriteMode::kValueIsIndirectPointer);
+      IndirectPointerTag tag = store_view.indirect_pointer_tag();
+      inputs[input_count++] = g.UseImmediate64(static_cast<int64_t>(tag));
+    } else if (write_barrier_kind == kSkippedWriteBarrier) {
       code = kArchStoreSkippedWriteBarrier;
     } else {
       RecordWriteMode record_write_mode =
           WriteBarrierKindToRecordWriteMode(write_barrier_kind);
-      if (rep == MachineRepresentation::kIndirectPointer) {
-        DCHECK_EQ(write_barrier_kind, kIndirectPointerWriteBarrier);
-        // In this case we need to add the IndirectPointerTag as additional
-        // input.
-        code = kArchStoreIndirectWithWriteBarrier;
-        IndirectPointerTag tag = store_view.indirect_pointer_tag();
-        inputs[input_count++] = g.UseImmediate64(static_cast<int64_t>(tag));
-      } else {
-        code = kArchStoreWithWriteBarrier;
-      }
+      code = kArchStoreWithWriteBarrier;
       code |= RecordWriteModeField::encode(record_write_mode);
     }
     if (store_view.is_store_trap_on_null()) {
-      code |= AccessModeField::encode(kMemoryAccessProtectedNullDereference);
+      code |= AccessModeField::encode(kMemoryAccessTrappingNullDereference);
     }
     Emit(code, 0, nullptr, input_count, inputs, temp_count, temps);
     return;
@@ -770,10 +787,9 @@ void InstructionSelector::VisitStore(OpIndex node) {
   }
 
   if (store_view.is_store_trap_on_null()) {
-    code |= AccessModeField::encode(kMemoryAccessProtectedNullDereference);
-  } else if (store_view.access_kind() ==
-             MemoryAccessKind::kProtectedByTrapHandler) {
-    code |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
+    code |= AccessModeField::encode(kMemoryAccessTrappingNullDereference);
+  } else if (store_view.access_kind() == MemoryAccessKind::kTrapping) {
+    code |= AccessModeField::encode(kMemoryAccessTrappingMemOutOfBounds);
   }
 
   if (TryFoldStore(this, node, code, base, index, g.NoOutput(), value)) {
@@ -794,9 +810,7 @@ void InstructionSelector::VisitStore(OpIndex node) {
   }
 }
 
-void InstructionSelector::VisitProtectedStore(OpIndex node) {
-  VisitStore(node);
-}
+void InstructionSelector::VisitTrappingStore(OpIndex node) { VisitStore(node); }
 
 void InstructionSelector::VisitWord32And(OpIndex node) {
   VisitBinop<Int32BinopMatcher>(this, node, kRiscvAnd32, true, kRiscvAnd32);
@@ -977,7 +991,39 @@ void InstructionSelector::VisitInt32Add(OpIndex node) {
   Emit(kRiscvAdd32, g.DefineAsRegister(node), inputs[0], inputs[1]);
 }
 
+// Try to match Add(z, a, slli(x, y)) and emit shxadd(z, x, a) for it.
+bool TryEmitShxadd(InstructionSelector* selector, OpIndex add, OpIndex lhs,
+                   OpIndex rhs) {
+  if (!CpuFeatures::IsSupported(ZBA)) return false;
+  const Operation& left_op = selector->Get(lhs);
+  if ((left_op.Is<Opmask::kWord64ShiftLeft>() &&
+       selector->CanCover(add, lhs))) {
+    const ShiftOp& shift_op = left_op.Cast<ShiftOp>();
+    const Operation& shift_rhs = selector->Get(shift_op.right());
+    if (shift_rhs.Is<Opmask::kWord32Constant>()) {
+      int64_t shift_by = shift_rhs.Cast<ConstantOp>().signed_integral();
+      if (base::IsInRange(shift_by, 1, 3)) {
+        RiscvOperandGenerator g(selector);
+        selector->Emit(
+            GetShxaddCode(shift_by) | AddressingModeField::encode(kMode_None),
+            g.UseRegister(add), g.UseRegister(shift_op.left()),
+            g.UseRegister(rhs));
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 void InstructionSelector::VisitInt64Add(OpIndex node) {
+  const WordBinopOp& add = this->Get(node).Cast<WordBinopOp>();
+  DCHECK(add.Is<Opmask::kWord64Add>());
+  OpIndex right = add.right();
+  OpIndex left = add.left();
+  if (TryEmitShxadd(this, node, left, right) ||
+      TryEmitShxadd(this, node, right, left)) {
+    return;
+  }
   VisitBinop<Int64BinopMatcher>(this, node, kRiscvAdd64, true, kRiscvAdd64);
 }
 
@@ -1440,6 +1486,18 @@ void InstructionSelector::VisitChangeUint32ToUint64(OpIndex node) {
     Emit(kArchNop, g.DefineSameAsFirst(node), g.Use(value));
     return;
   }
+  if (this->Get(value).opcode == Opcode::kChange) {
+    const ChangeOp& change = this->Get(value).Cast<ChangeOp>();
+    OpIndex change_input = change.input();
+    // ToUint64(ToUint32(fp32)) wll drop Nan boxing
+    // So riscv use kRiscvBitcastDL to change fp32 into Uint64, which can keep
+    // Nan Box.See issues/469801435.
+    if (change.Is<Opmask::kChangeFloat32ToUint32>()) {
+      Emit(kRiscvBitcastDL, g.DefineAsRegister(node),
+           g.UseRegister(change_input));
+      return;
+    }
+  }
   Emit(kRiscvZeroExtendWord, g.DefineAsRegister(node), g.UseRegister(value));
 }
 
@@ -1611,7 +1669,7 @@ void InstructionSelector::EmitPrepareArguments(
          0, nullptr, 0, nullptr);
 
     // Poke any stack arguments.
-    int slot = kCArgSlotCount;
+    int slot = 0;
     for (PushParameter input : (*arguments)) {
       Emit(kRiscvStoreToStackSlot, g.NoOutput(), g.UseRegister(input.node),
            g.TempImmediate(slot << kSystemPointerSizeLog2));
@@ -1687,11 +1745,11 @@ void InstructionSelector::VisitUnalignedLoad(OpIndex node) {
       UNREACHABLE();
   }
   bool traps_on_null;
-  if (load.is_protected(&traps_on_null)) {
+  if (load.is_trapping(&traps_on_null)) {
     if (traps_on_null) {
-      opcode |= AccessModeField::encode(kMemoryAccessProtectedNullDereference);
+      opcode |= AccessModeField::encode(kMemoryAccessTrappingNullDereference);
     } else {
-      opcode |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
+      opcode |= AccessModeField::encode(kMemoryAccessTrappingMemOutOfBounds);
     }
   }
   if (g.CanBeImmediate(index, opcode)) {
@@ -1805,9 +1863,19 @@ bool IsNodeUnsigned(InstructionSelector* selector, OpIndex n) {
   }
 }
 
-bool CanUseOptimizedWord32Compare(InstructionSelector* selector, OpIndex node) {
+bool CanUseOptimizedWord32Compare(InstructionSelector* selector, OpIndex node,
+                                  FlagsCondition condition) {
   if (COMPRESS_POINTERS_BOOL) {
     return false;
+  }
+  switch (condition) {
+    case kSignedLessThan:
+    case kSignedLessThanOrEqual:
+    case kSignedGreaterThan:
+    case kSignedGreaterThanOrEqual:
+      return false;
+    default:
+      break;
   }
   const Operation& op = selector->Get(node);
   DCHECK_EQ(op.input_count, 2);
@@ -1878,9 +1946,9 @@ void VisitWord32Compare(InstructionSelector* selector, OpIndex node,
   const Operation& rhs = selector->Get(op.input(1));
   if (lhs.Is<DidntThrowOp>() || rhs.Is<DidntThrowOp>()) {
     VisitFullWord32Compare(selector, node, kRiscvCmp, cont);
-  } else if (!CanUseOptimizedWord32Compare(selector, node)) {
+  } else if (!CanUseOptimizedWord32Compare(selector, node, cont->condition())) {
 #else
-  if (!CanUseOptimizedWord32Compare(selector, node)) {
+  if (!CanUseOptimizedWord32Compare(selector, node, cont->condition())) {
 #endif
     VisitFullWord32Compare(selector, node, kRiscvCmp, cont);
   } else {
@@ -1950,12 +2018,10 @@ void VisitAtomicLoad(InstructionSelector* selector, OpIndex node,
   }
 
   bool traps_on_null;
-  if (load.is_protected(&traps_on_null)) {
-    // Atomic loads and null dereference are mutually exclusive. This might
-    // change with multi-threaded wasm-gc in which case the access mode should
-    // probably be kMemoryAccessProtectedNullDereference.
-    DCHECK(!traps_on_null);
-    code |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
+  if (load.is_trapping(&traps_on_null)) {
+    code |= AccessModeField::encode(traps_on_null
+                                        ? kMemoryAccessTrappingNullDereference
+                                        : kMemoryAccessTrappingMemOutOfBounds);
   }
 
   if (g.CanBeImmediate(index, code)) {
@@ -2012,11 +2078,17 @@ void VisitAtomicStore(InstructionSelector* selector, OpIndex node,
       !v8_flags.disable_write_barriers) {
     DCHECK(CanBeTaggedPointer(rep));
     DCHECK_EQ(AtomicWidthSize(width), kTaggedSize);
-
+    AddressingMode addressing_mode;
     InstructionOperand inputs[3];
     size_t input_count = 0;
     inputs[input_count++] = g.UseUniqueRegister(base);
-    inputs[input_count++] = g.UseUniqueRegister(index);
+    if (g.CanBeImmediate(index, kRiscvAdd64)) {
+      inputs[input_count++] = g.UseImmediate(index);
+      addressing_mode = kMode_MRI;
+    } else {
+      inputs[input_count++] = g.UseUniqueRegister(index);
+      addressing_mode = kMode_MRR;
+    }
     inputs[input_count++] = g.UseUniqueRegister(value);
     InstructionOperand temps[] = {g.TempRegister(), g.TempRegister()};
     size_t const temp_count = arraysize(temps);
@@ -2029,6 +2101,14 @@ void VisitAtomicStore(InstructionSelector* selector, OpIndex node,
       code = kArchAtomicStoreWithWriteBarrier;
       code |= RecordWriteModeField::encode(record_write_mode);
     }
+
+    if (store.is_store_trap_on_null()) {
+      code |= AccessModeField::encode(kMemoryAccessTrappingNullDereference);
+    } else if (store_params.kind() == MemoryAccessKind::kTrapping) {
+      code |= AccessModeField::encode(kMemoryAccessTrappingMemOutOfBounds);
+    }
+
+    code |= AddressingModeField::encode(addressing_mode);
     selector->Emit(code, 0, nullptr, input_count, inputs, temp_count, temps);
   } else {
     switch (rep) {
@@ -2057,10 +2137,9 @@ void VisitAtomicStore(InstructionSelector* selector, OpIndex node,
     code |= AtomicWidthField::encode(width);
 
     if (store.is_store_trap_on_null()) {
-      code |= AccessModeField::encode(kMemoryAccessProtectedNullDereference);
-    } else if (store_params.kind() ==
-               MemoryAccessKind::kProtectedByTrapHandler) {
-      code |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
+      code |= AccessModeField::encode(kMemoryAccessTrappingNullDereference);
+    } else if (store_params.kind() == MemoryAccessKind::kTrapping) {
+      code |= AccessModeField::encode(kMemoryAccessTrappingMemOutOfBounds);
     }
     if (g.CanBeImmediate(index, code)) {
       selector->Emit(code | AddressingModeField::encode(kMode_MRI) |
@@ -2090,11 +2169,17 @@ void VisitAtomicBinop(InstructionSelector* selector, OpIndex node,
   OpIndex index = atomic_op.index();
   OpIndex value = atomic_op.value();
 
-  AddressingMode addressing_mode = kMode_MRI;
+  AddressingMode addressing_mode;
   InstructionOperand inputs[3];
   size_t input_count = 0;
   inputs[input_count++] = g.UseUniqueRegister(base);
-  inputs[input_count++] = g.UseUniqueRegister(index);
+  if (g.CanBeImmediate(index, kRiscvAdd64)) {
+    inputs[input_count++] = g.UseImmediate(index);
+    addressing_mode = kMode_MRI;
+  } else {
+    inputs[input_count++] = g.UseUniqueRegister(index);
+    addressing_mode = kMode_MRR;
+  }
   inputs[input_count++] = g.UseUniqueRegister(value);
   InstructionOperand outputs[1];
   outputs[0] = g.UseUniqueRegister(node);
@@ -2105,8 +2190,8 @@ void VisitAtomicBinop(InstructionSelector* selector, OpIndex node,
   temps[3] = g.TempRegister();
   InstructionCode code = opcode | AddressingModeField::encode(addressing_mode) |
                          AtomicWidthField::encode(width);
-  if (access_kind == MemoryAccessKind::kProtectedByTrapHandler) {
-    code |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
+  if (access_kind == MemoryAccessKind::kTrapping) {
+    code |= AccessModeField::encode(kMemoryAccessTrappingMemOutOfBounds);
   }
   selector->Emit(code, 1, outputs, input_count, inputs, 4, temps);
 }
@@ -2513,10 +2598,17 @@ void VisitAtomicExchange(InstructionSelector* selector, OpIndex node,
   OpIndex index = atomic_op.index();
   OpIndex value = atomic_op.value();
 
+  AddressingMode addressing_mode;
   InstructionOperand inputs[3];
   size_t input_count = 0;
   inputs[input_count++] = g.UseUniqueRegister(base);
-  inputs[input_count++] = g.UseUniqueRegister(index);
+  if (g.CanBeImmediate(index, kRiscvAdd64)) {
+    inputs[input_count++] = g.UseImmediate(index);
+    addressing_mode = kMode_MRI;
+  } else {
+    inputs[input_count++] = g.UseUniqueRegister(index);
+    addressing_mode = kMode_MRR;
+  }
   inputs[input_count++] = g.UseUniqueRegister(value);
   InstructionOperand outputs[1];
   outputs[0] = g.UseUniqueRegister(node);
@@ -2525,10 +2617,10 @@ void VisitAtomicExchange(InstructionSelector* selector, OpIndex node,
   temp[1] = g.TempRegister();
   temp[2] = g.TempRegister();
 
-  InstructionCode code = opcode | AddressingModeField::encode(kMode_MRI) |
+  InstructionCode code = opcode | AddressingModeField::encode(addressing_mode) |
                          AtomicWidthField::encode(width);
-  if (access_kind == MemoryAccessKind::kProtectedByTrapHandler) {
-    code |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
+  if (access_kind == MemoryAccessKind::kTrapping) {
+    code |= AccessModeField::encode(kMemoryAccessTrappingMemOutOfBounds);
   }
   selector->Emit(code, 1, outputs, input_count, inputs, 3, temp);
 }
@@ -2545,21 +2637,33 @@ void VisitAtomicCompareExchange(InstructionSelector* selector, OpIndex node,
   OpIndex new_value = atomic_op.value();
 
   bool has_write_barrier = opcode == kAtomicCompareExchangeWithWriteBarrier;
-  InstructionOperand inputs[] = {
-      has_write_barrier ? g.UseUniqueRegister(base) : g.UseRegister(base),
-      has_write_barrier ? g.UseUniqueRegister(index) : g.UseRegister(index),
-      g.UseUniqueRegister(old_value), g.UseUniqueRegister(new_value)};
+  InstructionOperand inputs[4];
+  size_t input_count = 0;
+  inputs[input_count++] =
+      has_write_barrier ? g.UseUniqueRegister(base) : g.UseRegister(base);
+
+  AddressingMode addressing_mode;
+  if (g.CanBeImmediate(index, kRiscvAdd64)) {
+    inputs[input_count++] = g.UseImmediate(index);
+    addressing_mode = kMode_MRI;
+  } else {
+    inputs[input_count++] = g.UseUniqueRegister(index);
+    addressing_mode = kMode_MRR;
+  }
+
+  inputs[input_count++] = g.UseUniqueRegister(old_value);
+  inputs[input_count++] = g.UseUniqueRegister(new_value);
 
   InstructionOperand outputs[] = {g.UseUniqueRegister(node)};
   InstructionOperand temps[] = {g.TempRegister(), g.TempRegister(),
                                 g.TempRegister()};
 
-  InstructionCode code = opcode | AddressingModeField::encode(kMode_MRR) |
+  InstructionCode code = opcode | AddressingModeField::encode(addressing_mode) |
                          AtomicWidthField::encode(width);
-  if (access_kind == MemoryAccessKind::kProtectedByTrapHandler) {
-    code |= AccessModeField::encode(kMemoryAccessProtectedMemOutOfBounds);
+  if (access_kind == MemoryAccessKind::kTrapping) {
+    code |= AccessModeField::encode(kMemoryAccessTrappingMemOutOfBounds);
   }
-  selector->Emit(code, arraysize(outputs), outputs, arraysize(inputs), inputs,
+  selector->Emit(code, arraysize(outputs), outputs, input_count, inputs,
                  arraysize(temps), temps);
 }
 
@@ -2789,12 +2893,17 @@ InstructionSelector::SupportedMachineOperatorFlags() {
            MachineOperatorBuilder::kFloat64RoundTruncate |
            MachineOperatorBuilder::kFloat32RoundTruncate |
            MachineOperatorBuilder::kFloat64RoundTiesEven |
-           MachineOperatorBuilder::kFloat32RoundTiesEven;
+           MachineOperatorBuilder::kFloat32RoundTiesEven |
+           MachineOperatorBuilder::kWord64Select;
   if (CpuFeatures::IsSupported(ZBB)) {
     flags |= MachineOperatorBuilder::kWord32Ctz |
              MachineOperatorBuilder::kWord64Ctz |
              MachineOperatorBuilder::kWord32Popcnt |
              MachineOperatorBuilder::kWord64Popcnt;
+  }
+  if (CpuFeatures::IsSupported(ZFH)) {
+    flags |= MachineOperatorBuilder::kFloat16 |
+             MachineOperatorBuilder::kFloat16RawBitsConversion;
   }
   return flags;
 }

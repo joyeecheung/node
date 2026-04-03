@@ -43,7 +43,7 @@
 #if V8_TARGET_ARCH_PPC64
 
 #include "src/base/bits.h"
-#include "src/base/cpu.h"
+#include "src/base/cpu/cpu.h"
 #include "src/codegen/macro-assembler.h"
 #include "src/codegen/ppc/assembler-ppc-inl.h"
 #include "src/deoptimizer/deoptimizer.h"
@@ -52,14 +52,15 @@ namespace v8 {
 namespace internal {
 
 // Get the CPU features enabled by the build.
-static unsigned CpuFeaturesImpliedByCompiler() {
-  unsigned answer = 0;
+static CpuFeatureSet CpuFeaturesImpliedByCompiler() {
+  CpuFeatureSet answer;
   return answer;
 }
 
 bool CpuFeatures::SupportsWasmSimd128() {
 #if V8_ENABLE_WEBASSEMBLY
-  return CpuFeatures::IsSupported(PPC_9_PLUS);
+  DCHECK(CpuFeatures::IsSupported(PPC_9_PLUS));
+  return true;
 #else
   return false;
 #endif  // V8_ENABLE_WEBASSEMBLY
@@ -75,11 +76,11 @@ void CpuFeatures::ProbeImpl(bool cross_compile) {
 // Probe for additional features at runtime.
 #ifdef USE_SIMULATOR
   // Simulator
-  supported_ |= (1u << PPC_11_PLUS);
+  supported_.Add(PPC_11_PLUS);
 #else
   base::CPU cpu;
   if (cpu.part() == base::CPU::kPPCPower11) {
-    supported_ |= (1u << PPC_11_PLUS);
+    supported_.Add(PPC_11_PLUS);
   } else if (cpu.part() == base::CPU::kPPCPower10) {
 #if defined(__PASE__)
     // Some P10 features such as prefixed isns will only be supported in future
@@ -90,17 +91,15 @@ void CpuFeatures::ProbeImpl(bool cross_compile) {
     CHECK_GE(r, 0);
     int rel = atoi(uts.release);
     if (rel > 4) {
-      supported_ |= (1u << PPC_10_PLUS);
+      supported_.Add(PPC_10_PLUS);
     } else {
-      supported_ |= (1u << PPC_9_PLUS);
+      supported_.Add(PPC_9_PLUS);
     }
 #else
-    supported_ |= (1u << PPC_10_PLUS);
+    supported_.Add(PPC_10_PLUS);
 #endif
   } else if (cpu.part() == base::CPU::kPPCPower9) {
-    supported_ |= (1u << PPC_9_PLUS);
-  } else if (cpu.part() == base::CPU::kPPCPower8) {
-    supported_ |= (1u << PPC_8_PLUS);
+    supported_.Add(PPC_9_PLUS);
   }
 #if V8_OS_LINUX
   if (cpu.icache_line_size() != base::CPU::kUnknownCacheLineSize) {
@@ -108,9 +107,8 @@ void CpuFeatures::ProbeImpl(bool cross_compile) {
   }
 #endif
 #endif
-  if (supported_ & (1u << PPC_11_PLUS)) supported_ |= (1u << PPC_10_PLUS);
-  if (supported_ & (1u << PPC_10_PLUS)) supported_ |= (1u << PPC_9_PLUS);
-  if (supported_ & (1u << PPC_9_PLUS)) supported_ |= (1u << PPC_8_PLUS);
+  if (supported_.contains(PPC_11_PLUS)) supported_.Add(PPC_10_PLUS);
+  if (supported_.contains(PPC_10_PLUS)) supported_.Add(PPC_9_PLUS);
 
   // Set a static value on whether Simd is supported.
   // This variable is only used for certain archs to query SupportWasmSimd128()
@@ -126,7 +124,6 @@ void CpuFeatures::PrintTarget() {
 }
 
 void CpuFeatures::PrintFeatures() {
-  printf("PPC_8_PLUS=%d\n", CpuFeatures::IsSupported(PPC_8_PLUS));
   printf("PPC_9_PLUS=%d\n", CpuFeatures::IsSupported(PPC_9_PLUS));
   printf("PPC_10_PLUS=%d\n", CpuFeatures::IsSupported(PPC_10_PLUS));
   printf("PPC_11_PLUS=%d\n", CpuFeatures::IsSupported(PPC_11_PLUS));
@@ -1112,6 +1109,16 @@ void Assembler::divd(Register dst, Register src1, Register src2, OEBit o,
 void Assembler::divdu(Register dst, Register src1, Register src2, OEBit o,
                       RCBit r) {
   xo_form(EXT2 | DIVDU, dst, src1, src2, o, r);
+}
+
+void Assembler::addpcis(Register dst, const Operand& val) {
+  intptr_t imm16 = val.immediate();
+  DCHECK(is_int16(imm16));
+  imm16 &= kImm16Mask;
+  int d0 = (imm16 & 0xFFC0) >> 6;
+  int d1 = (imm16 & 0x3E) >> 1;
+  int d2 = imm16 & 0x1;
+  emit(ADDPCIS | dst.code() * B21 | d1 * B16 | d0 * B6 | d2);
 }
 
 // Prefixed instructions.

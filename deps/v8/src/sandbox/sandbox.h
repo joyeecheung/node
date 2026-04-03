@@ -71,12 +71,22 @@ class V8_EXPORT_PRIVATE Sandbox {
    * */
   static constexpr bool kFallbackToPartiallyReservedSandboxAllowed = true;
 
+  // The name for the virtual address space reservation backing the sandbox.
+  static constexpr const char* kSandboxAddressSpaceName = "v8-sandbox";
+
+  static constexpr size_t kSmiAddressRange = 4UL * GB;
+
+  // We assume that the Smi<->HeapObject corruption can lead to accesses of
+  // in-object properties. We add some padding to also catch these kinds of
+  // accesses.
+  static constexpr size_t kSmiAddressRangePadding = 1 * MB;
+
   /**
    * Initializes this sandbox.
    *
    * This will allocate the virtual address subspace for the sandbox inside the
    * provided virtual address space. If a subspace of the required size cannot
-   * be allocated, this method will insted initialize this sandbox as a
+   * be allocated, this method will instead initialize this sandbox as a
    * partially-reserved sandbox. In that case, a smaller virtual address space
    * reservation will be used and an EmulatedVirtualAddressSubspace instance
    * will be created on top of it to back the sandbox. If not enough virtual
@@ -118,7 +128,7 @@ class V8_EXPORT_PRIVATE Sandbox {
    * Smi is treated as a pointer and dereferenced.
    */
   bool smi_address_range_is_inaccessible() const {
-    return first_four_gb_of_address_space_are_reserved_;
+    return smi_address_range_reserved_;
   }
 
   /**
@@ -327,7 +337,7 @@ class V8_EXPORT_PRIVATE Sandbox {
   // reserve the first four gigabytes of the virtual address space (with an
   // inaccessible mapping). This for example mitigates Smi<->HeapObject
   // confusion bugs in which we treat a Smi value as a pointer and access it.
-  static bool first_four_gb_of_address_space_are_reserved_;
+  static bool smi_address_range_reserved_;
 
 #ifdef V8_COMPRESS_POINTERS_IN_MULTIPLE_CAGES
   thread_local static Sandbox* current_;

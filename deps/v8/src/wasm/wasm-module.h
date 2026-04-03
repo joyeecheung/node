@@ -20,7 +20,6 @@
 #include "src/wasm/branch-hint-map.h"
 #include "src/wasm/constant-expression.h"
 #include "src/wasm/wasm-constants.h"
-#include "src/wasm/wasm-init-expr.h"
 #include "src/wasm/wasm-limits.h"
 #include "src/wasm/well-known-imports.h"
 
@@ -40,10 +39,7 @@ class WasmInterpreterRuntime;
 class WellKnownImportsList;
 class TypeCanonicalizer;
 class ArrayType;
-class CanonicalArrayType;
 class ContType;
-class CanonicalContType;
-class CanonicalStructType;
 class StructType;
 
 enum class AddressType : uint8_t { kI32, kI64 };
@@ -56,7 +52,7 @@ inline std::ostream& operator<<(std::ostream& os, AddressType address_type) {
   return os << AddressTypeToStr(address_type);
 }
 
-// Reference to a string in the wire bytes.
+// Reference to a byte range in the wire bytes.
 class WireBytesRef {
  public:
   constexpr WireBytesRef() = default;
@@ -87,6 +83,9 @@ struct WasmFunction {
   bool imported = false;
   bool exported = false;
   bool declared = false;
+  // TODO(jkummerow): Should we merge {sig_index} and {exact} into a
+  // {ValueType} field?
+  bool exact = false;  // Only meaningful for imported functions.
 };
 
 // Static representation of a wasm global variable.
@@ -95,13 +94,15 @@ struct WasmGlobal {
   bool mutability = false;       // {true} if mutable.
   ConstantExpression init = {};  // the initialization expression of the global.
   union {
-    // Index of imported mutable global.
-    uint32_t index;
-    // Offset into global memory (if not imported & mutable). Expressed in bytes
-    // for value-typed globals, and in tagged words for reference-typed globals.
-    uint32_t offset;
+    // Used for mutable imported globals. Stores the index into the instance's
+    // `imported_mutable_globals_buffers` and `imported_mutable_globals_offsets`
+    // arrays.
+    uint32_t mutable_imported_global_index;
+    // Used for non-imported or non-mutable globals: Index into the instance's
+    // `tagged_globals_buffer` or `untagged_globals_buffer`.
+    uint32_t index_in_buffer;
   };
-  bool shared = false;
+  SharedFlag shared = SharedFlag::kNo;
   bool imported = false;
   bool exported = false;
   bool initializer_ends_with_struct_new = false;
@@ -113,7 +114,7 @@ using WasmTagSig = FunctionSig;
 
 // Static representation of a wasm tag type.
 struct WasmTag {
-  explicit WasmTag(const WasmTagSig* sig, ModuleTypeIndex sig_index)
+  WasmTag(const WasmTagSig* sig, ModuleTypeIndex sig_index)
       : sig(sig), sig_index(sig_index) {}
   const FunctionSig* ToFunctionSig() const { return sig; }
 
@@ -128,7 +129,7 @@ enum ModuleOrigin : uint8_t {
 };
 
 enum BoundsCheckStrategy : int8_t {
-  // Emit protected instructions, use the trap handler for OOB detection.
+  // Emit trapping instructions, use the trap handler for OOB detection.
   kTrapHandler,
   // Emit explicit bounds checks.
   kExplicitBoundsChecks,
@@ -145,7 +146,7 @@ struct WasmMemory {
   // Maximum declared size of the memory in 64k pages. The actual memory size at
   // runtime is capped at {kV8MaxWasmMemory32Pages} / {kV8MaxWasmMemory64Pages}.
   uint64_t maximum_pages = 0;
-  bool is_shared = false;
+  SharedFlag is_shared = SharedFlag::kNo;
   bool has_maximum_pages = false;
   AddressType address_type = AddressType::kI32;
   bool imported = false;
@@ -175,7 +176,7 @@ struct WasmStringRefLiteral {
 
 // Static representation of a wasm data segment.
 struct WasmDataSegment {
-  explicit WasmDataSegment(bool is_active, bool is_shared,
+  explicit WasmDataSegment(bool is_active, SharedFlag is_shared,
                            uint32_t memory_index, ConstantExpression dest_addr,
                            WireBytesRef source)
       : active(is_active),
@@ -185,11 +186,11 @@ struct WasmDataSegment {
         source(source) {}
 
   static WasmDataSegment PassiveForTesting() {
-    return WasmDataSegment{false, false, 0, {}, {}};
+    return WasmDataSegment{false, SharedFlag::kNo, 0, {}, {}};
   }
 
   bool active = true;     // true if copied automatically during instantiation.
-  bool shared = false;    // true if shared.
+  SharedFlag shared = SharedFlag::kNo;
   uint32_t memory_index;  // memory index (if active).
   ConstantExpression dest_addr;  // destination memory address (if active).
   WireBytesRef source;           // start offset in the module bytes.
@@ -205,7 +206,7 @@ struct WasmElemSegment {
   enum ElementType { kFunctionIndexElements, kExpressionElements };
 
   // Construct an active segment.
-  WasmElemSegment(bool shared, ValueType type, uint32_t table_index,
+  WasmElemSegment(SharedFlag shared, ValueType type, uint32_t table_index,
                   ConstantExpression offset, ElementType element_type,
                   uint32_t element_count, uint32_t elements_wire_bytes_offset)
       : status(kStatusActive),
@@ -219,7 +220,7 @@ struct WasmElemSegment {
 
   // Construct a passive or declarative segment, which has no table index or
   // offset.
-  WasmElemSegment(Status status, bool shared, ValueType type,
+  WasmElemSegment(Status status, SharedFlag shared, ValueType type,
                   ElementType element_type, uint32_t element_count,
                   uint32_t elements_wire_bytes_offset)
       : status(status),
@@ -235,7 +236,7 @@ struct WasmElemSegment {
   // Default constructor. Constucts an invalid segment.
   WasmElemSegment()
       : status(kStatusActive),
-        shared(false),
+        shared(SharedFlag::kNo),
         type(kWasmBottom),
         table_index(0),
         element_type(kFunctionIndexElements),
@@ -248,7 +249,7 @@ struct WasmElemSegment {
   WasmElemSegment& operator=(WasmElemSegment&&) V8_NOEXCEPT = default;
 
   Status status;
-  bool shared;
+  SharedFlag shared;
   ValueType type;
   uint32_t table_index;
   ConstantExpression offset;
@@ -411,7 +412,7 @@ struct TypeDefinition {
   };
 
   constexpr TypeDefinition(const FunctionSig* sig, ModuleTypeIndex supertype,
-                           bool is_final, bool is_shared)
+                           bool is_final, SharedFlag is_shared)
       : function_sig(sig),
         supertype{supertype},
         kind(kFunction),
@@ -419,7 +420,7 @@ struct TypeDefinition {
         is_shared(is_shared) {}
 
   constexpr TypeDefinition(const StructType* type, ModuleTypeIndex supertype,
-                           bool is_final, bool is_shared)
+                           bool is_final, SharedFlag is_shared)
       : struct_type(type),
         supertype{supertype},
         kind(kStruct),
@@ -427,7 +428,7 @@ struct TypeDefinition {
         is_shared(is_shared) {}
 
   constexpr TypeDefinition(const ArrayType* type, ModuleTypeIndex supertype,
-                           bool is_final, bool is_shared)
+                           bool is_final, SharedFlag is_shared)
       : array_type(type),
         supertype{supertype},
         kind(kArray),
@@ -435,7 +436,7 @@ struct TypeDefinition {
         is_shared(is_shared) {}
 
   constexpr TypeDefinition(const ContType* type, ModuleTypeIndex supertype,
-                           bool is_final, bool is_shared)
+                           bool is_final, SharedFlag is_shared)
       : cont_type(type),
         supertype{supertype},
         kind(kCont),
@@ -458,7 +459,7 @@ struct TypeDefinition {
   ModuleTypeIndex describes{kNoType};
   Kind kind = kFunction;
   bool is_final = false;
-  bool is_shared = false;
+  SharedFlag is_shared = SharedFlag::kNo;
   uint8_t subtyping_depth = 0;
 };
 
@@ -539,13 +540,19 @@ class CallSiteFeedback {
   }
   int function_index(int i) const {
     DCHECK(!is_invalid() && !is_megamorphic());
-    if (is_monomorphic()) return index_or_count_;
+    if (is_monomorphic()) {
+      DCHECK_EQ(i, 0);
+      return index_or_count_;
+    }
     return polymorphic_storage()[i].function_index;
   }
   // The call count of the function at this particular call site.
   int call_count(int i) const {
     DCHECK(!is_invalid() && !is_megamorphic());
-    if (is_monomorphic()) return static_cast<int>(frequency_or_ool_);
+    if (is_monomorphic()) {
+      DCHECK_EQ(i, 0);
+      return static_cast<int>(frequency_or_ool_);
+    }
     return polymorphic_storage()[i].absolute_call_frequency;
   }
   bool has_non_inlineable_targets() const {
@@ -638,7 +645,7 @@ struct WasmTable {
   uint64_t maximum_size = 0;
   bool has_maximum_size = false;
   AddressType address_type = AddressType::kI32;
-  bool shared = false;
+  SharedFlag shared = SharedFlag::kNo;
   bool imported = false;
   bool exported = false;
   ConstantExpression initial_value = {};
@@ -650,15 +657,11 @@ struct CompilationPriority {
   uint32_t compilation_priority;
   int optimization_priority;
 };
-using CompilationPriorities = std::unordered_map<uint32_t, CompilationPriority>;
-struct Uint32PairHash {
-  size_t operator()(const std::pair<uint32_t, uint32_t> pair) const {
-    return base::hash_value(pair);
-  }
-};
-// Maps from function index and byte offset in the function to frequency.
+using CompilationPriorities = std::map<uint32_t, CompilationPriority>;
+// Maps from function index to a vector of byte offset in the function and
+// frequency.
 using InstructionFrequencies =
-    std::unordered_map<std::pair<uint32_t, uint32_t>, uint8_t, Uint32PairHash>;
+    std::map<uint32_t, std::vector<std::pair<uint32_t, uint8_t>>>;
 struct CallTarget {
   uint32_t function_index;
   uint32_t call_frequency_percent;
@@ -669,18 +672,98 @@ struct CallTarget {
   }
 };
 using CallTargetVector = base::SmallVector<CallTarget, 4>;
-// Maps from function index and byte offset to a SmallVector of call targets.
-using CallTargets = std::unordered_map<std::pair<uint32_t, uint32_t>,
-                                       CallTargetVector, Uint32PairHash>;
+// Maps from function index to a vector of byte offset and a SmallVector of call
+// targets.
+using CallTargets =
+    std::map<uint32_t, std::vector<std::pair<uint32_t, CallTargetVector>>>;
+
+// WasmModuleSignatureStorage provides a minimal allocator interface.
+// Allocations never move, i.e. pointers stay stable.
+// This is similar to a Zone, but tuned for long-time storage (less memory
+// overhead).
+class WasmModuleSignatureStorage {
+ public:
+  WasmModuleSignatureStorage() = default;
+
+  // Disallow copy assignment and copy construction.
+  WasmModuleSignatureStorage(const WasmModuleSignatureStorage&) = delete;
+  WasmModuleSignatureStorage& operator=(const WasmModuleSignatureStorage&) =
+      delete;
+
+  // Move assignment / construction is needed for tests which internally
+  // construct a WasmModule and then pass out e.g. a signature pointer plus the
+  // storage.
+  WasmModuleSignatureStorage(WasmModuleSignatureStorage&&)
+      V8_NOEXCEPT = default;
+  WasmModuleSignatureStorage& operator=(WasmModuleSignatureStorage&&)
+      V8_NOEXCEPT = default;
+
+  uint8_t* Allocate(size_t length, size_t align = 1) {
+    DCHECK(base::bits::IsPowerOfTwo(align));
+    if (V8_UNLIKELY(storage_.empty())) AllocateMoreStorage(length + align - 1);
+
+    std::vector<uint8_t>* last = &storage_.back();
+    size_t last_size = last->size();
+    uint8_t* ptr = last->data() + last_size;
+    size_t padding = (-reinterpret_cast<intptr_t>(ptr)) & (align - 1);
+    if (V8_UNLIKELY(last->capacity() - last_size < length + padding)) {
+      AllocateMoreStorage(length + align - 1);
+      // Redo calculations from before:
+      last = &storage_.back();
+      last_size = last->size();
+      ptr = last->data() + last_size;
+      padding = (-reinterpret_cast<intptr_t>(ptr)) & (align - 1);
+    }
+    DCHECK_LE(last_size + length + padding, last->capacity());
+    last->resize(last_size + length + padding);
+    DCHECK_EQ(0, reinterpret_cast<intptr_t>(ptr + padding) & (align - 1));
+    return ptr + padding;
+  }
+
+  template <typename T>
+  T* AllocateArray(size_t count) {
+    CHECK_LE(count, std::numeric_limits<size_t>::max() / sizeof(T));
+    return reinterpret_cast<T*>(Allocate(count * sizeof(T), alignof(T)));
+  }
+
+  template <typename T, typename... Args>
+  T* New(Args&&... args) {
+    T* memory = AllocateArray<T>(1);
+    return new (memory) T(std::forward<Args>(args)...);
+  }
+
+  size_t TotalReservedSize() const {
+    size_t size = 0;
+    for (const std::vector<uint8_t>& vec : storage_) {
+      size += sizeof(vec) + vec.capacity();
+    }
+    return size;
+  }
+
+ private:
+  V8_NOINLINE V8_PRESERVE_MOST void AllocateMoreStorage(size_t min_length) {
+    size_t new_length =
+        std::max(min_length, storage_.empty() ? 4 * (sizeof(FunctionSig) + 4)
+                                              : storage_.back().capacity());
+    std::vector<uint8_t> new_storage;
+    new_storage.reserve(new_length);
+    storage_.push_back(std::move(new_storage));
+  }
+
+  std::vector<std::vector<uint8_t>> storage_;
+};
 
 // Static representation of a module.
 struct V8_EXPORT_PRIVATE WasmModule {
   // ================ Fields ===================================================
-  // The signature zone is also used to store the signatures of C++ functions
+  // The signature storage is also used to store the signatures of C++ functions
   // called with the V8 fast API. These signatures are added during
-  // instantiation, so the `signature_zone` may be changed even when the
+  // instantiation, so the `signature_storage` may be changed even when the
   // `WasmModule` is already `const`.
-  mutable Zone signature_zone;
+  // Accesses *after decoding* are synchronized via `signature_storage_mutex`.
+  mutable WasmModuleSignatureStorage signature_storage;
+  mutable base::Mutex signature_storage_mutex;
+
   int start_function_index = -1;   // start function, >= 0 if any
 
   // Size of the buffer required for all globals that are not imported and
@@ -709,8 +792,6 @@ struct V8_EXPORT_PRIVATE WasmModule {
   // Position and size of the name section (payload only, i.e. without section
   // ID and length).
   WireBytesRef name_section = {0, 0};
-  // Position and size of the descriptors section.
-  WireBytesRef descriptors_section = {0, 0};
   // Set by the singleton TypeNamesProvider to avoid duplicate work.
   mutable std::atomic<bool> canonical_typenames_decoded = false;
   // Set to true if this module has wasm-gc types in its type section.
@@ -736,11 +817,23 @@ struct V8_EXPORT_PRIVATE WasmModule {
   CompilationPriorities compilation_priorities;
   InstructionFrequencies instruction_frequencies;
   CallTargets call_targets;
+  // Protects the two fields below. Always lock this mutex before
+  // `type_feedback.mutex` to avoid deadlocks.
+  mutable base::Mutex compilation_hints_mutex;
+  // When --wasm-generate-compilation-hints, we do not trigger tierup, so we
+  // need to know which functions would have been tiered up to mark them for
+  // optimization in the generated compilation hints.
+  mutable std::unordered_set<uint32_t> marked_for_tierup;
+  // When --wasm-generate-compilation-hints, we need to map feedback slots to
+  // offsets in the wire bytes to generate compilation hints. The key in the map
+  // is the function index. The index into the vector is the feedback slot
+  // index.
+  mutable std::unordered_map<uint32_t, std::vector<uint32_t>>
+      feedback_slots_to_wire_byte_offsets;
+
   // Pairs of module offsets and mark id.
   std::vector<std::pair<uint32_t, uint32_t>> inst_traces;
 
-  // This is the only member of {WasmModule} where we store dynamic information
-  // that's not a decoded representation of the wire bytes.
   // TODO(jkummerow): Rename.
   mutable TypeFeedbackStorage type_feedback;
 
@@ -782,26 +875,26 @@ struct V8_EXPORT_PRIVATE WasmModule {
   }
 
   void AddSignatureForTesting(const FunctionSig* sig, ModuleTypeIndex supertype,
-                              bool is_final, bool is_shared) {
+                              bool is_final, SharedFlag is_shared) {
     DCHECK_NOT_NULL(sig);
     AddTypeForTesting(TypeDefinition(sig, supertype, is_final, is_shared));
   }
 
   void AddStructTypeForTesting(const StructType* type,
                                ModuleTypeIndex supertype, bool is_final,
-                               bool is_shared) {
+                               SharedFlag is_shared) {
     DCHECK_NOT_NULL(type);
     AddTypeForTesting(TypeDefinition(type, supertype, is_final, is_shared));
   }
 
   void AddArrayTypeForTesting(const ArrayType* type, ModuleTypeIndex supertype,
-                              bool is_final, bool is_shared) {
+                              bool is_final, SharedFlag is_shared) {
     DCHECK_NOT_NULL(type);
     AddTypeForTesting(TypeDefinition(type, supertype, is_final, is_shared));
   }
 
   void AddContTypeForTesting(const ContType* type, ModuleTypeIndex supertype,
-                             bool is_final, bool is_shared) {
+                             bool is_final, SharedFlag is_shared) {
     DCHECK_NOT_NULL(type);
     AddTypeForTesting(TypeDefinition(type, supertype, is_final, is_shared));
   }
@@ -896,9 +989,6 @@ struct V8_EXPORT_PRIVATE WasmModule {
     V8_ASSUME(index.index < num_types);
     return types[index.index].supertype;
   }
-  bool has_supertype(ModuleTypeIndex index) const {
-    return supertype(index).valid();
-  }
 
   // Linear search. Returns CanonicalTypeIndex::Invalid() if types are empty.
   CanonicalTypeIndex MaxCanonicalTypeIndex() const {
@@ -909,7 +999,7 @@ struct V8_EXPORT_PRIVATE WasmModule {
                              isorecursive_canonical_type_ids.end());
   }
 
-  bool function_is_shared(int func_index) const {
+  SharedFlag function_is_shared(int func_index) const {
     return type(functions[func_index].sig_index).is_shared;
   }
 
@@ -1070,7 +1160,8 @@ DirectHandle<JSObject> GetTypeForGlobal(Isolate* isolate, bool is_mutable,
                                         ValueType type);
 DirectHandle<JSObject> GetTypeForMemory(Isolate* isolate, uint32_t min_size,
                                         std::optional<uint64_t> max_size,
-                                        bool shared, AddressType address_type);
+                                        SharedFlag shared,
+                                        AddressType address_type);
 DirectHandle<JSObject> GetTypeForTable(Isolate* isolate, ValueType type,
                                        uint32_t min_size,
                                        std::optional<uint64_t> max_size,
@@ -1113,7 +1204,7 @@ class TruncatedUserString {
  public:
   template <typename T>
   explicit TruncatedUserString(base::Vector<T> name)
-      : TruncatedUserString(name.begin(), name.length()) {}
+      : TruncatedUserString(name.begin(), name.size()) {}
 
   TruncatedUserString(const uint8_t* start, size_t len)
       : TruncatedUserString(reinterpret_cast<const char*>(start), len) {}

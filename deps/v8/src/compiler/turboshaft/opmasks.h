@@ -251,6 +251,7 @@ using kFloat64Constant = ConstantMask::For<ConstantOp::Kind::kFloat64>;
 using kExternalConstant = ConstantMask::For<ConstantOp::Kind::kExternal>;
 using kHeapConstant = ConstantMask::For<ConstantOp::Kind::kHeapObject>;
 using kSmiConstant = ConstantMask::For<ConstantOp::Kind::kSmi>;
+using kTaggedIndexConstant = ConstantMask::For<ConstantOp::Kind::kTaggedIndex>;
 using kWasmStubCallConstant =
     ConstantMask::For<ConstantOp::Kind::kRelocatableWasmStubCall>;
 
@@ -266,6 +267,9 @@ using kWord32Equal = ComparisonMask::For<ComparisonOp::Kind::kEqual,
                                          WordRepresentation::Word32()>;
 using kWord64Equal = ComparisonMask::For<ComparisonOp::Kind::kEqual,
                                          WordRepresentation::Word64()>;
+using kFloat64SignedLessThan =
+    ComparisonMask::For<ComparisonOp::Kind::kSignedLessThan,
+                        RegisterRepresentation::Float64()>;
 using ComparisonKindMask = MaskBuilder<ComparisonOp, FIELD(ComparisonOp, kind)>;
 using kComparisonEqual = ComparisonKindMask::For<ComparisonOp::Kind::kEqual>;
 
@@ -279,6 +283,9 @@ using kChangeInt32ToInt64 = ChangeOpMask::For<
 using kChangeUint32ToUint64 = ChangeOpMask::For<
     ChangeOp::Kind::kZeroExtend, ChangeOp::Assumption::kNoAssumption,
     RegisterRepresentation::Word32(), RegisterRepresentation::Word64()>;
+using kChangeFloat32ToUint32 = ChangeOpMask::For<
+    ChangeOp::Kind::kBitcast, ChangeOp::Assumption::kNoAssumption,
+    RegisterRepresentation::Float32(), RegisterRepresentation::Word32()>;
 using kFloat64ExtractHighWord32 = ChangeOpMask::For<
     ChangeOp::Kind::kExtractHighHalf, ChangeOp::Assumption::kNoAssumption,
     RegisterRepresentation::Float64(), RegisterRepresentation::Word32()>;

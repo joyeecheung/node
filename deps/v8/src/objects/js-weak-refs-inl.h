@@ -21,9 +21,6 @@ namespace internal {
 
 #include "torque-generated/src/objects/js-weak-refs-tq-inl.inc"
 
-TQ_OBJECT_CONSTRUCTORS_IMPL(JSWeakRef)
-TQ_OBJECT_CONSTRUCTORS_IMPL(JSFinalizationRegistry)
-
 BIT_FIELD_ACCESSORS(JSFinalizationRegistry, flags, scheduled_for_cleanup,
                     JSFinalizationRegistry::ScheduledForCleanupBit)
 
@@ -143,7 +140,7 @@ bool JSFinalizationRegistry::RemoveUnregisterToken(
     key_map->ClearEntry(entry);
     key_map->ElementRemoved();
   } else {
-    key_map->ValueAtPut(entry, new_key_list_head);
+    key_map->ValueAtPut(entry, new_key_list_head, write_barrier_mode);
     gc_notify_updated_slot(key_map, key_map->RawFieldOfValueAt(entry),
                            new_key_list_head);
   }

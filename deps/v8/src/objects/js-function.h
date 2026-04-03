@@ -48,8 +48,8 @@ class JSBoundFunction
  public:
   static MaybeHandle<String> GetName(Isolate* isolate,
                                      DirectHandle<JSBoundFunction> function);
-  static Maybe<int> GetLength(Isolate* isolate,
-                              DirectHandle<JSBoundFunction> function);
+  static Maybe<uint32_t> GetLength(Isolate* isolate,
+                                   DirectHandle<JSBoundFunction> function);
 
   // Dispatched behavior.
   DECL_PRINTER(JSBoundFunction)
@@ -70,8 +70,8 @@ class JSWrappedFunction
  public:
   static MaybeHandle<String> GetName(Isolate* isolate,
                                      DirectHandle<JSWrappedFunction> function);
-  static Maybe<int> GetLength(Isolate* isolate,
-                              DirectHandle<JSWrappedFunction> function);
+  static Maybe<uint32_t> GetLength(Isolate* isolate,
+                                   DirectHandle<JSWrappedFunction> function);
   // https://tc39.es/proposal-shadowrealm/#sec-wrappedfunctioncreate
   static MaybeDirectHandle<Object> Create(
       Isolate* isolate, DirectHandle<NativeContext> creation_context,
@@ -92,6 +92,9 @@ class JSWrappedFunction
 enum class BudgetModification { kReduce, kRaise, kReset };
 
 // JSFunction describes JavaScript functions.
+// This abstract class represents JS function objects with and without
+// prototype. Respective subclass defines the layout of the object in memory
+// but all the JSFunction related logic lives in this class.
 class JSFunction : public TorqueGeneratedJSFunction<
                        JSFunction, JSFunctionOrBoundFunctionOrWrappedFunction> {
  public:
@@ -121,7 +124,7 @@ class JSFunction : public TorqueGeneratedJSFunction<
   DECL_RELEASE_ACQUIRE_ACCESSORS(context, Tagged<Context>)
   inline Tagged<JSGlobalProxy> global_proxy();
   inline Tagged<NativeContext> native_context();
-  inline int length();
+  inline uint32_t length();
 
   static Handle<String> GetName(Isolate* isolate,
                                 DirectHandle<JSFunction> function);
@@ -149,9 +152,9 @@ class JSFunction : public TorqueGeneratedJSFunction<
   // Returns the raw content of the Code field. When reading from a background
   // thread, the code field may still be uninitialized, in which case the field
   // contains Smi::zero().
-  inline Tagged<Object> raw_code(IsolateForSandbox isolate) const;
-  inline Tagged<Object> raw_code(IsolateForSandbox isolate,
-                                 AcquireLoadTag) const;
+  inline Tagged<Union<Smi, Code>> raw_code(IsolateForSandbox isolate) const;
+  inline Tagged<Union<Smi, Code>> raw_code(IsolateForSandbox isolate,
+                                           AcquireLoadTag tag) const;
 
   // Returns the address of the function code's instruction start.
   inline Address instruction_start(IsolateForSandbox isolate) const;
@@ -161,10 +164,9 @@ class JSFunction : public TorqueGeneratedJSFunction<
   template <typename IsolateT>
   inline Tagged<AbstractCode> abstract_code(IsolateT* isolate);
 
-#ifdef V8_ENABLE_LEAPTIERING
   static inline JSDispatchHandle AllocateDispatchHandle(
-      Handle<JSFunction> function, Isolate* isolate, uint16_t parameter_count,
-      DirectHandle<Code> code,
+      DirectHandle<JSFunction> function, Isolate* isolate,
+      uint16_t parameter_count, DirectHandle<Code> code,
       WriteBarrierMode mode = WriteBarrierMode::UPDATE_WRITE_BARRIER);
   inline void clear_dispatch_handle();
   inline JSDispatchHandle dispatch_handle() const;
@@ -172,7 +174,6 @@ class JSFunction : public TorqueGeneratedJSFunction<
   inline void set_dispatch_handle(
       JSDispatchHandle handle,
       WriteBarrierMode mode = WriteBarrierMode::UPDATE_WRITE_BARRIER);
-#endif  // V8_ENABLE_LEAPTIERING
 
   // The predicates for querying code kinds related to this function have
   // specific terminology:
@@ -221,9 +222,6 @@ class JSFunction : public TorqueGeneratedJSFunction<
   // kinds, e.g. TURBOFAN, ignore the tiering state).
   inline bool ChecksTieringState(IsolateForSandbox isolate);
 
-#ifndef V8_ENABLE_LEAPTIERING
-  inline TieringState tiering_state() const;
-#endif  // !V8_ENABLE_LEAPTIERING
 
   // Tiering up a function happens as follows:
   // 1. RequestOptimization is called
@@ -254,12 +252,12 @@ class JSFunction : public TorqueGeneratedJSFunction<
 
   inline bool tiering_in_progress() const;
   // NB: Tiering includes Optimization and Logging requests.
-  inline bool IsTieringRequestedOrInProgress() const;
+  inline bool IsTieringRequestedOrInProgress(Isolate* isolate) const;
 
   inline void SetTieringInProgress(
       Isolate* isolate, bool in_progress,
       BytecodeOffset osr_offset = BytecodeOffset::None());
-  inline void ResetTieringRequests();
+  inline void ResetTieringRequests(Isolate* isolate);
 
   inline bool osr_tiering_in_progress();
 
@@ -394,11 +392,6 @@ class JSFunction : public TorqueGeneratedJSFunction<
   // Returns if this function has been compiled to native code yet.
   inline bool is_compiled(IsolateForSandbox isolate) const;
 
-  static int GetHeaderSize(bool function_has_prototype_slot) {
-    return function_has_prototype_slot ? JSFunction::kSizeWithPrototype
-                                       : JSFunction::kSizeWithoutPrototype;
-  }
-
   std::unique_ptr<char[]> DebugNameCStr();
   void PrintName(FILE* out = stdout);
 
@@ -407,7 +400,6 @@ class JSFunction : public TorqueGeneratedJSFunction<
   static V8_WARN_UNUSED_RESULT int CalculateExpectedNofProperties(
       Isolate* isolate, DirectHandle<JSFunction> function);
   static void CalculateInstanceSizeHelper(InstanceType instance_type,
-                                          bool has_prototype_slot,
                                           int requested_embedder_fields,
                                           int requested_in_object_properties,
                                           int* instance_size,
@@ -449,24 +441,22 @@ class JSFunction : public TorqueGeneratedJSFunction<
   // info.
   CodeKinds GetAvailableCodeKinds(IsolateForSandbox isolate) const;
 
- private:
-  // JSFunction doesn't have a fixed header size:
+ protected:
+  // JSFunction doesn't have a fixed header size, one should use either
+  // JSFunctionWithoutPrototype or JSFunctionWithPrototype instead.
   // Hide TorqueGeneratedClass::kHeaderSize to avoid confusion.
-  static const int kHeaderSize;
+  using TorqueGeneratedClass::kHeaderSize;
 
-#ifndef V8_ENABLE_LEAPTIERING
-  inline void set_tiering_state(IsolateForSandbox isolate, TieringState state);
-#endif  // !V8_ENABLE_LEAPTIERING
-
+ private:
   inline void UpdateCodeImpl(Isolate* isolate, Tagged<Code> code,
                              WriteBarrierMode mode, bool keep_tiering_request);
 
   // Updates the Code in this function's dispatch table entry.
   inline void UpdateDispatchEntry(
-      Tagged<Code> new_code,
+      Isolate* isolate, Tagged<Code> new_code,
       WriteBarrierMode mode = WriteBarrierMode::UPDATE_WRITE_BARRIER);
   inline void UpdateDispatchEntryKeepTieringRequest(
-      Tagged<Code> new_code,
+      Isolate* isolate, Tagged<Code> new_code,
       WriteBarrierMode mode = WriteBarrierMode::UPDATE_WRITE_BARRIER);
 
   // Hide generated accessors; custom accessors are called "shared".
@@ -484,11 +474,33 @@ class JSFunction : public TorqueGeneratedJSFunction<
   // kind if this becomes more convenient in the future.
   CodeKinds GetAttachedCodeKinds(IsolateForSandbox isolate) const;
 
- public:
-  static constexpr int kSizeWithoutPrototype = kPrototypeOrInitialMapOffset;
-  static constexpr int kSizeWithPrototype = TorqueGeneratedClass::kHeaderSize;
-
   TQ_OBJECT_CONSTRUCTORS(JSFunction)
+};
+
+// Defines layout of JavaScript functions without prototype.
+class JSFunctionWithoutPrototype
+    : public TorqueGeneratedJSFunctionWithoutPrototype<
+          JSFunctionWithoutPrototype, JSFunction> {
+ public:
+  // Defines the size of the object without internal fields.
+  static constexpr int kMinSize = TorqueGeneratedClass::kHeaderSize;
+
+  TQ_OBJECT_CONSTRUCTORS(JSFunctionWithoutPrototype)
+};
+
+// Defines layout of JavaScript functions with prototype.
+class JSFunctionWithPrototype
+    : public TorqueGeneratedJSFunctionWithPrototype<JSFunctionWithPrototype,
+                                                    JSFunction> {
+ public:
+  // Defines the size of the object without internal fields.
+  static constexpr int kMinSize = TorqueGeneratedClass::kHeaderSize;
+
+  // [prototype_or_initial_map]:
+  DECL_RELEASE_ACQUIRE_ACCESSORS(prototype_or_initial_map,
+                                 Tagged<UnionOf<JSPrototype, Map, TheHole>>)
+
+  TQ_OBJECT_CONSTRUCTORS(JSFunctionWithPrototype)
 };
 
 }  // namespace v8::internal

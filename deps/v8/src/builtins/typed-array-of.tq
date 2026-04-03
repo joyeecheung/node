@@ -8,7 +8,7 @@ namespace typed_array {
 const kBuiltinNameOf: constexpr string = '%TypedArray%.of';
 
 // %TypedArray%.of ( ...items )
-// https://tc39.github.io/ecma262/#sec-%typedarray%.of
+// https://tc39.es/ecma262/#sec-%typedarray%.of
 transitioning javascript builtin TypedArrayOf(
     js-implicit context: NativeContext, receiver: JSAny)(
     ...arguments): JSTypedArray {
@@ -24,7 +24,8 @@ transitioning javascript builtin TypedArrayOf(
 
     // 5. Let newObj be ? TypedArrayCreate(C, len).
     const newObj = TypedArrayCreateByLength(
-        constructor, Convert<Number>(len), kBuiltinNameOf);
+        constructor, Convert<Number>(len), kBuiltinNameOf,
+        TypedArrayAccessMode::kWrite);
 
     const accessor: TypedArrayAccessor =
         GetTypedArrayAccessor(newObj.elements_kind);

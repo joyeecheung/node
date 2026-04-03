@@ -62,7 +62,7 @@ struct DecompressionAnalyzer {
     for (const Operation& op : base::Reversed(graph.operations(block))) {
       if (is_loop && op.Is<PhiOp>() && NeedsDecompression(op)) {
         const PhiOp& phi = op.Cast<PhiOp>();
-        if (!NeedsDecompression(phi.input(1))) {
+        if (!NeedsDecompression(phi.back_edge())) {
           Block* backedge = block.LastPredecessor();
           *next_block_id =
               std::max<int32_t>(*next_block_id, backedge->index().id());
@@ -154,7 +154,7 @@ void DecompressionAnalyzer::ProcessOperation(const Operation& op) {
       }
       const LoadOp& load = op.Cast<LoadOp>();
       if (DECOMPRESS_POINTER_BY_ADDRESSING_MODE && !load.index().valid() &&
-          graph.Get(load.base()).saturated_use_count.IsOne()) {
+          graph.Get(load.base()).saturated_use_count.Is(1)) {
         // On x64, if the Index is invalid, we can rely on complex addressing
         // mode to decompress the base, and can thus keep it compressed.
         // We only do this if the use-count of the base is 1, in order to avoid

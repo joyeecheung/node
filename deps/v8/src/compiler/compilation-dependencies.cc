@@ -1269,7 +1269,7 @@ PropertyConstness CompilationDependencies::DependOnFieldConstness(
   return PropertyConstness::kConst;
 }
 
-CompilationDependency const*
+std::optional<CompilationDependency const*>
 CompilationDependencies::FieldConstnessDependencyOffTheRecord(
     MapRef map, MapRef owner, InternalIndex descriptor) {
   DCHECK_EQ(map.GetPropertyDetails(broker_, descriptor).constness(),
@@ -1363,6 +1363,12 @@ bool CompilationDependencies::DependOnArrayBufferDetachingProtector() {
   return DependOnProtector(MakeRef(
       broker_,
       broker_->isolate()->factory()->array_buffer_detaching_protector()));
+}
+
+bool CompilationDependencies::DependOnArrayBufferMutableProtector() {
+  return DependOnProtector(
+      MakeRef(broker_,
+              broker_->isolate()->factory()->array_buffer_mutable_protector()));
 }
 
 bool CompilationDependencies::DependOnArrayIteratorProtector() {
@@ -1654,6 +1660,13 @@ CompilationDependency const*
 CompilationDependencies::FieldTypeDependencyOffTheRecord(
     MapRef map, MapRef owner, InternalIndex descriptor, ObjectRef type) const {
   return zone_->New<FieldTypeDependency>(map, owner, descriptor, type);
+}
+
+void CompilationDependencies::DependOnFieldRepresentation(
+    MapRef map, MapRef owner, InternalIndex descriptor,
+    Representation representation) {
+  RecordDependency(zone_->New<FieldRepresentationDependency>(
+      map, owner, descriptor, representation));
 }
 
 #ifdef DEBUG

@@ -8,9 +8,9 @@
 #include "src/execution/isolate.h"
 #include "src/logging/counters.h"
 #include "src/objects/code-inl.h"
+#include "src/objects/objects-inl.h"
 #include "src/sandbox/js-dispatch-table-inl.h"
 
-#ifdef V8_ENABLE_LEAPTIERING
 
 namespace v8 {
 namespace internal {
@@ -44,45 +44,23 @@ void JSDispatchEntry::CheckFieldOffsets() {
 #endif
 }
 
-void JSDispatchTable::PreAllocateEntries(Space* space, int count) {
-#if !V8_STATIC_DISPATCH_HANDLES_BOOL
-  UNREACHABLE();
-#else
-  DCHECK(space->BelongsTo(this));
-  DCHECK(space->is_internal_read_only_space());
-  JSDispatchHandle first;
-  for (int i = 0; i < count; ++i) {
-    uint32_t idx = AllocateEntry(space);
-    if (i == 0) {
-      first = IndexToHandle(idx);
-    } else {
-      // Pre-allocated entries should be consecutive.
-      DCHECK_EQ(IndexToHandle(idx), IndexToHandle(HandleToIndex(first) + i));
-    }
-      CHECK_EQ(IndexToHandle(idx), GetStaticHandleForReadOnlySegmentEntry(i));
-  }
+void JSDispatchTable::Verify(Isolate* isolate, Space* space) {
+  IterateEntriesIn(space, [&](uint32_t index) {
+    auto& entry = at(index);
+    if (entry.IsFreelistEntry()) return;
+
+    // 1. The object must be a valid Code object.
+    Tagged<Object> obj = Tagged<Object>(entry.GetCodePointer());
+    CHECK(Is<Code>(obj));
+    Tagged<Code> code = TrustedCast<Code>(obj);
+#ifdef VERIFY_HEAP
+    Object::ObjectVerify(code, isolate);
 #endif
-}
 
-bool JSDispatchTable::PreAllocatedEntryNeedsInitialization(
-    Space* space, JSDispatchHandle handle) {
-  DCHECK(space->BelongsTo(this));
-  uint32_t index = HandleToIndex(handle);
-  return at(index).IsFreelistEntry();
-}
-
-void JSDispatchTable::InitializePreAllocatedEntry(Space* space,
-                                                  JSDispatchHandle handle,
-                                                  Tagged<Code> code,
-                                                  uint16_t parameter_count) {
-  DCHECK(space->BelongsTo(this));
-  uint32_t index = HandleToIndex(handle);
-  DCHECK(space->Contains(index));
-  DCHECK(at(index).IsFreelistEntry());
-  CFIMetadataWriteScope write_scope(
-      "JSDispatchTable initialize pre-allocated entry");
-  at(index).MakeJSDispatchEntry(code.address(), code->instruction_start(),
-                                parameter_count, space->allocate_black());
+    // 2. The code must be compatible with the entry's parameter count.
+    uint16_t parameter_count = entry.GetParameterCount();
+    CHECK(IsCompatibleCode(code, parameter_count));
+  });
 }
 
 void JSDispatchTable::PrintEntry(JSDispatchHandle handle) {
@@ -108,5 +86,3 @@ void JSDispatchTable::PrintCurrentTieringRequest(JSDispatchHandle handle,
 
 }  // namespace internal
 }  // namespace v8
-
-#endif  // V8_ENABLE_LEAPTIERING

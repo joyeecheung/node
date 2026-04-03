@@ -467,21 +467,26 @@ class ReadOnlyPromotionImpl final : public AllStatic {
       VisitObject(isolate, dst, &v);
     }
 
+#ifdef V8_ENABLE_SANDBOX
+    v.ZapOldCodePointerTableEntries();
+#endif
+
     // Iterate all entries in the JSDispatchTable as they could contain
     // pointers to promoted Code objects.
-    JSDispatchTable* const jdt = IsolateGroup::current()->js_dispatch_table();
-    jdt->IterateActiveEntriesIn(heap->js_dispatch_table_space(),
-                                [&](JSDispatchHandle handle) {
-                                  Tagged<Code> old_code = jdt->GetCode(handle);
-                                  auto it = moves.find(old_code);
-                                  if (it == moves.end()) return;
-                                  Tagged<HeapObject> new_code = it->second;
-                                  CHECK(IsCode(new_code));
-                                  // TODO(saelo): is it worth logging something
-                                  // in this case?
-                                  jdt->SetCodeNoWriteBarrier(
-                                      handle, TrustedCast<Code>(new_code));
-                                });
+    JSDispatchTable& jdt = isolate->js_dispatch_table();
+    jdt.IterateActiveEntriesIn(
+        heap->js_dispatch_table_space(), [&](JSDispatchHandle handle) {
+          Tagged<Code> old_code = jdt.GetCode(handle);
+          auto it = moves.find(old_code);
+          if (it == moves.end()) return;
+          Tagged<HeapObject> new_code = it->second;
+          CHECK(IsCode(new_code));
+          // TODO(saelo): is it worth logging something in this case?
+          jdt.SetCodeNoWriteBarrier(handle, TrustedCast<Code>(new_code));
+        });
+    // Note the we should technically also update the entries in the
+    // read_only_js_dispatch_table_space but it's currently not needed as we
+    // won't be accessing them.
   }
 
   static void DeleteDeadObjects(Isolate* isolate,
@@ -532,8 +537,8 @@ class ReadOnlyPromotionImpl final : public AllStatic {
 #ifdef V8_ENABLE_SANDBOX
       for (auto [_src, dst] : *moves_) {
         promoted_objects_.emplace(dst);
-        if (Tagged<Code> code; TryCast(dst, &code)) {
-          PromoteCodePointerEntryFor(code);
+        if (Is<Code>(dst)) {
+          PromoteCodePointerEntryFor(TrustedCast<Code>(dst));
         }
       }
 #endif  // V8_ENABLE_SANDBOX
@@ -598,15 +603,17 @@ class ReadOnlyPromotionImpl final : public AllStatic {
     void VisitIndirectPointer(Tagged<HeapObject> host, IndirectPointerSlot slot,
                               IndirectPointerMode mode) final {
 #ifdef V8_ENABLE_SANDBOX
-      if (slot.tag() == kCodeIndirectPointerTag) {
+      if (slot.tag_range().Contains(kCodeIndirectPointerTag)) {
         VisitCodePointer(host, slot);
+      } else {
+        DCHECK(!slot.tag_range().Contains(kCodeIndirectPointerTag));
       }
 #endif  // V8_ENABLE_SANDBOX
     }
     void VisitTrustedPointerTableEntry(Tagged<HeapObject> host,
                                        IndirectPointerSlot slot) final {
 #ifdef V8_ENABLE_SANDBOX
-      if (slot.tag() == kCodeIndirectPointerTag) {
+      if (slot.tag_range().Contains(kCodeIndirectPointerTag)) {
         VisitCodePointer(host, slot);
       }
 #endif  // V8_ENABLE_SANDBOX
@@ -623,6 +630,15 @@ class ReadOnlyPromotionImpl final : public AllStatic {
         CHECK(!Contains(*moves_, Cast<HeapObject>(o)));
       }
     }
+
+#ifdef V8_ENABLE_SANDBOX
+    void ZapOldCodePointerTableEntries() {
+      CodePointerTable* cpt = IsolateGroup::current()->code_pointer_table();
+      for (auto [old_handle, _new_handle] : code_pointer_moves_) {
+        cpt->Zap(old_handle);
+      }
+    }
+#endif
 
    private:
     void ProcessSlot(Root root, FullObjectSlot slot) {
@@ -654,7 +670,7 @@ class ReadOnlyPromotionImpl final : public AllStatic {
 
 #ifdef V8_ENABLE_SANDBOX
     void VisitCodePointer(Tagged<HeapObject> host, IndirectPointerSlot slot) {
-      CHECK_EQ(kCodeIndirectPointerTag, slot.tag());
+      CHECK(slot.tag_range().Contains(kCodeIndirectPointerTag));
       IndirectPointerHandle old_handle = slot.Relaxed_LoadHandle();
       auto it = code_pointer_moves_.find(old_handle);
       if (it == code_pointer_moves_.end()) return;

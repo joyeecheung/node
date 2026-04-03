@@ -24,7 +24,9 @@ namespace internal {
 
 namespace maglev {
 class MaglevGraphBuilder;
-class MaglevAssembler;
+class StoreSmiContextCell;
+class StoreInt32ContextCell;
+class StoreFloat64ContextCell;
 }  // namespace maglev
 class JSGlobalObject;
 class JSGlobalProxy;
@@ -54,6 +56,31 @@ enum ContextLookupFlags {
 // Note: Context must have no virtual functions and Context objects
 // must always be allocated via Heap::AllocateContext() or
 // Factory::NewContext.
+
+#ifdef V8_TEMPORAL_SUPPORT
+#define NATIVE_CONTEXT_FIELDS_TEMPORAL(V)                                      \
+  V(JS_TEMPORAL_DURATION_FUNCTION_INDEX, JSFunction,                           \
+    temporal_duration_function)                                                \
+  V(JS_TEMPORAL_INSTANT_FUNCTION_INDEX, JSFunction, temporal_instant_function) \
+  V(JS_TEMPORAL_PLAIN_DATE_FUNCTION_INDEX, JSFunction,                         \
+    temporal_plain_date_function)                                              \
+  V(JS_TEMPORAL_PLAIN_DATE_TIME_FUNCTION_INDEX, JSFunction,                    \
+    temporal_plain_date_time_function)                                         \
+  V(JS_TEMPORAL_PLAIN_MONTH_DAY_FUNCTION_INDEX, JSFunction,                    \
+    temporal_plain_month_day_function)                                         \
+  V(JS_TEMPORAL_PLAIN_TIME_FUNCTION_INDEX, JSFunction,                         \
+    temporal_plain_time_function)                                              \
+  V(JS_TEMPORAL_PLAIN_YEAR_MONTH_FUNCTION_INDEX, JSFunction,                   \
+    temporal_plain_year_month_function)                                        \
+  V(JS_TEMPORAL_TIME_ZONE_FUNCTION_INDEX, JSFunction,                          \
+    temporal_time_zone_function)                                               \
+  V(JS_TEMPORAL_ZONED_DATE_TIME_FUNCTION_INDEX, JSFunction,                    \
+    temporal_zoned_date_time_function)                                         \
+  V(TEMPORAL_OBJECT_INDEX, HeapObject, temporal_object)
+
+#else
+#define NATIVE_CONTEXT_FIELDS_TEMPORAL(V)
+#endif  // V8_TEMPORAL_SUPPORT
 
 #define NATIVE_CONTEXT_FIELDS(V)                                               \
   V(GLOBAL_PROXY_INDEX, JSGlobalProxy, global_proxy_object)                    \
@@ -159,6 +186,9 @@ enum ContextLookupFlags {
     initial_async_iterator_prototype)                                          \
   V(INITIAL_ASYNC_GENERATOR_PROTOTYPE_INDEX, JSObject,                         \
     initial_async_generator_prototype)                                         \
+  V(INITIAL_ITERATOR_FUNCTION_INDEX, JSFunction, initial_iterator_function)    \
+  V(INITIAL_ITERATOR_HELPER_PROTOTYPE_INDEX, JSObject,                         \
+    initial_iterator_helper_prototype)                                         \
   V(INITIAL_ITERATOR_PROTOTYPE_INDEX, JSObject, initial_iterator_prototype)    \
   V(INITIAL_DISPOSABLE_STACK_PROTOTYPE_INDEX, JSObject,                        \
     initial_disposable_stack_prototype)                                        \
@@ -203,6 +233,8 @@ enum ContextLookupFlags {
   V(ITERATOR_TAKE_HELPER_MAP_INDEX, Map, iterator_take_helper_map)             \
   V(ITERATOR_DROP_HELPER_MAP_INDEX, Map, iterator_drop_helper_map)             \
   V(ITERATOR_FLAT_MAP_HELPER_MAP_INDEX, Map, iterator_flatMap_helper_map)      \
+  V(ITERATOR_CONCAT_HELPER_MAP_INDEX, Map, iterator_concat_helper_map)         \
+  V(ITERATOR_ZIP_HELPER_MAP_INDEX, Map, iterator_zip_helper_map)               \
   V(ITERATOR_FUNCTION_INDEX, JSFunction, iterator_function)                    \
   V(VALID_ITERATOR_WRAPPER_MAP_INDEX, Map, valid_iterator_wrapper_map)         \
   V(ITERATOR_RESULT_MAP_INDEX, Map, iterator_result_map)                       \
@@ -226,6 +258,7 @@ enum ContextLookupFlags {
   V(JS_MAP_FUN_INDEX, JSFunction, js_map_fun)                                  \
   V(JS_MAP_MAP_INDEX, Map, js_map_map)                                         \
   V(JS_MODULE_NAMESPACE_MAP, Map, js_module_namespace_map)                     \
+  V(JS_DEFERRED_MODULE_NAMESPACE_MAP, Map, js_deferred_module_namespace_map)   \
   V(JS_RAW_JSON_MAP, Map, js_raw_json_map)                                     \
   V(JS_SET_FUN_INDEX, JSFunction, js_set_fun)                                  \
   V(JS_SET_MAP_INDEX, Map, js_set_map)                                         \
@@ -234,27 +267,9 @@ enum ContextLookupFlags {
   V(JS_WEAK_REF_FUNCTION_INDEX, JSFunction, js_weak_ref_fun)                   \
   V(JS_FINALIZATION_REGISTRY_FUNCTION_INDEX, JSFunction,                       \
     js_finalization_registry_fun)                                              \
-  V(JS_TEMPORAL_DURATION_FUNCTION_INDEX, JSFunction,                           \
-    temporal_duration_function)                                                \
-  V(JS_TEMPORAL_INSTANT_FUNCTION_INDEX, JSFunction, temporal_instant_function) \
-  V(JS_TEMPORAL_PLAIN_DATE_FUNCTION_INDEX, JSFunction,                         \
-    temporal_plain_date_function)                                              \
-  V(JS_TEMPORAL_PLAIN_DATE_TIME_FUNCTION_INDEX, JSFunction,                    \
-    temporal_plain_date_time_function)                                         \
-  V(JS_TEMPORAL_PLAIN_MONTH_DAY_FUNCTION_INDEX, JSFunction,                    \
-    temporal_plain_month_day_function)                                         \
-  V(JS_TEMPORAL_PLAIN_TIME_FUNCTION_INDEX, JSFunction,                         \
-    temporal_plain_time_function)                                              \
-  V(JS_TEMPORAL_PLAIN_YEAR_MONTH_FUNCTION_INDEX, JSFunction,                   \
-    temporal_plain_year_month_function)                                        \
-  V(JS_TEMPORAL_TIME_ZONE_FUNCTION_INDEX, JSFunction,                          \
-    temporal_time_zone_function)                                               \
-  V(JS_TEMPORAL_ZONED_DATE_TIME_FUNCTION_INDEX, JSFunction,                    \
-    temporal_zoned_date_time_function)                                         \
   V(JSON_OBJECT, JSObject, json_object)                                        \
   V(PROMISE_WITHRESOLVERS_RESULT_MAP_INDEX, Map,                               \
     promise_withresolvers_result_map)                                          \
-  V(TEMPORAL_OBJECT_INDEX, HeapObject, temporal_object)                        \
   /* Context maps */                                                           \
   V(META_MAP_INDEX, Map, meta_map)                                             \
   V(FUNCTION_CONTEXT_MAP_INDEX, Map, function_context_map)                     \
@@ -426,7 +441,8 @@ enum ContextLookupFlags {
   V(WRAPPED_FUNCTION_MAP_INDEX, Map, wrapped_function_map)                     \
   V(RETAINED_MAPS, Object, retained_maps)                                      \
   V(SHARED_SPACE_JS_OBJECT_HAS_INSTANCE_INDEX, JSFunction,                     \
-    shared_space_js_object_has_instance)
+    shared_space_js_object_has_instance)                                       \
+  NATIVE_CONTEXT_FIELDS_TEMPORAL(V)
 
 #include "torque-generated/src/objects/contexts-tq.inc"
 
@@ -615,17 +631,16 @@ class Context : public TorqueGeneratedContext<Context, HeapObject> {
   Tagged<Context> closure_context() const;
 
   // Returns a JSGlobalProxy object or null.
-  V8_EXPORT_PRIVATE Tagged<JSGlobalProxy> global_proxy() const;
+  V8_EXPORT_PRIVATE inline Tagged<JSGlobalProxy> global_proxy() const;
 
   // Get the JSGlobalObject object.
-  V8_EXPORT_PRIVATE Tagged<JSGlobalObject> global_object() const;
+  V8_EXPORT_PRIVATE inline Tagged<JSGlobalObject> global_object() const;
 
   // Get the script context by traversing the context chain.
   Tagged<Context> script_context() const;
 
   // Compute the native context.
   inline Tagged<NativeContext> native_context() const;
-  inline bool IsDetached(Isolate* isolate) const;
 
   // Predicates for context types.  IsNativeContext is already defined on
   // Object.
@@ -764,16 +779,23 @@ class NativeContext : public Context {
       Tagged<ScriptContextTable> script_context_table);
   inline Tagged<ScriptContextTable> synchronized_script_context_table() const;
 
+  // Returns whether the context is detached or not.
+  inline bool IsDetached() const;
+
+  // Returns a JSGlobalProxy object or null.
+  V8_EXPORT_PRIVATE inline Tagged<JSGlobalProxy> global_proxy() const;
+
+  // Get the JSGlobalObject object.
+  V8_EXPORT_PRIVATE inline Tagged<JSGlobalObject> global_object() const;
+
   // Caution, hack: this getter ignores the AcquireLoadTag. The global_object
   // slot is safe to read concurrently since it is immutable after
   // initialization.  This function should *not* be used from anywhere other
   // than heap-refs.cc.
   // TODO(jgruber): Remove this function after NativeContextRef is actually
   // never serialized and BROKER_NATIVE_CONTEXT_FIELDS is removed.
-  Tagged<JSGlobalObject> global_object() { return Context::global_object(); }
-  Tagged<JSGlobalObject> global_object(AcquireLoadTag) {
-    return Context::global_object();
-  }
+  V8_EXPORT_PRIVATE inline Tagged<JSGlobalObject> global_object(
+      AcquireLoadTag) const;
 
   inline Tagged<Map> TypedArrayElementsKindToCtorMap(
       ElementsKind element_kind) const;
@@ -848,7 +870,7 @@ class ScriptContextTable
   using Shape = ScriptContextTableShape;
 
   static Handle<ScriptContextTable> New(
-      Isolate* isolate, int capacity,
+      Isolate* isolate, uint32_t capacity,
       AllocationType allocation = AllocationType::kYoung);
 
   inline int length(AcquireLoadTag) const;
@@ -922,6 +944,9 @@ V8_OBJECT class ContextCell : public HeapObjectLayout {
   friend class CodeStubAssembler;
   friend struct ObjectTraits<ContextCell>;
   friend class TorqueGeneratedContextCellAsserts;
+  friend class maglev::StoreSmiContextCell;
+  friend class maglev::StoreInt32ContextCell;
+  friend class maglev::StoreFloat64ContextCell;
   friend class maglev::MaglevGraphBuilder;
   friend class maglev::MaglevAssembler;
   friend class compiler::AccessBuilder;

@@ -19,6 +19,7 @@
 #include "src/objects/field-type.h"
 #include "src/objects/instance-type-inl.h"
 #include "src/objects/js-function-inl.h"
+#include "src/objects/literal-objects.h"
 #include "src/objects/map-updater.h"
 #include "src/objects/objects-inl.h"
 #include "src/objects/property.h"
@@ -41,13 +42,20 @@ namespace internal {
 
 #include "torque-generated/src/objects/map-tq-inl.inc"
 
-TQ_OBJECT_CONSTRUCTORS_IMPL(Map)
-
-ACCESSORS(Map, instance_descriptors, Tagged<DescriptorArray>,
-          kInstanceDescriptorsOffset)
 #if V8_ENABLE_WEBASSEMBLY
+ACCESSORS_CHECKED2(Map, instance_descriptors, Tagged<DescriptorArray>,
+                   kInstanceDescriptorsOffset,
+                   // Fetching the instance descriptors of a Wasm map is safe
+                   // as long as that's the empty descriptor array (and not
+                   // a Custom Descriptor).
+                   !IsWasmStructMap(*this) ||
+                       HeapLayout::InReadOnlySpace(value),
+                   true)
 ACCESSORS_CHECKED(Map, custom_descriptor, Tagged<WasmStruct>,
                   kInstanceDescriptorsOffset, IsWasmStructMap(*this))
+#else
+ACCESSORS(Map, instance_descriptors, Tagged<DescriptorArray>,
+          kInstanceDescriptorsOffset)
 #endif  // V8_ENABLE_WEBASSEMBLY
 
 RELEASE_ACQUIRE_ACCESSORS(Map, instance_descriptors, Tagged<DescriptorArray>,
@@ -71,9 +79,10 @@ ACCESSORS_CHECKED2(Map, prototype, Tagged<JSPrototype>, kPrototypeOffset, true,
                         (HeapLayout::InWritableSharedSpace(value) ||
                          value->map()->is_prototype_map())))
 
-DEF_GETTER(Map, prototype_info, Tagged<UnionOf<Smi, PrototypeInfo>>) {
-  Tagged<UnionOf<Smi, PrototypeInfo>> value =
-      TaggedField<UnionOf<Smi, PrototypeInfo>,
+DEF_GETTER(Map, prototype_info,
+           Tagged<UnionOf<Smi, PrototypeInfo, PrototypeSharedClosureInfo>>) {
+  Tagged<UnionOf<Smi, PrototypeInfo, PrototypeSharedClosureInfo>> value =
+      TaggedField<UnionOf<Smi, PrototypeInfo, PrototypeSharedClosureInfo>,
                   kTransitionsOrPrototypeInfoOffset>::load(cage_base, *this);
 #if V8_ENABLE_WEBASSEMBLY
   DCHECK(this->is_prototype_map() || IsWasmObjectMap(*this));
@@ -82,9 +91,11 @@ DEF_GETTER(Map, prototype_info, Tagged<UnionOf<Smi, PrototypeInfo>>) {
 #endif  // V8_ENABLE_WEBASSEMBLY
   return value;
 }
-RELEASE_ACQUIRE_ACCESSORS(Map, prototype_info,
-                          (Tagged<UnionOf<Smi, PrototypeInfo>>),
-                          kTransitionsOrPrototypeInfoOffset)
+
+RELEASE_ACQUIRE_ACCESSORS(
+    Map, prototype_info,
+    (Tagged<UnionOf<Smi, PrototypeInfo, PrototypeSharedClosureInfo>>),
+    kTransitionsOrPrototypeInfoOffset)
 
 void Map::init_prototype_and_constructor_or_back_pointer(ReadOnlyRoots roots) {
   Tagged<HeapObject> null = roots.null_value();
@@ -95,14 +106,12 @@ void Map::init_prototype_and_constructor_or_back_pointer(ReadOnlyRoots roots) {
 }
 
 // |bit_field| fields.
-// Concurrent access to |has_prototype_slot| and |has_non_instance_prototype|
+// Concurrent access to |TBD| and |has_non_instance_prototype|
 // is explicitly allowlisted here. The former is never modified after the map
 // is setup but it's being read by concurrent marker when pointer compression
 // is enabled. The latter bit can be modified on a live objects.
 BIT_FIELD_ACCESSORS(Map, relaxed_bit_field, has_non_instance_prototype,
                     Map::Bits1::HasNonInstancePrototypeBit)
-BIT_FIELD_ACCESSORS(Map, relaxed_bit_field, has_prototype_slot,
-                    Map::Bits1::HasPrototypeSlotBit)
 
 // These are fine to be written as non-atomic since we don't have data races.
 // However, they have to be read atomically from the background since the
@@ -232,6 +241,7 @@ InternalIndex Map::LastAdded() const {
   return InternalIndex(number_of_own_descriptors - 1);
 }
 
+// TODO(375937549): Convert to uint32_t.
 int Map::NumberOfOwnDescriptors() const {
   return Bits3::NumberOfOwnDescriptorsBits::decode(
       release_acquire_bit_field3());
@@ -309,7 +319,7 @@ void Map::set_instance_size(int size_in_bytes) {
   set_instance_size_in_words(size_in_words);
 }
 
-int Map::inobject_properties_start_or_constructor_function_index() const {
+uint8_t Map::inobject_properties_start_or_constructor_function_index() const {
   // TODO(solanes, v8:7790, v8:11353): Make this and the setter non-atomic
   // when TSAN sees the map's store synchronization.
   return RELAXED_READ_BYTE_FIELD(
@@ -317,21 +327,23 @@ int Map::inobject_properties_start_or_constructor_function_index() const {
 }
 
 void Map::set_inobject_properties_start_or_constructor_function_index(
-    int value) {
-  CHECK_LE(static_cast<unsigned>(value), kMaxUInt8);
+    uint8_t value) {
   RELAXED_WRITE_BYTE_FIELD(
-      *this, kInobjectPropertiesStartOrConstructorFunctionIndexOffset,
-      static_cast<uint8_t>(value));
+      *this, kInobjectPropertiesStartOrConstructorFunctionIndexOffset, value);
 }
 
-int Map::GetInObjectPropertiesStartInWords() const {
+uint8_t Map::GetInObjectPropertiesStartInWords() const {
   DCHECK(IsJSObjectMap(*this));
   return inobject_properties_start_or_constructor_function_index();
 }
 
-void Map::SetInObjectPropertiesStartInWords(int value) {
+void Map::SetInObjectPropertiesStartInWords(uint8_t value) {
   CHECK(IsJSObjectMap(*this));
   set_inobject_properties_start_or_constructor_function_index(value);
+}
+
+void Map::SetInObjectPropertiesStartInWords(int value) {
+  SetInObjectPropertiesStartInWords(base::checked_cast<uint8_t>(value));
 }
 
 bool Map::HasOutOfObjectProperties() const {
@@ -344,6 +356,10 @@ bool Map::HasOutOfObjectProperties() const {
 int Map::GetInObjectProperties() const {
   DCHECK(IsJSObjectMap(*this));
   return instance_size_in_words() - GetInObjectPropertiesStartInWords();
+}
+
+bool Map::IsFieldInObject(int field_index) const {
+  return field_index < GetInObjectProperties();
 }
 
 int Map::GetConstructorFunctionIndex() const {
@@ -376,6 +392,8 @@ DirectHandle<Map> Map::AddMissingTransitionsForTesting(
 void Map::set_instance_type(InstanceType value) {
   RELAXED_WRITE_UINT16_FIELD(*this, kInstanceTypeOffset, value);
 }
+
+int Map::AllocatedSize() const { return Map::kSize; }
 
 int Map::UnusedPropertyFields() const {
 #if V8_ENABLE_WEBASSEMBLY
@@ -603,6 +621,34 @@ bool Map::TryGetPrototypeInfo(Tagged<PrototypeInfo>* result) const {
   return true;
 }
 
+bool Map::TryGetPrototypeSharedClosureInfo(
+    Tagged<PrototypeSharedClosureInfo>* result) const {
+  if (!is_prototype_map()) return false;
+
+  if (Tagged<PrototypeInfo> proto_info; TryGetPrototypeInfo(&proto_info)) {
+    if (Tagged<Object> maybe_proto_shared_closure_info =
+            proto_info->prototype_shared_closure_info();
+        TryCast(maybe_proto_shared_closure_info, result)) {
+      return true;
+    }
+  } else if (Tagged<Object> maybe_proto_shared_closure_info = prototype_info();
+             TryCast(maybe_proto_shared_closure_info, result)) {
+    return true;
+  }
+
+  return false;
+}
+
+void Map::SetPrototypeSharedClosureInfo(
+    Tagged<PrototypeSharedClosureInfo> closure_infos) {
+  DCHECK(is_prototype_map());
+  if (Tagged<PrototypeInfo> proto_info; TryGetPrototypeInfo(&proto_info)) {
+    proto_info->set_prototype_shared_closure_info(closure_infos);
+  } else {
+    this->set_prototype_info(closure_infos, kReleaseStore);
+  }
+}
+
 // static
 bool Map::TryGetValidityCellHolderMap(
     Tagged<Map> map, Isolate* isolate,
@@ -822,6 +868,11 @@ void Map::AppendDescriptor(Isolate* isolate, Descriptor* desc) {
   if (details.location() == PropertyLocation::kField) {
     DCHECK_GT(UnusedPropertyFields(), 0);
     AccountAddedPropertyField();
+#ifdef DEBUG
+    // Verify after accounting the added field, to make sure we have the
+    // expected UsedInstanceSize.
+    VerifyPropertyDetailsInObjectBits(details);
+#endif
   }
 
 // This function does not support appending double field descriptors and
@@ -1097,7 +1148,8 @@ int NormalizedMapCache::GetIndex(Isolate* isolate, Tagged<Map> map,
 
 DEF_HEAP_OBJECT_PREDICATE(HeapObject, IsNormalizedMapCache) {
   if (!IsWeakFixedArray(obj, cage_base)) return false;
-  if (Cast<WeakFixedArray>(obj)->length() != NormalizedMapCache::kEntries) {
+  if (Cast<WeakFixedArray>(obj)->ulength().value() !=
+      NormalizedMapCache::kEntries) {
     return false;
   }
   return true;

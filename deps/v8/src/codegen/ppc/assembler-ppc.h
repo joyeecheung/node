@@ -58,6 +58,10 @@ namespace internal {
 
 class SafepointTableBuilder;
 
+namespace regexp {
+class RegExpMacroAssemblerPPC;
+}
+
 // -----------------------------------------------------------------------------
 // Machine instruction Operands
 
@@ -1021,6 +1025,8 @@ class Assembler : public AssemblerBase {
 
   void subi(Register dst, Register src1, const Operand& src2);
 
+  void addpcis(Register dst, const Operand& val);
+
   void mov(Register dst, const Operand& src);
   void bitwise_mov(Register dst, intptr_t value);
   void bitwise_mov32(Register dst, int32_t value);
@@ -1563,7 +1569,7 @@ class Assembler : public AssemblerBase {
 
   int WriteCodeComments();
 
-  friend class RegExpMacroAssemblerPPC;
+  friend class regexp::RegExpMacroAssemblerPPC;
   friend class RelocInfo;
   friend class BlockTrampolinePoolScope;
   friend class EnsureSpace;
