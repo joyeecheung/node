@@ -650,6 +650,8 @@ enum class SnapshotFlags : uint32_t {
   kWithoutCodeCache = 1 << 0,
 };
 
+enum class ModuleFormat : uint8_t;
+
 struct SnapshotConfig {
   SnapshotFlags flags = SnapshotFlags::kDefault;
 
@@ -666,6 +668,11 @@ struct SnapshotConfig {
   // the snapshot builder can execute asynchronous operations as long as they
   // are run to completion when the snapshot is taken.
   std::optional<std::string> builder_script_path;
+
+  // When set, overrides the module format used to execute the builder script.
+  // Otherwise, the builder script format is inferred from its path in a way
+  // similar to the regular main entry point.
+  std::optional<ModuleFormat> builder_script_format;
 };
 
 struct InspectorParentHandle {
@@ -1009,6 +1016,7 @@ class NODE_EXTERN CommonEnvironmentSetup {
 
   struct Impl;
   Impl* impl_;
+
 
   CommonEnvironmentSetup(
       MultiIsolatePlatform*,

@@ -355,6 +355,11 @@ The following options are currently supported:
 before building the snapshot, as if \fB--build-snapshot\fR had been passed
 with \fBbuilder\fR as the main script name.
 .It
+\fBbuilderFormat\fR \fB<string>\fR Optional. Overrides the module format of the
+builder script. Supported values are \fBcommonjs\fR and \fBmodule\fR. When
+this field is omitted, a builder path ending in \fB.mjs\fR is treated as ESM
+and other builder paths are treated as CommonJS.
+.It
 \fBwithoutCodeCache\fR \fB<boolean>\fR Optional. Including the code cache reduces the
 time spent on compiling functions included in the snapshot at the expense
 of a bigger snapshot size and potentially breaking portability of the

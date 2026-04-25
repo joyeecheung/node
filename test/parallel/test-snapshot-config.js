@@ -15,6 +15,7 @@ const fs = require('fs');
 
 const blobPath = tmpdir.resolve('snapshot.blob');
 const builderScript = fixtures.path('snapshot', 'mutate-fs.js');
+const esmBuilderScript = fixtures.path('snapshot', 'esm-main.mjs');
 const checkFile = fixtures.path('snapshot', 'check-mutate-fs.js');
 const configPath = tmpdir.resolve('snapshot.json');
 tmpdir.refresh();
@@ -70,6 +71,25 @@ function writeConfig(config) {
     status: 1,
     trim: true,
     stderr: /"builder" field of .+snapshot\.json is not a non-empty string/
+  });
+}
+
+{
+  tmpdir.refresh();
+  // Invalid builder format should be rejected.
+  writeConfig({ builder: builderScript, builderFormat: 'invalid' });
+  spawnSyncAndExit(process.execPath, [
+    '--snapshot-blob',
+    blobPath,
+    '--build-snapshot-config',
+    configPath,
+  ], {
+    cwd: tmpdir.path
+  }, {
+    signal: null,
+    status: 1,
+    trim: true,
+    stderr: /"builderFormat" field of .+snapshot\.json must be one of "commonjs" or "module"/
   });
 }
 
@@ -135,5 +155,30 @@ let sizeWithoutCache;
     },
   }, {
     stderr: /snapshot contains 0 code cache/
+  });
+}
+
+{
+  tmpdir.refresh();
+  // Create a working snapshot from an ESM builder script.
+  writeConfig({ builder: esmBuilderScript, builderFormat: 'module' });
+  spawnSyncAndAssert(process.execPath, [
+    '--snapshot-blob',
+    blobPath,
+    '--build-snapshot-config',
+    configPath,
+  ], {
+    cwd: tmpdir.path
+  }, {
+    stderr: ''
+  });
+
+  spawnSyncAndAssert(process.execPath, [
+    '--snapshot-blob',
+    blobPath,
+  ], {
+    cwd: tmpdir.path
+  }, {
+    stdout: /ESM snapshot executed successfully/
   });
 }

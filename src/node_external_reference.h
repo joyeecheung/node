@@ -19,6 +19,7 @@ class ExternalReferenceRegistry {
 
 #define ALLOWED_EXTERNAL_REFERENCE_TYPES(V)                                    \
   V(v8::FunctionCallback)                                                      \
+  V(v8::Module::SyntheticModuleEvaluationSteps)                                \
   V(v8::AccessorNameGetterCallback)                                            \
   V(v8::AccessorNameSetterCallback)                                            \
   V(v8::NamedPropertyGetterCallback)                                           \

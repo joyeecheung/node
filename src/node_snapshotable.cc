@@ -24,6 +24,7 @@
 #include "node_modules.h"
 #include "node_process.h"
 #include "node_snapshot_builder.h"
+#include "module_wrap.h"
 #include "node_url.h"
 #include "node_v8.h"
 #include "node_v8_platform-inl.h"
@@ -945,6 +946,25 @@ std::optional<SnapshotConfig> ReadSnapshotConfig(const char* config_path) {
         return std::nullopt;
       }
       result.builder_script_path = builder_path;
+    } else if (key == "builderFormat") {
+      std::string_view builder_format;
+      if (field.value().get_string().get(builder_format)) {
+        FPrintF(stderr,
+                "\"builderFormat\" field of %s is not a string\n",
+                config_path);
+        return std::nullopt;
+      }
+      if (builder_format == "commonjs") {
+        result.builder_script_format = ModuleFormat::kCommonJS;
+      } else if (builder_format == "module") {
+        result.builder_script_format = ModuleFormat::kModule;
+      } else {
+        FPrintF(stderr,
+                "\"builderFormat\" field of %s must be one of "
+                "\"commonjs\" or \"module\"\n",
+                config_path);
+        return std::nullopt;
+      }
     } else if (key == "withoutCodeCache") {
       bool without_code_cache_value = false;
       if (field.value().get_bool().get(without_code_cache_value)) {
@@ -1073,7 +1093,32 @@ ExitCode BuildSnapshotWithoutCodeCache(
 #if HAVE_INSPECTOR
         env->InitializeInspector({});
 #endif
-        if (LoadEnvironment(env, builder_script_content.value()).IsEmpty()) {
+      std::string_view builder_path = config.builder_script_path.value();
+      std::optional<ModuleFormat> builder_format =
+        config.builder_script_format;
+      if (LoadEnvironment(
+          env,
+          [builder_script = builder_script_content.value(),
+           builder_path,
+           builder_format](
+            const StartExecutionCallbackInfoWithModule& info)
+            -> MaybeLocal<Value> {
+            Environment* env = info.env();
+            Local<Context> context = env->context();
+            Isolate* isolate = env->isolate();
+            Local<Value> main_script =
+              ToV8Value(context, builder_script).ToLocalChecked();
+            Local<Value> format = builder_format.has_value()
+              ? v8::Integer::New(
+                isolate, static_cast<int>(builder_format.value()))
+              : v8::Undefined(isolate);
+            Local<Value> resource_name =
+              ToV8Value(context, builder_path).ToLocalChecked();
+            Local<Value> args[] = {main_script, format, resource_name};
+            return info.run_module()->Call(
+              context, Null(isolate), arraysize(args), args);
+          })
+          .IsEmpty()) {
           return ExitCode::kGenericUserError;
         }
     }
@@ -1252,6 +1297,8 @@ ExitCode SnapshotBuilder::CreateSnapshot(SnapshotData* out,
   // We must be able to rehash the blob when we restore it or otherwise
   // the hash seed would be fixed by V8, introducing a vulnerability.
   if (!out->v8_snapshot_blob_data.CanBeRehashed()) {
+    FPrintF(stderr,
+            "Failed to create the snapshot blob because it cannot be rehashed.\n");
     return ExitCode::kStartupSnapshotFailure;
   }
 

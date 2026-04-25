@@ -495,6 +495,11 @@ I am from the snapshot
 
 For more information, check out the [`v8.startupSnapshot` API][] documentation.
 
+The snapshot builder script can be either a CommonJS or an ECMAScript module.
+When [`--build-snapshot`][] is used directly, a builder script whose path ends
+in `.mjs` is treated as an ECMAScript module. Other builder scripts are
+treated as CommonJS.
+
 The snapshot currently only supports loding a single entrypoint during the
 snapshot building process, which can load built-in modules, but not additional user-land modules.
 Users can bundle their applications into a single script with their bundler
@@ -537,6 +542,10 @@ The following options are currently supported:
 * `builder` {string} Required. Provides the name to the script that is executed
   before building the snapshot, as if [`--build-snapshot`][] had been passed
   with `builder` as the main script name.
+* `builderFormat` {string} Optional. Overrides the module format of the
+  builder script. Supported values are `'commonjs'` and `'module'`. When this
+  field is omitted, a builder path ending in `.mjs` is treated as ESM and
+  other builder paths are treated as CommonJS.
 * `withoutCodeCache` {boolean} Optional. Including the code cache reduces the
   time spent on compiling functions included in the snapshot at the expense
   of a bigger snapshot size and potentially breaking portability of the

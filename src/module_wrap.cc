@@ -146,7 +146,7 @@ ModuleWrap::ModuleWrap(Realm* realm,
                        Local<String> url,
                        Local<Object> context_object,
                        Local<Value> synthetic_evaluation_step)
-    : BaseObject(realm, object),
+    : SnapshotableObject(realm, object, type_int),
       url_(Utf8Value(realm->isolate(), url).ToString()),
       module_(realm->isolate(), module),
       module_hash_(module->GetIdentityHash()) {
@@ -178,6 +178,66 @@ ModuleWrap::~ModuleWrap() {
       break;
     }
   }
+}
+
+bool ModuleWrap::PrepareForSerialization(Local<Context> context,
+                                         v8::SnapshotCreator* creator) {
+  DCHECK_NULL(internal_field_info_);
+  CHECK_NULL(contextify_context_);
+
+  Isolate* isolate = Isolate::GetCurrent();
+  Local<Module> module = module_.Get(isolate);
+  CHECK_GE(module->GetStatus(), Module::kInstantiated);
+
+  internal_field_info_ = InternalFieldInfoBase::New<InternalFieldInfo>(type());
+  internal_field_info_->synthetic = synthetic_;
+  internal_field_info_->linked = linked_;
+
+  // The module itself is already referenced by the holder's V8 internal
+  // field, so drop the duplicate native global handle before snapshotting.
+  module_.Reset();
+  return false;
+}
+
+InternalFieldInfoBase* ModuleWrap::Serialize(int index) {
+  DCHECK_IS_SNAPSHOT_SLOT(index);
+  InternalFieldInfo* info = internal_field_info_;
+  internal_field_info_ = nullptr;
+  return info;
+}
+
+void ModuleWrap::Deserialize(Local<Context> context,
+                             Local<Object> holder,
+                             int index,
+                             InternalFieldInfoBase* info) {
+  DCHECK_IS_SNAPSHOT_SLOT(index);
+  HandleScope handle_scope(Isolate::GetCurrent());
+
+  Realm* realm = Realm::GetCurrent(context);
+  InternalFieldInfo* casted_info = static_cast<InternalFieldInfo*>(info);
+
+  Local<Value> url_value =
+      holder->Get(context, realm->isolate_data()->url_string())
+          .ToLocalChecked();
+  CHECK(url_value->IsString());
+
+    Local<Module> module = holder->GetInternalField(kModuleSlot).As<Module>();
+    Local<Value> module_source_object =
+      holder->GetInternalField(kModuleSourceObjectSlot).As<Value>();
+    Local<Value> synthetic_evaluation_step =
+      holder->GetInternalField(kSyntheticEvaluationStepsSlot).As<Value>();
+    Local<Object> context_object =
+      holder->GetInternalField(kContextObjectSlot).As<Object>();
+
+  ModuleWrap* wrap = new ModuleWrap(realm,
+                                    holder,
+                                    module,
+                                    url_value.As<String>(),
+                                    context_object,
+                                    synthetic_evaluation_step);
+  wrap->synthetic_ = casted_info->synthetic != 0;
+  wrap->linked_ = casted_info->linked != 0;
+  holder->SetInternalField(kModuleSourceObjectSlot, module_source_object);
 }
 
 Local<Context> ModuleWrap::context() const {
@@ -1700,6 +1760,7 @@ void ModuleWrap::RegisterExternalReferences(
   registry->Register(EvaluateSync);
   registry->Register(Instantiate);
   registry->Register(Evaluate);
+  registry->Register(SyntheticModuleEvaluationStepsCallback);
   registry->Register(SetSyntheticExport);
   registry->Register(SetModuleSourceObject);
   registry->Register(GetModuleSourceObject);

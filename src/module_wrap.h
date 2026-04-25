@@ -7,7 +7,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include "base_object.h"
+#include "node_snapshotable.h"
 #include "v8-script.h"
 
 namespace node {
@@ -92,8 +92,16 @@ struct ModuleCacheKey : public MemoryRetainer {
         hash(hash) {}
 };
 
-class ModuleWrap : public BaseObject {
+class ModuleWrap : public SnapshotableObject {
  public:
+  struct InternalFieldInfo : public node::InternalFieldInfoBase {
+    uint8_t synthetic = 0;
+    uint8_t linked = 0;
+  };
+
+  SET_OBJECT_ID(module_wrap)
+  SERIALIZABLE_OBJECT_METHODS()
+
   enum InternalFields {
     kModuleSlot = BaseObject::kInternalFieldCount,
     kModuleSourceObjectSlot,
@@ -222,6 +230,7 @@ class ModuleWrap : public BaseObject {
   // convenient shortcuts, but do not hold the ModuleWraps alive. The actual
   // strong references come from the array in kLinkedRequestsSlot.
   std::vector<ModuleWrap*> linked_module_wraps_;
+  InternalFieldInfo* internal_field_info_ = nullptr;
 };
 
 }  // namespace loader
