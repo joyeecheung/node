@@ -890,7 +890,7 @@ Intercepted DatabaseLimits::LimitsGetter(
   }
 
   DatabaseLimits* limits;
-  ASSIGN_OR_RETURN_UNWRAP(&limits, info.HolderV2(), Intercepted::kNo);
+  ASSIGN_OR_RETURN_UNWRAP(&limits, info.Holder(), Intercepted::kNo);
 
   Environment* env = limits->env();
   Isolate* isolate = env->isolate();
@@ -923,7 +923,7 @@ Intercepted DatabaseLimits::LimitsSetter(
   }
 
   DatabaseLimits* limits;
-  ASSIGN_OR_RETURN_UNWRAP(&limits, info.HolderV2(), Intercepted::kNo);
+  ASSIGN_OR_RETURN_UNWRAP(&limits, info.Holder(), Intercepted::kNo);
 
   Environment* env = limits->env();
   Isolate* isolate = env->isolate();
@@ -4169,9 +4169,9 @@ BaseObjectPtr<StatementIterator> StatementExecutionHelper::Iterate(
   }
 
   if (iter->object()
-          ->GetPrototypeV2()
+          ->GetPrototype()
           .As<Object>()
-          ->SetPrototypeV2(context, js_iterator_prototype)
+          ->SetPrototype(context, js_iterator_prototype)
           .IsNothing()) {
     return BaseObjectPtr<StatementIterator>();
   }
