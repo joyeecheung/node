@@ -575,6 +575,8 @@ struct TagRange {
   V(SyntheticModuleTag)                                   \
   V(MicrotaskCallbackTag)                                 \
   V(MicrotaskCallbackDataTag)                             \
+  V(CFunctionTag)                                         \
+  V(CFunctionInfoTag)                                     \
   V(MessageListenerTag)                                   \
   V(WaiterQueueForeignTag)                                \
   /* Needs to stay last to form a range for resources. */ \

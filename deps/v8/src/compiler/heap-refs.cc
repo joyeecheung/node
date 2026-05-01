@@ -27,7 +27,6 @@
 #include "src/objects/heap-number-inl.h"
 #include "src/objects/js-array-buffer-inl.h"
 #include "src/objects/literal-objects-inl.h"
-#include "src/objects/managed-inl.h"
 #include "src/objects/property-cell.h"
 #include "src/objects/struct-inl.h"
 #include "src/objects/template-objects-inl.h"
@@ -213,14 +212,19 @@ namespace {
 
 ZoneVector<CFunctionInfoWithDetails> GetCFunctionsWithSignatures(
     Tagged<FixedArray> function_overloads, Isolate* isolate, Zone* zone) {
-  const uint32_t len = function_overloads->ulength().value();
+  const uint32_t len = function_overloads->ulength().value() /
+                       FunctionTemplateInfo::kFunctionOverloadEntrySize;
   ZoneVector<CFunctionInfoWithDetails> c_functions_with_signatures =
       ZoneVector<CFunctionInfoWithDetails>(len, zone);
   for (uint32_t i = 0; i < len; i++) {
-    auto overload =
-        Cast<Managed<CFunctionWithSignature>>(function_overloads->get(i))
-            ->raw();
-    c_functions_with_signatures[i] = {overload->address, overload->signature};
+    c_functions_with_signatures[i] = {
+        v8::ToCData<kCFunctionTag>(
+            isolate, function_overloads->get(
+                         FunctionTemplateInfo::kFunctionOverloadEntrySize * i)),
+        v8::ToCData<const CFunctionInfo*, kCFunctionInfoTag>(
+            isolate, function_overloads->get(
+                         FunctionTemplateInfo::kFunctionOverloadEntrySize * i +
+                         1))};
   }
   return c_functions_with_signatures;
 }
