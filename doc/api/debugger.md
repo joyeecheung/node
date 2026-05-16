@@ -242,6 +242,11 @@ changes:
         `{ suffix, line, column? }` instead of an array. Each "hit" event carries a
         `location` field reporting the actual evaluation location.  When the probe does not
         specify a column, it binds to the first executable column instead of defaulting to 1.
+  - version: REPLACEME
+    pr-url: REPLACEME
+    description: Add `probe_inspector_failure` terminal `error` event for
+        inspector-side mid-session failures, and add `error.details` for
+        additional context on per-hit and terminal errors.
 -->
 
 > Stability: 1 - Experimental
@@ -382,7 +387,10 @@ $ node inspect --json --probe cli.js:5 --expr 'rss' cli.js
         "value": 55443456,
         "description": "55443456"
       }
-      // If the expression throws, "error" is present instead of "result".
+      // If the expression throws or evaluation fails at the protocol layer,
+      // "error" is present instead of "result". The `error` shape is:
+      // { message: string, details?: object }
+      // error.details carries additional context in an informative-only namespace.
     },
     {
       "probe": 0,
@@ -414,8 +422,18 @@ $ node inspect --json --probe cli.js:5 --expr 'rss' cli.js
       //      "error": {
       //       "code": "probe_target_exit",
       //       "exitCode": 1,
-      //       "stderr": "[Error: boom]",
+      //       "stderr": "Error: boom",
       //       "message": "Target exited with code 1 before probes: app.js:10"
+      //      }
+      //    }
+      // 5. {
+      //      "event": "error",
+      //      "pending": [1],
+      //      "error": {
+      //       "code": "probe_inspector_failure",
+      //       "probe": 0,
+      //       "stderr": "...",
+      //       "message": "Inspector session failed mid-probe..."
       //      }
       //    }
     }
@@ -423,15 +441,41 @@ $ node inspect --json --probe cli.js:5 --expr 'rss' cli.js
 }
 ```
 
+#### Error handling in terminal events
+
+The terminal `error` event uses `error.code` to distinguish failure classes:
+
+* `probe_target_exit` - the child process exited before the probe session completed.
+  Carries `exitCode` and/or `signal`. The recorded hits remain trustworthy.
+* `probe_inspector_failure` - the inspector session ended mid-probe. When the
+  failure can be attributed to a specific probe, `error.probe` is the index into
+  `probes[]`. `exitCode` / `signal` are present when the child has also been observed to exit.
+
+Both shapes also carry `stderr`, a best-effort capture of the child's stderr. The probe
+parent reads child stderr asynchronously, so the report can be built before the child has
+flushed its final stderr.
+
+`error.details` is an informative-only namespace that may appear on both per-hit and
+terminal errors. Its contents are unstable and may change between releases - do not
+match on their content or shape for stable tooling.
+
 ### Output and exit codes from the probed process
 
 Probe mode only prints the final probe report to stdout, and otherwise silences
-stdout/stderr from the child process. When the probing session ends,
-`node inspect` typically exits with code `0` and prints a final report to
-stdout. If the child process exits with a non-zero code before the
-probe session ends, the final report records a terminal `error` event along
-with the exit code and captured child stderr. The probing process itself
-still exits with code `0` in this case.
+stdout/stderr from the child process. **The probing process's exit code is the
+headline trust signal**: `0` means the report is trustworthy, `1` means it
+is not.
+
+| Terminal event | `error.code`              | Exit code | Partial results |
+| -------------- | ------------------------- | --------- | --------------- |
+| `completed`    |                           | `0`       | Trustworthy     |
+| `miss`         |                           | `0`       | Trustworthy     |
+| `error`        | `probe_target_exit`       | `0`       | Trustworthy     |
+| `error`        | `probe_inspector_failure` | `1`       | Untrustworthy   |
+| `timeout`      | `probe_timeout`           | `1`       | Untrustworthy   |
+
+When the report is marked untrustworthy, the last recorded hits may be treated
+as suspect. Consult `error.message` for recovery hints.
 
 Invalid arguments and fatal launch or connect failures may cause the
 probing process to exit with a non-zero code and print an error message
