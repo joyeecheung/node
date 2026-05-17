@@ -53,7 +53,7 @@ spawnSyncAndExit(process.execPath, [
         pending: [1],
         error: {
           code: 'probe_target_exit',
-          message: `Target exited with code 1 before probes: ${fixture}:4`,
+          message: `Target exited before probes: ${fixture}:4`,
           exitCode: 1,
           stderr,
         },

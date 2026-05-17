@@ -1,5 +1,5 @@
 // This tests that a clean process.exit(0) from inside a probe expression
-// surfaces as probe_inspector_failure (inspector died mid-evaluation),
+// surfaces as probe_failure (inspector died mid-evaluation),
 // not probe_target_exit.
 'use strict';
 
@@ -37,7 +37,7 @@ spawnSyncAndExit(process.execPath, [
         event: 'error',
         pending: [],
         error: {
-          code: 'probe_inspector_failure',
+          code: 'probe_failure',
           message:
             'Target process exited during probe evaluation. ' +
             'If the failure repeats, review the probe expression.',

@@ -2,11 +2,10 @@
 
 const assert = require('assert');
 
-// Work around a pre-existing inspector issue: if the debuggee exits too
-// quickly the inspector can segfault while tearing down. Normalize the
-// trailing terminal back to the expected one. The SIGSEGV may surface as
-// either probe_target_exit or probe_inspector_failure depending on close
-// timing; treat both as the same upstream bug.
+// Work around a pre-existing inspector issue: if the debuggee exits too quickly
+// the inspector can segfault while tearing down. For now normalize the segfault
+// back to the expected terminal event (e.g. "completed" or "miss")
+// until the upstream bug is fixed.
 // See https://github.com/nodejs/node/issues/62765
 // https://github.com/nodejs/node/issues/58245
 const probeTargetExitSignal = 'SIGSEGV';
@@ -15,8 +14,7 @@ function isProbeSegvTeardown(result) {
   if (result?.event !== 'error') { return false; }
   const error = result.error;
   if (error?.signal !== probeTargetExitSignal) { return false; }
-  return error.code === 'probe_target_exit' ||
-    error.code === 'probe_inspector_failure';
+  return error.code === 'probe_target_exit' || error.code === 'probe_failure';
 }
 
 // Replace volatile fields in a probe report (stack frames, Node.js version,
@@ -56,10 +54,7 @@ function assertProbeJson(output, expected) {
     normalized.results[normalized.results.length - 1] = expected.results.at(-1);
   }
 
-  assert.deepStrictEqual(
-    normalizeProbeReport(normalized),
-    normalizeProbeReport(expected),
-  );
+  assert.deepStrictEqual(normalizeProbeReport(normalized), normalizeProbeReport(expected));
 }
 
 function assertProbeText(output, expected) {

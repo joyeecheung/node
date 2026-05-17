@@ -1,5 +1,5 @@
 // This tests that a probe expression resuming the target through its own
-// inspector.Session surfaces as probe_inspector_failure when the outer
+// inspector.Session surfaces as probe_failure when the outer
 // Debugger.resume rejects.
 'use strict';
 
@@ -42,7 +42,7 @@ spawnSyncAndExit(process.execPath, [
         event: 'error',
         pending: [],
         error: {
-          code: 'probe_inspector_failure',
+          code: 'probe_failure',
           message:
             'Probe session failed after a probe evaluation. If the ' +
             'failure repeats, review the most-recently-evaluated probe ' +

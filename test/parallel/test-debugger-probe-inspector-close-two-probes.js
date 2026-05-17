@@ -1,5 +1,5 @@
 // This tests that a probe expression closing the inspector mid-session
-// surfaces as probe_inspector_failure, with downstream probes left pending.
+// surfaces as probe_failure, with downstream probes left pending.
 'use strict';
 
 const common = require('../common');
@@ -41,7 +41,7 @@ spawnSyncAndExit(process.execPath, [
         event: 'error',
         pending: [1],
         error: {
-          code: 'probe_inspector_failure',
+          code: 'probe_failure',
           message:
             `Probe session timed out before probes: ${fixture}:14. ` +
             'The probe expression may be slow, hanging, or interfering ' +
