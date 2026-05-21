@@ -15,6 +15,9 @@
 
 namespace v8::internal {
 class AccountingAllocator;
+template <typename T>
+class DirectHandle;
+class JSReceiver;
 struct WasmInliningPosition;
 
 namespace compiler {
@@ -22,7 +25,7 @@ class NodeOriginTable;
 namespace turboshaft {
 class Graph;
 class PipelineData;
-}
+}  // namespace turboshaft
 }  // namespace compiler
 
 namespace wasm {
@@ -43,10 +46,6 @@ V8_EXPORT_PRIVATE void BuildTSGraph(
     std::unique_ptr<AssumptionsJournal>* assumptions,
     ZoneVector<WasmInliningPosition>* inlining_positions, int func_index,
     WasmFunctionCoverageData* coverage_data);
-
-void BuildWasmWrapper(compiler::turboshaft::PipelineData* data,
-                      compiler::turboshaft::Graph& graph,
-                      const wasm::CanonicalSig* sig, WrapperCompilationInfo);
 
 // Base class for the decoder graph builder interface and for the wrapper
 // builder.
@@ -73,7 +72,7 @@ class V8_EXPORT_PRIVATE WasmGraphBuilderBase {
   using ConditionWithHint = compiler::turboshaft::ConditionWithHint;
   template <typename T>
   using ConstOrV = compiler::turboshaft::ConstOrV<T>;
-  using FrameState = compiler::turboshaft::FrameState;
+  using EagerFrameState = compiler::turboshaft::EagerFrameState;
   using LoadOp = compiler::turboshaft::LoadOp;
   using MemoryRepresentation = compiler::turboshaft::MemoryRepresentation;
   using OpIndex = compiler::turboshaft::OpIndex;
