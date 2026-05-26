@@ -945,7 +945,7 @@ class V8_EXPORT BigInt : public Numeric {
   static void CheckCast(v8::Data* that);
 };
 
-Local<String> String::Empty(Isolate* isolate) {
+inline Local<String> String::Empty(Isolate* isolate) {
   using S = internal::Address;
   using I = internal::Internals;
   I::CheckInitialized(isolate);
@@ -953,7 +953,7 @@ Local<String> String::Empty(Isolate* isolate) {
   return Local<String>::FromSlot(slot);
 }
 
-String::ExternalStringResource* String::GetExternalStringResource() const {
+inline String::ExternalStringResource* String::GetExternalStringResource() const {
   using A = internal::Address;
   using I = internal::Internals;
   A obj = internal::ValueHelper::ValueAsAddress(this);
@@ -973,7 +973,7 @@ String::ExternalStringResource* String::GetExternalStringResource() const {
   return result;
 }
 
-const String::ExternalOneByteStringResource*
+inline const String::ExternalOneByteStringResource*
 String::GetExternalOneByteStringResource() const {
   using A = internal::Address;
   using I = internal::Internals;
@@ -993,7 +993,7 @@ String::GetExternalOneByteStringResource() const {
   return result;
 }
 
-String::ExternalStringResourceBase* String::GetExternalStringResourceBase(
+inline String::ExternalStringResourceBase* String::GetExternalStringResourceBase(
     v8::Isolate* isolate, String::Encoding* encoding_out) const {
   using A = internal::Address;
   using I = internal::Internals;
@@ -1015,7 +1015,7 @@ String::ExternalStringResourceBase* String::GetExternalStringResourceBase(
   return resource;
 }
 
-String::ExternalStringResourceBase* String::GetExternalStringResourceBase(
+inline String::ExternalStringResourceBase* String::GetExternalStringResourceBase(
     String::Encoding* encoding_out) const {
   Isolate* isolate = internal::Internals::GetCurrentIsolateForSandbox();
   return GetExternalStringResourceBase(isolate, encoding_out);

@@ -506,8 +506,8 @@ class V8_EXPORT Object : public Value {
                                                  Local<Value> prototype);
   // TODO(http://crbug.com/333672197): deprecate and remove.
   V8_DEPRECATE_SOON("Use SetPrototype().")
-  V8_WARN_UNUSED_RESULT Maybe<bool> SetPrototypeV2(Local<Context> context,
-                                                   Local<Value> prototype) {
+  V8_WARN_UNUSED_RESULT inline Maybe<bool> SetPrototypeV2(Local<Context> context,
+                                                         Local<Value> prototype) {
     return SetPrototype(context, prototype);
   }
 
