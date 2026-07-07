@@ -17,6 +17,7 @@
     'emulator%': [],
 
     'node_shared%': 'false',
+    'node_enable_v8_debug_helper%': 'false',
     'node_enable_experimentals%': 'false',
     'force_dynamic_crt%': 0,
     'node_use_v8_platform%': 'true',
@@ -646,6 +647,13 @@
             'ldflags!': [ '-pthread' ],
           }],
           [ 'node_shared=="true"', {
+            'cflags': [ '-fPIC' ],
+            'ldflags': [ '-fPIC' ],
+          }],
+          # libv8_debug_helper statically links v8_libbase and abseil, so
+          # everything needs to be compiled as position-independent code
+          # for the shared library to link.
+          [ 'node_enable_v8_debug_helper=="true"', {
             'cflags': [ '-fPIC' ],
             'ldflags': [ '-fPIC' ],
           }],
