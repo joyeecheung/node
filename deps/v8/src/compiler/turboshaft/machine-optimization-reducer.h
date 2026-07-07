@@ -2375,10 +2375,10 @@ class MachineOptimizationReducer : public Next {
       // Which, with 16-bit lanes, is equivalent to: 0, 4, 1, 5, 2, 6, 3, 7
 
       auto TryCastExtMul = [this](V<Simd128> node) -> const Simd128BinopOp* {
-        if (auto* unop = matcher_.Get(node).TryCast<Simd128UnaryOp>()) {
+        if (auto* unop = matcher_.Get(node).template TryCast<Simd128UnaryOp>()) {
           if (unop->kind == Simd128UnaryOp::Kind::kI32x4ExtAddPairwiseI16x8S) {
             if (auto* binop =
-                    matcher_.Get(unop->input()).TryCast<Simd128BinopOp>()) {
+                    matcher_.Get(unop->input()).template TryCast<Simd128BinopOp>()) {
               if (binop->kind == Simd128BinopOp::Kind::kI16x8ExtMulLowI8x16S ||
                   binop->kind == Simd128BinopOp::Kind::kI16x8ExtMulHighI8x16S) {
                 return binop;
