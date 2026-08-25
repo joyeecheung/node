@@ -21,21 +21,25 @@
     'torque_outputs_inl_inc': ['<!@pymod_do_main(ForEachFormat "<(SHARED_INTERMEDIATE_DIR)/torque-generated/%s-inl.inc" <@(torque_files_replaced))'],
     'torque_outputs_cc': ['<!@pymod_do_main(ForEachFormat "<(SHARED_INTERMEDIATE_DIR)/torque-generated/%s.cc" <@(torque_files_replaced))'],
     'torque_outputs_inc': ['<!@pymod_do_main(ForEachFormat "<(SHARED_INTERMEDIATE_DIR)/torque-generated/%s.inc" <@(torque_files_replaced))'],
+    'run_torque_wrapper_flags': [],
     'conditions': [
       ['v8_enable_i18n_support==1', {
         'torque_files': [
           '<!@pymod_do_main(GN-scraper "<(V8_ROOT)/BUILD.gn"  "torque_files =.*?v8_enable_i18n_support.*?torque_files \\+= ")',
         ],
+        'run_torque_wrapper_flags': ['--v8-enable-i18n-support'],
       }],
       ['v8_enable_temporal_support==1', {
         'torque_files': [
           '<!@pymod_do_main(GN-scraper "<(V8_ROOT)/BUILD.gn"  "torque_files =.*?v8_enable_temporal_support.*?torque_files \\+= ")',
         ],
+        'run_torque_wrapper_flags': ['--v8-enable-temporal-support'],
       }],
       ['v8_enable_webassembly==1', {
         'torque_files': [
           '<!@pymod_do_main(GN-scraper "<(V8_ROOT)/BUILD.gn"  "torque_files =.*?v8_enable_webassembly.*?torque_files \\+= ")',
         ],
+        'run_torque_wrapper_flags': ['--v8-enable-webassembly'],
       }],
     ],
     'perfetto_gyp_file': '../../deps/perfetto/perfetto.gyp',
@@ -118,6 +122,7 @@
       'actions': [
         {
           'action_name': 'run_torque_action',
+          'msvs_quote_cmd': 0,
           'inputs': [  # Order matters.
             '<(PRODUCT_DIR)/<(EXECUTABLE_PREFIX)torque<(EXECUTABLE_SUFFIX)',
             '<@(torque_files)',
@@ -142,12 +147,31 @@
             '<@(torque_outputs_cc)',
             '<@(torque_outputs_inc)',
           ],
-          'action': [
-            '<@(emulator)',
-            '<(PRODUCT_DIR)/<(EXECUTABLE_PREFIX)torque<(EXECUTABLE_SUFFIX)',
-            '-o', '<(SHARED_INTERMEDIATE_DIR)/torque-generated',
-            '-v8-root', '<(V8_ROOT)',
-            '<@(torque_files_without_v8_root)',
+          'conditions': [
+            ['OS=="win"', {
+              'inputs': [
+                'run_torque.py',
+                '<(V8_ROOT)/BUILD.gn',
+              ],
+              'action': [
+                '<(python)',
+                'run_torque.py',
+                '--output-directory', '<(SHARED_INTERMEDIATE_DIR)/torque-generated',
+                '--v8-root', '<(V8_ROOT)',
+                '<@(run_torque_wrapper_flags)',
+                '--',
+                '<@(emulator)',
+                '<(PRODUCT_DIR)/<(EXECUTABLE_PREFIX)torque<(EXECUTABLE_SUFFIX)',
+              ],
+            }, {
+              'action': [
+                '<@(emulator)',
+                '<(PRODUCT_DIR)/<(EXECUTABLE_PREFIX)torque<(EXECUTABLE_SUFFIX)',
+                '-o', '<(SHARED_INTERMEDIATE_DIR)/torque-generated',
+                '-v8-root', '<(V8_ROOT)',
+                '<@(torque_files_without_v8_root)',
+              ],
+            }],
           ],
         },
       ],
