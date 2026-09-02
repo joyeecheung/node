@@ -4023,9 +4023,9 @@ class ClassFieldOffsetGenerator : public FieldOffsetsGenerator {
     std::string parent_name = use_templates ? "P" : parent->name();
 
     if (type->IsLayoutDefinedInCpp()) {
-      for (const Field& field : type->fields()) {
-        if (field.offset.has_value()) {
-          return std::to_string(*field.offset);
+      if (parent) {
+        if (std::optional<size_t> packed_size = parent->size().SingleValue()) {
+          return std::to_string(*packed_size);
         }
       }
       return "sizeof(" + parent_name + ")";
