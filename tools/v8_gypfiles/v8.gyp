@@ -151,6 +151,7 @@
             ['OS=="win"', {
               'inputs': [
                 'run_torque.py',
+                'gn_scraper.py',
                 '<(V8_ROOT)/BUILD.gn',
               ],
               'action': [

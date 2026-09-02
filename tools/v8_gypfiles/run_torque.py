@@ -2,11 +2,10 @@
 
 import argparse
 import os
-import runpy
-import shlex
 import subprocess
 import sys
-from pathlib import Path
+
+from gn_scraper import scrape_gn_list
 
 
 TORQUE_FILE_PATTERNS = (
@@ -36,8 +35,6 @@ def parse_args():
 
 
 def scrape_torque_files(v8_root, enabled_features):
-  scraper_path = Path(__file__).with_name('GN-scraper.py')
-  scrape = runpy.run_path(scraper_path)['DoMain']
   build_gn = os.path.join(v8_root, 'BUILD.gn')
   patterns = [r'torque_files = ']
   patterns.extend(pattern for feature, pattern in TORQUE_FILE_PATTERNS
@@ -45,9 +42,8 @@ def scrape_torque_files(v8_root, enabled_features):
 
   files = []
   for pattern in patterns:
-    files.extend(shlex.split(scrape([build_gn, pattern])))
-  return [os.path.relpath(path, v8_root).replace(os.sep, '/')
-          for path in files]
+    files.extend(scrape_gn_list(build_gn, pattern))
+  return files
 
 
 def main():
