@@ -1,4 +1,5 @@
-// This tests that probe sessions report unresolved breakpoints as misses.
+// This tests that probe sessions report unresolved breakpoints as misses,
+// with empty `locations` showing that the probe never bound to a script.
 'use strict';
 
 const common = require('../common');
@@ -22,6 +23,7 @@ spawnSyncAndAssert(process.execPath, [
       probes: [{
         expr: '42',
         target: { suffix: 'probe-miss.js', line: 99 },
+        locations: [],
       }],
       results: [{
         event: 'miss',

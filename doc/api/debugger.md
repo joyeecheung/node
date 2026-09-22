@@ -237,6 +237,12 @@ added:
   - v26.1.0
   - v24.16.0
 changes:
+  - version: REPLACEME
+    pr-url: https://github.com/nodejs/node/pull/00000
+    description: Add `--pid <pid>` and `--host <host>`/`--port <port>` to
+        probe a running process instead of launching one, a top-level
+        `target` field in the report describing what was probed, and a
+        `locations` field on each probe showing where it bound.
   - version:
      - v26.6.0
      - v24.20.0
@@ -270,8 +276,10 @@ changes:
 `node inspect` supports a non-interactive probe mode for inspecting runtime values
 in an application via the flag `--probe`.
 
-Currently, probe mode only supports launching a new process from the entry point
-script specified on the command line.
+Probe mode can launch a new process from the entry point script on the command
+line, or attach to a process that is already running, either by `--pid` or by
+`--host` and/or `--port` (see
+[Attaching to a running process](#attaching-to-a-running-process)).
 
 The probe mode sets one or more source breakpoints, evaluates specified
 expressions whenever the execution reaches a breakpoint, and prints one
@@ -281,10 +289,17 @@ printf-style debugging without having to modify the application code and
 clean up afterwards. It also supports structured JSON output for tool use.
 
 ```console
+# To launch a new process and probe it:
 $ node inspect --probe <file>:<line>[:<col>] --expr <expr> [--cond <expr>] [--max-hit <n>]
               [--probe <file>:<line>[:<col>] --expr <expr> [--cond <expr>] [--max-hit <n>] ...]
               [--json] [--preview] [--timeout=<ms>] [--port=<port>]
               [--] [<node-option> ...] <script> [<script-args> ...]
+
+# To activate the inspector in an already-running process and probe it:
+$ node inspect --probe <file>:<line>[:<col>] --expr <expr> [...] --pid <pid> [--host <host>] [--port <port>]
+
+# To probe a running process whose inspector is already listening for connections:
+$ node inspect --probe <file>:<line>[:<col>] --expr <expr> [...] [--host <host>] [--port <port>]
 ```
 
 * `--probe <file>:<line>[:<col>]`: Source location of the probe. When execution
@@ -300,17 +315,32 @@ $ node inspect --probe <file>:<line>[:<col>] --expr <expr> [--cond <expr>] [--ma
   is treated as false.
 * `--max-hit <n>`: An optional per-probe limit on the number of times the probe
   can be hit. When not specified, there's no hit limit. When any probe reaches
-  its hit limit, the probing process will detach and report the results. The process
-  being probed will continue to run. If any other probe is never reached by the time
-  the session ends, it will be reported as a missed probe.
-* `--timeout=<ms>`: A global wall-clock deadline for the entire probe session.
-  The default is `30000`. This can be used to probe a long-running application
-  that can be terminated externally.
+  its hit limit, the probing session finishes and reports the results. A
+  launched child is then terminated, while an attached process keeps running.
+  If any other probe is never reached by the time the session ends, it will be
+  reported as a missed probe.
+* `--timeout=<ms>`: A deadline in milliseconds. The default is `30000`. It
+  applies first to the target responding to the inspector and binding the
+  probes, then to the probe session itself. If the target does not respond in time
+  during startup, the report ends with an `error` and the probing process
+  exits with a non-zero code. The whole run can therefore take up to about
+  twice the deadline. In attach mode, the deadline is also the normal way to
+  end a session that has no `--max-hit` (see
+  [Attaching to a running process](#attaching-to-a-running-process)).
 * `--json`: If used, prints a structured JSON report instead of the default text report.
 * `--preview`: If used, non-primitive values will include CDP property previews for
   object-like JSON probe values.
-* `--port=<port>`: Selects the local inspector port where the probing session
-  will listen. Defaults to `0`, which requests a random port.
+* `--port=<port>`: In launch mode, the port the launched child's inspector
+  listens on. Defaults to `0`, which requests a random port. In attach mode,
+  the port to connect to. Defaults to `9229`, and `0` is invalid. See
+  [Attaching to a running process](#attaching-to-a-running-process).
+* `--host <host>`: In attach mode, the host to connect to. Defaults to
+  `127.0.0.1`. It is an error to combine it with a child script.
+* `--pid <pid>`: Attach to a running Node.js process by PID instead of
+  launching a child. This activates the inspector of the target process if it
+  is not active yet, then connects to `--host`:`--port`. `--host` must be a
+  loopback address. See
+  [Attaching to a running process](#attaching-to-a-running-process).
 * `--` is optional unless the child needs its own Node.js flags.
 
 Additional rules about the composition of the options:
@@ -327,6 +357,9 @@ Additional rules about the composition of the options:
 * `--timeout`, `--json`, `--preview`, and `--port` are global probe options
   for the whole probe session. They may appear before or between probe pairs,
   but not between a `--probe` and its matching `--expr`.
+* To launch a child process, specify an entry point script. Without one,
+  probe mode attaches to a running process, selected either by `--pid` or by
+  `--host` and/or `--port`.
 * If additional Node.js execution arguments need to be passed to the child
   script, `--` must be used to separate the probe options from the Node.js
   options for the child script.
@@ -338,6 +371,65 @@ $ node inspect --probe app.js:10 --expr "user"
                --probe src/utils.js:5:15 --expr "config.options"
                --json --preview -- --no-warnings app.js --arg-for-app=foo
 ```
+
+### Attaching to a running process
+
+Probe mode can attach to a process that is already running instead of
+launching a child. This is useful for a long-running application, such as a
+server, where you want to inspect runtime values without restarting it.
+
+When `--pid` is specified, probe mode activates the inspector of the process by
+sending it `SIGUSR1` on POSIX platforms. The process must be a Node.js process,
+otherwise it may be terminated by `SIGUSR1`. The connection to
+`--host` and `--port` is then retried until the timeout fires.
+Without `--pid`, the inspector must already be listening, and a refused
+connection results in an immediate error.
+
+Without `--max-hit`, the session keeps pausing the target at every hit until
+`--timeout` fires, so set it when probing a busy code path in a server.
+
+```console
+# Attach by PID (target uses the default inspector port):
+$ node inspect --probe app.js:42 --expr "req.url" --max-hit 5 --pid 12345
+
+# Attach to a process already listening for the inspector:
+$ node inspect --probe app.js:42 --expr "req.url" --max-hit 5 --host 127.0.0.1 --port 9229
+```
+
+Attach mode differs from launch mode in a few ways:
+
+* Breakpoints bind to scripts that are already loaded, so a probe can hit
+  code that was compiled before the session attached. Each probe's
+  `locations` in the report shows where it bound. An empty list means that
+  no loaded script matched the probe location, which usually means a typo in
+  the path or the line.
+* When the session ends, probe mode resumes and detaches from the target.
+  The target keeps running and its inspector stays enabled. Probe mode never
+  kills a process it did not launch.
+* If the target is waiting at `--inspect-brk` or `--inspect-wait` when the
+  session attaches, it is released so the probes can run.
+* An attach session ends when one of the following happens:
+  * A probe reaches `--max-hit`. The report ends with `completed`.
+  * The target finishes on its own. The report ends with `completed`, or
+    with `miss` when some probes never hit. The target is then allowed to
+    exit.
+  * `--timeout` fires. The report ends with `timeout` and the hits recorded
+    so far, and the probing process exits with code 0. If a probe expression
+    is still running at that point, the session reports an `error` and exits
+    with code 1 instead. The expression is terminated after at most another
+    `--timeout`, unless it is blocked inside a native call, and the target
+    then resumes.
+  * The target does not respond during startup within `--timeout`, for
+    example because its main thread is blocked in synchronous work. The
+    report ends with an `error` that names the stalled request, and the
+    probing process exits with code 1.
+* If the target is killed during the session, the session ends with an
+  `error`. With `--pid`, the exit can be confirmed, so it is reported as
+  `probe_target_exit` with exit code 0, like a launched child. With only
+  `--host` and `--port`, an exit cannot be distinguished from a network
+  failure, so it is reported as `probe_failure` with a non-zero exit code.
+* The target's stdout and stderr are not captured, so terminal `error`
+  events have no `error.stderr` field.
 
 ### Probe output format
 
@@ -380,12 +472,20 @@ When `--json` is used, the output shape looks like this:
 
 ```console
 $ node inspect --json --probe cli.js:5 --expr 'rss' cli.js
-{"v":2,"probes":[{"expr":"rss","target":{"suffix":"cli.js","line":5}}],"results":[{"probe":0,"event":"hit","hit":1,"location":{"url":"file:///path/to/cli.js","line":5,"column":3},"result":{"type":"number","value":55443456,"description":"55443456"}},{"probe":0,"event":"hit","hit":2,"location":{"url":"file:///path/to/cli.js","line":5,"column":3},"result":{"type":"number","value":55574528,"description":"55574528"}},{"event":"completed"}]}
+{"v":2,"target":{"argv":["cli.js"]},"probes":[{"expr":"rss","target":{"suffix":"cli.js","line":5},"locations":[{"url":"file:///path/to/cli.js","line":5,"column":3}]}],"results":[{"probe":0,"event":"hit","hit":1,"location":{"url":"file:///path/to/cli.js","line":5,"column":3},"result":{"type":"number","value":55443456,"description":"55443456"}},{"probe":0,"event":"hit","hit":2,"location":{"url":"file:///path/to/cli.js","line":5,"column":3},"result":{"type":"number","value":55574528,"description":"55574528"}},{"event":"completed"}]}
 ```
 
 ```json
 {
   "v": 2, // Probe JSON schema version.
+  "target": {
+    // Describes what was probed. The shape depends on how the session was
+    // started:
+    //   launch mode: { "argv": ["cli.js"] }
+    //   --pid <pid>: { "pid": 12345, "host": "127.0.0.1", "port": 9229 }
+    //   --host/--port: { "host": "127.0.0.1", "port": 9229 }
+    "argv": ["cli.js"]
+  },
   "probes": [
     {
       "expr": "rss", // The expression paired with --probe.
@@ -397,7 +497,14 @@ $ node inspect --json --probe cli.js:5 --expr 'rss' cli.js
         // from the target and will be reported in each hit's `location` field.
         "suffix": "cli.js",
         "line": 5
-      }
+      },
+      // Where the probe's breakpoint resolved, in the same shape as a hit's
+      // `location`. One entry per matching script. Empty when no loaded
+      // script matched the target, or when the session ended before the
+      // probe was bound.
+      "locations": [
+        { "url": "file:///path/to/cli.js", "line": 5, "column": 3 }
+      ]
       // `condition` is present only when the probe was given a --cond expression.
       // `maxHit` is present only when the probe was given a --max-hit limit.
     }
@@ -484,11 +591,18 @@ stdout. If the child process exits with a non-zero code before the probe
 session ends, or the probe session cannot complete for another reason, the
 final report records a terminal `error` event.
 
-When `error.code` is `'probe_failure'` or `'probe_timeout'`, the probing process
-exits with a non-zero code, indicating recorded hits may be incomplete.
-In this case, `error.message` will contain recovery hints, and `error.probe`,
-when present, is an index into the report's `probes` array that identifies
-the possible culprit probe on a best-effort basis to help guide debugging.
+When `error.code` is `'probe_failure'`, the probing process exits with a
+non-zero code, indicating recorded hits may be incomplete. In this case,
+`error.message` will contain recovery hints, and `error.probe`, when present,
+is an index into the report's `probes` array that identifies the possible
+culprit probe on a best-effort basis to help guide debugging.
+
+When `error.code` is `'probe_timeout'`, the exit code depends on the mode. In
+launch mode the child was expected to finish or reach every probe before the
+deadline, so the exit code is non-zero. In attach mode the deadline is the
+normal way to end a session without `--max-hit`, so the exit code is `0`. The
+terminal event has an `error` object in both cases. Tools should look at the
+terminal `event` and the exit code rather than at `error.code`.
 
 Invalid arguments and fatal launch or connect failures may cause the
 probing process to exit with a non-zero code and print an error message
