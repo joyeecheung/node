@@ -1,4 +1,6 @@
 // Tests that probing an unreachable line produces a `miss` with no hit events.
+// The probe did bind, so its resolved location is reported, which
+// distinguishes it from a probe that matched no script at all.
 'use strict';
 
 const common = require('../common');
@@ -9,6 +11,7 @@ const { spawnSyncAndAssert } = require('../common/child_process');
 const { assertProbeJson } = require('../common/debugger-probe');
 
 const cwd = fixtures.path('debugger');
+const fixtureUrl = fixtures.fileURL('debugger', 'probe-bound-never-hit.js').href;
 
 spawnSyncAndAssert(process.execPath, [
   'inspect',
@@ -23,6 +26,7 @@ spawnSyncAndAssert(process.execPath, [
       probes: [{
         expr: '1',
         target: { suffix: 'probe-bound-never-hit.js', line: 4 },
+        locations: [{ url: fixtureUrl, line: 4, column: 3 }],
       }],
       results: [{
         event: 'miss',
