@@ -23,6 +23,7 @@ spawnSyncAndExit(process.execPath, [
   stdout(output) {
     assertProbeJson(output, {
       v: 2,
+      target: { argv: ['probe-timeout.js'] },
       probes: [{
         expr: '1',
         target: { suffix: 'probe-timeout.js', line: 99 },

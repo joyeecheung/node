@@ -21,6 +21,7 @@ spawnSyncAndAssert(process.execPath, [
   stdout(output) {
     assertProbeJson(output, {
       v: 2,
+      target: { argv: ['probe-indented.js'] },
       probes: [{
         expr: 'x',
         // No `:col` in `target`, reflecting the user spec.

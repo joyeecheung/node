@@ -28,6 +28,7 @@ spawnSyncAndAssert(process.execPath, [
   stdout(output) {
     assertProbeJson(output, {
       v: 2,
+      target: { argv: ['probe-multi-statement.js'] },
       probes: [
         {
           expr: 'acc.length',

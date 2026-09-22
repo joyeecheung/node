@@ -38,6 +38,7 @@ function assertSuccessfulProbe(childArgs) {
     stdout(output) {
       assertProbeJson(output, {
         v: 2,
+        target: { argv: childArgs },
         probes: [{
           expr: 'finalValue',
           target: { suffix: 'probe.js', line: 12 },

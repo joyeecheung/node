@@ -1,7 +1,67 @@
 'use strict';
 
 const assert = require('assert');
+const { spawn } = require('child_process');
 const { spawnSyncAndExit } = require('./child_process');
+
+const kListeningRegex = /Debugger listening on ws:\/\/\[?(.+?)\]?:(\d+)\//;
+
+// Spawns a long-running target for attach tests and resolves once it has
+// printed its ready line, or, with `waitForListening`, once its inspector
+// prints the listening line (a target parked at --inspect-brk never reaches
+// its ready line). When the target is started with an inspector, the
+// resolved { host, port } come from the listening line, and `exited`
+// resolves with { code, signal } when the target exits. The caller must
+// kill the child.
+function startAttachTarget(extraArgs, fixturePath,
+                           { readyLine = 'ready', waitForListening = false } = {}) {
+  const child = spawn(process.execPath, [...extraArgs, fixturePath]);
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+
+  const exited = new Promise((resolve) => {
+    child.once('exit', (code, signal) => resolve({ code, signal }));
+  });
+
+  let stdout = '';
+  let stderr = '';
+  let host;
+  let port;
+
+  return new Promise((resolve, reject) => {
+    function maybeResolve() {
+      if (waitForListening ? port !== undefined : stdout.includes(readyLine)) {
+        child.stdout.removeListener('data', onStdout);
+        child.stderr.removeListener('data', onStderr);
+        child.removeListener('exit', onExit);
+        resolve({ child, host, port, exited });
+      }
+    }
+
+    function onStdout(chunk) {
+      stdout += chunk;
+      maybeResolve();
+    }
+
+    function onStderr(chunk) {
+      stderr += chunk;
+      const match = kListeningRegex.exec(stderr);
+      if (match !== null) {
+        host = match[1];
+        port = Number(match[2]);
+      }
+      maybeResolve();
+    }
+
+    function onExit(code, signal) {
+      reject(new Error(`Attach target exited early (code ${code}, signal ${signal})\n${stderr}`));
+    }
+
+    child.stdout.on('data', onStdout);
+    child.stderr.on('data', onStderr);
+    child.once('exit', onExit);
+  });
+}
 
 // Work around a pre-existing inspector issue: if the debuggee exits too quickly
 // the inspector can crash while tearing down. For now normalize the crash
@@ -101,4 +161,5 @@ module.exports = {
   assertProbeJson,
   assertProbeCliError,
   assertProbeText,
+  startAttachTarget,
 };

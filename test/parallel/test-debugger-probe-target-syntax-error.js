@@ -34,6 +34,7 @@ spawnSyncAndExit(process.execPath, [
   stdout(output) {
     assertProbeJson(output, {
       v: 2,
+      target: { argv: [fixture] },
       probes,
       results: [{
         event: 'error',

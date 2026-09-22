@@ -237,6 +237,11 @@ added:
   - v26.1.0
   - v24.16.0
 changes:
+  - version: REPLACEME
+    pr-url: https://github.com/nodejs/node/pull/00000
+    description: Add `--pid <pid>` and `--host <host>`/`--port <port>` to
+        probe a running process instead of launching one, and a top-level
+        `target` field in the report describing what was probed.
   - version:
      - v26.6.0
      - v24.20.0
@@ -270,8 +275,10 @@ changes:
 `node inspect` supports a non-interactive probe mode for inspecting runtime values
 in an application via the flag `--probe`.
 
-Currently, probe mode only supports launching a new process from the entry point
-script specified on the command line.
+Probe mode can launch a new process from the entry point script on the command
+line, or attach to a process that is already running with `--pid`, or with
+`--host` and `--port` (see
+[Attaching to a running process](#attaching-to-a-running-process)).
 
 The probe mode sets one or more source breakpoints, evaluates specified
 expressions whenever the execution reaches a breakpoint, and prints one
@@ -281,10 +288,17 @@ printf-style debugging without having to modify the application code and
 clean up afterwards. It also supports structured JSON output for tool use.
 
 ```console
+# To launch a new process and probe it:
 $ node inspect --probe <file>:<line>[:<col>] --expr <expr> [--cond <expr>] [--max-hit <n>]
               [--probe <file>:<line>[:<col>] --expr <expr> [--cond <expr>] [--max-hit <n>] ...]
               [--json] [--preview] [--timeout=<ms>] [--port=<port>]
               [--] [<node-option> ...] <script> [<script-args> ...]
+
+# To activate the inspector in an already-running process and probe it:
+$ node inspect --probe <file>:<line>[:<col>] --expr <expr> [...] --pid <pid> [--host <host>] [--port <port>]
+
+# To probe a running process whose inspector is already listening for connections:
+$ node inspect --probe <file>:<line>[:<col>] --expr <expr> [...] [--host <host>] --port <port>
 ```
 
 * `--probe <file>:<line>[:<col>]`: Source location of the probe. When execution
@@ -300,17 +314,28 @@ $ node inspect --probe <file>:<line>[:<col>] --expr <expr> [--cond <expr>] [--ma
   is treated as false.
 * `--max-hit <n>`: An optional per-probe limit on the number of times the probe
   can be hit. When not specified, there's no hit limit. When any probe reaches
-  its hit limit, the probing process will detach and report the results. The process
-  being probed will continue to run. If any other probe is never reached by the time
-  the session ends, it will be reported as a missed probe.
+  its hit limit, the probing session finishes and reports the results. A
+  launched child is then terminated, while an attached process keeps running.
+  If any other probe is never reached by the time the session ends, it will be
+  reported as a missed probe.
 * `--timeout=<ms>`: A global wall-clock deadline for the entire probe session.
   The default is `30000`. This can be used to probe a long-running application
-  that can be terminated externally.
+  that can be terminated externally. In attach mode it is also the normal way
+  to end a session that has no `--max-hit` (see
+  [Attaching to a running process](#attaching-to-a-running-process)).
 * `--json`: If used, prints a structured JSON report instead of the default text report.
 * `--preview`: If used, non-primitive values will include CDP property previews for
   object-like JSON probe values.
-* `--port=<port>`: Selects the local inspector port where the probing session
-  will listen. Defaults to `0`, which requests a random port.
+* `--port=<port>`: In launch mode, the port the launched child's inspector
+  listens on. Defaults to `0`, which requests a random port. In attach mode,
+  the port to connect to. Defaults to `9229`, and `0` is invalid. See
+  [Attaching to a running process](#attaching-to-a-running-process).
+* `--host <host>`: In attach mode, the host to connect to. Defaults to
+  `127.0.0.1`. It is an error to combine it with a child script.
+* `--pid <pid>`: Attach to a running Node.js process by PID instead of
+  launching a child. This activates the inspector of the target process if it
+  is not already active, then connects to `--host`:`--port`. See
+  [Attaching to a running process](#attaching-to-a-running-process).
 * `--` is optional unless the child needs its own Node.js flags.
 
 Additional rules about the composition of the options:
@@ -327,6 +352,11 @@ Additional rules about the composition of the options:
 * `--timeout`, `--json`, `--preview`, and `--port` are global probe options
   for the whole probe session. They may appear before or between probe pairs,
   but not between a `--probe` and its matching `--expr`.
+* To launch a child process, specify an entry point script (and optionally `--`
+  and script arguments). If the entry point script is not specified,
+  probe mode attempts to attach to a running process. If `--pid` is
+  specified, it will attempt to activate the inspector in the target process.
+  `--host` and `--port` specify the host and port to connect to the target process.
 * If additional Node.js execution arguments need to be passed to the child
   script, `--` must be used to separate the probe options from the Node.js
   options for the child script.
@@ -338,6 +368,59 @@ $ node inspect --probe app.js:10 --expr "user"
                --probe src/utils.js:5:15 --expr "config.options"
                --json --preview -- --no-warnings app.js --arg-for-app=foo
 ```
+
+### Attaching to a running process
+
+Probe mode can attach to a process that is already running instead of
+launching a child. This is useful for a long-running application, such as a
+server, where you want to inspect runtime values without restarting it.
+
+The target is selected with these options:
+
+* `--pid <pid>`: Activates the inspector of the target process, then connects to
+  `--host`:`--port`. By default it connects to the default inspector port `9229`
+  of the target process. If the inspector of target process is listening on a
+  different port, pass the matching `--port`.
+* `--host <host>` and `--port <port>`: connect to a target process that is listening
+  for an inspector connection at a specific host and port. If `--pid` is not specified,
+  the process is assumed to be already listening at the specified address.
+  Default to `127.0.0.1` and `9229` respectively.
+
+```console
+# Attach by PID (target uses the default inspector port):
+$ node inspect --probe app.js:42 --expr "req.url" --max-hit 5 --pid 12345
+
+# Attach to a process already listening for the inspector:
+$ node inspect --probe app.js:42 --expr "req.url" --max-hit 5 --host 127.0.0.1 --port 9229
+```
+
+Attach mode differs from launch mode in a few ways:
+
+* Breakpoints bind to already-loaded scripts, so a probe can hit code that
+  was compiled before the session attached.
+* When the session ends, probe mode resumes and detaches from the target. The
+  probed process will continue to run and its inspector will remain enabled. Probe mode
+  does not terminates a process it did not launch.
+* If the target is parked at a startup wait (`--inspect-brk` or `--inspect-wait`)
+  when the session attaches, it is released so the probes can run. Attaching to
+  a process that was parked on purpose therefore lets it continue.
+* An attach session ends when one of the following occurs:
+    * A probe reaches `--max-hit`: the report ends with a `completed`
+  event.
+    * The target finishes on its own: the report either ends with `completed`,
+      or `miss` when some probes never hit. Then the target is allowed to exit.
+    * `--timeout` fires: the report ends with a `timeout` with the hits recorded
+      so far, the probing process will exit with code 0.
+      If there are probing expressions still running when the timeout fires,
+      it gets a short grace period before being forcibly terminated. When that
+      happens the session reports an `error` and exits with code 1, and the
+      target may be left executing the expression.
+* The target's stdout/stderr are not captured, so terminal `error` events do not
+  include an `error.stderr` field.
+
+Attach mode has the same security considerations as any inspector connection.
+Activating or connecting to a debugger lets the client run arbitrary code in
+the target. See the [security warning][].
 
 ### Probe output format
 
@@ -380,12 +463,20 @@ When `--json` is used, the output shape looks like this:
 
 ```console
 $ node inspect --json --probe cli.js:5 --expr 'rss' cli.js
-{"v":2,"probes":[{"expr":"rss","target":{"suffix":"cli.js","line":5}}],"results":[{"probe":0,"event":"hit","hit":1,"location":{"url":"file:///path/to/cli.js","line":5,"column":3},"result":{"type":"number","value":55443456,"description":"55443456"}},{"probe":0,"event":"hit","hit":2,"location":{"url":"file:///path/to/cli.js","line":5,"column":3},"result":{"type":"number","value":55574528,"description":"55574528"}},{"event":"completed"}]}
+{"v":2,"target":{"argv":["cli.js"]},"probes":[{"expr":"rss","target":{"suffix":"cli.js","line":5}}],"results":[{"probe":0,"event":"hit","hit":1,"location":{"url":"file:///path/to/cli.js","line":5,"column":3},"result":{"type":"number","value":55443456,"description":"55443456"}},{"probe":0,"event":"hit","hit":2,"location":{"url":"file:///path/to/cli.js","line":5,"column":3},"result":{"type":"number","value":55574528,"description":"55574528"}},{"event":"completed"}]}
 ```
 
 ```json
 {
   "v": 2, // Probe JSON schema version.
+  "target": {
+    // Describes what was probed. The shape depends on how the session was
+    // started:
+    //   launch mode: { "argv": ["cli.js"] }
+    //   --pid <pid>: { "pid": 12345, "host": "127.0.0.1", "port": 9229 }
+    //   --host/--port: { "host": "127.0.0.1", "port": 9229 }
+    "argv": ["cli.js"]
+  },
   "probes": [
     {
       "expr": "rss", // The expression paired with --probe.
@@ -660,3 +751,4 @@ debugging sessions.)
 [`debugger`]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/debugger
 [interactive mode]: #interactive-mode
 [non-interactive probe mode]: #probe-mode
+[security warning]: cli.md#warning-binding-inspector-to-a-public-ipport-combination-is-insecure

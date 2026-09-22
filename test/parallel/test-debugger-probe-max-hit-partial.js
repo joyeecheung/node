@@ -23,6 +23,7 @@ spawnSyncAndAssert(process.execPath, [
   stdout(output) {
     assertProbeJson(output, {
       v: 2,
+      target: { argv: ['probe-max-hit.js'] },
       probes: [{
         expr: 'index',
         target: { suffix: 'probe-max-hit.js', line: 5 },

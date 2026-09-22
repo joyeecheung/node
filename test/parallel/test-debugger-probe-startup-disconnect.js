@@ -37,6 +37,7 @@ session.run().then(common.mustCall(({ code, report }) => {
   assert.strictEqual(code, 1);
   assertProbeJson(report, {
     v: 2,
+    target: { argv: ['-e', ''] },
     probes: [probe],
     results: [{
       event: 'error',
