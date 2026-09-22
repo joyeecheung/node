@@ -23,6 +23,7 @@ spawnSyncAndAssert(process.execPath, [
   stdout(output) {
     assertProbeJson(output, {
       v: 2,
+      target: { argv: ['probe-typescript.ts'] },
       probes: [
         { expr: 'x', target: { suffix: 'probe-typescript.ts', line: 9 } },
         { expr: 'y', target: { suffix: 'probe-typescript.ts', line: 9 } },

@@ -25,6 +25,7 @@ spawnSyncAndAssert(process.execPath, [
   stdout(output) {
     assertProbeJson(output, {
       v: 2,
+      target: { argv: ['probe-late-entry.js'] },
       probes: [
         { expr: 'value', target: { suffix: 'probe-late-target.mjs', line: 3 } },
         { expr: 'value', target: { suffix: 'probe-late-target.cjs', line: 5 } },

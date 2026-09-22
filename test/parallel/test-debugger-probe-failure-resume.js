@@ -29,6 +29,7 @@ spawnSyncAndExit(process.execPath, [
   stdout(output) {
     const expected = {
       v: 2,
+      target: { argv: [fixture] },
       probes,
       results: [{
         probe: 0,

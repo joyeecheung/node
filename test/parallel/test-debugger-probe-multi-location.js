@@ -23,6 +23,7 @@ spawnSyncAndAssert(process.execPath, [
   stdout(output) {
     assertProbeJson(output, {
       v: 2,
+      target: { argv: ['probe-multi-entry.js'] },
       probes: [
         { expr: 'b', target: { suffix: 'utils.js', line: 5 } },
       ],

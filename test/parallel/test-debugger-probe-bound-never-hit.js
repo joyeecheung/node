@@ -20,6 +20,7 @@ spawnSyncAndAssert(process.execPath, [
   stdout(output) {
     assertProbeJson(output, {
       v: 2,
+      target: { argv: ['probe-bound-never-hit.js'] },
       probes: [{
         expr: '1',
         target: { suffix: 'probe-bound-never-hit.js', line: 4 },
