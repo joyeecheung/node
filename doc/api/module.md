@@ -234,13 +234,17 @@ added:
   - v22.15.0
 changes:
   - version:
+    - REPLACEME
+    pr-url: REPLACEME
+    description: `module.registerHooks()` is now stable.
+  - version:
     - v25.4.0
     - v24.13.1
     pr-url: https://github.com/nodejs/node/pull/60960
     description: Synchronous and in-thread hooks are now release candidate.
 -->
 
-> Stability: 1.2 - Release candidate
+> Stability: 2 - Stable
 
 * `options` {Object}
   * `load` {Function|undefined} See [load hook][]. **Default:** `undefined`.
@@ -664,7 +668,7 @@ for simplicity.
 
 ### Synchronous customization hooks
 
-> Stability: 1.2 - Release candidate
+> Stability: 2 - Stable
 
 <i id="enabling_module_customization_hooks"></i>
 
