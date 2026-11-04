@@ -662,7 +662,6 @@ class V8_EXPORT_PRIVATE MachineOperatorBuilder final
   const Operator* TryTruncateFloat64ToInt32();
   const Operator* TryTruncateFloat64ToUint32();
   const Operator* ChangeInt32ToFloat64();
-  const Operator* BitcastWord32ToWord64();
   const Operator* ChangeInt32ToInt64();
   const Operator* ChangeInt64ToFloat64();
   const Operator* ChangeUint32ToFloat64();
@@ -1256,7 +1255,7 @@ class V8_EXPORT_PRIVATE MachineOperatorBuilder final
   const Operator* Store(StoreRepresentation rep);
   std::optional<const Operator*> TryStorePair(StoreRepresentation rep1,
                                               StoreRepresentation rep2);
-  const Operator* StoreIndirectPointer(WriteBarrierKind write_barrier_kind);
+  const Operator* StoreTrustedPointer(WriteBarrierKind write_barrier_kind);
   const Operator* TrappingStore(MachineRepresentation rep);
   const Operator* StoreTrapOnNull(StoreRepresentation rep);
 

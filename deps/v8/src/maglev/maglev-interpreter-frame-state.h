@@ -32,87 +32,6 @@ class LoopMergePointInterpreterFrameState;
 class MergePointInterpreterFrameState;
 struct LoopEffects;
 
-// Bundles a static ScopeInfoRef with the distance (in Context::previous() hops)
-// from this scope to MaglevCompilationInfo::specialization_context().
-// - If specialization_context_distance() has a value, walking outward that many
-//   steps reaches the specialization context.
-// - If specialization_context_distance() is std::nullopt (stored compactly as
-//   kNoDistance to keep sizeof(ContextScopeInfo) == 16), either there is no
-//   specialization context, this scope is inside an inlined compilation unit,
-//   or we have walked outward past the specialization context.
-class ContextScopeInfo {
- public:
-  ContextScopeInfo() = default;
-  ContextScopeInfo(std::nullopt_t) {}  // NOLINT(runtime/explicit)
-  ContextScopeInfo(compiler::OptionalScopeInfoRef scope_info,
-                   std::optional<size_t> specialization_context_distance =
-                       std::nullopt)  // NOLINT(runtime/explicit)
-      : scope_info_(scope_info),
-        specialization_context_distance_(
-            scope_info.has_value()
-                ? specialization_context_distance.value_or(kNoDistance)
-                : kNoDistance) {}
-
-  bool has_value() const { return scope_info_.has_value(); }
-  compiler::ScopeInfoRef value() const { return scope_info_.value(); }
-  operator compiler::ScopeInfoRef() const { return value(); }
-  compiler::OptionalScopeInfoRef scope_info() const { return scope_info_; }
-
-  bool HasOuterScopeInfo() const { return scope_info_->HasOuterScopeInfo(); }
-  bool HasContextExtensionSlot() const {
-    return scope_info_->HasContextExtensionSlot();
-  }
-  ScopeType scope_type() const { return scope_info_->scope_type(); }
-
-  std::optional<size_t> specialization_context_distance() const {
-    if (!has_value() || specialization_context_distance_ == kNoDistance) {
-      return std::nullopt;
-    }
-    return specialization_context_distance_;
-  }
-
-  V8_NODISCARD ContextScopeInfo Push(compiler::ScopeInfoRef inner_scope) const {
-    std::optional<size_t> inner_dist;
-    if (specialization_context_distance_ != kNoDistance) {
-      inner_dist = specialization_context_distance_ + 1;
-    }
-    return ContextScopeInfo(inner_scope, inner_dist);
-  }
-
-  V8_NODISCARD ContextScopeInfo
-  OuterScopeInfo(compiler::JSHeapBroker* broker) const {
-    DCHECK(has_value());
-    DCHECK(HasOuterScopeInfo());
-    std::optional<size_t> outer_dist;
-    if (specialization_context_distance_ != kNoDistance &&
-        specialization_context_distance_ > 0) {
-      outer_dist = specialization_context_distance_ - 1;
-    }
-    return ContextScopeInfo(scope_info_->OuterScopeInfo(broker), outer_dist);
-  }
-
-  bool operator==(const ContextScopeInfo& other) const {
-    DCHECK_IMPLIES(scope_info_.equals(other.scope_info_),
-                   specialization_context_distance_ ==
-                       other.specialization_context_distance_);
-    return scope_info_.equals(other.scope_info_);
-  }
-
-  friend std::ostream& operator<<(std::ostream& os,
-                                  const ContextScopeInfo& info) {
-    if (info.has_value()) {
-      return os << info.value();
-    }
-    return os << "<empty>";
-  }
-
- private:
-  static constexpr size_t kNoDistance = std::numeric_limits<size_t>::max();
-
-  compiler::OptionalScopeInfoRef scope_info_;
-  size_t specialization_context_distance_ = kNoDistance;
-};
-
 class InterpreterFrameState {
  public:
   InterpreterFrameState(const MaglevCompilationUnit& info,
@@ -466,6 +385,7 @@ class MergePointInterpreterFrameState {
     predecessors_so_far_--;
     ReducePhiPredecessorCount(1);
     clear_is_loop();
+    bitfield_ = kWasLoopBit::update(bitfield_, true);
   }
 
   V8_EXPORT_PRIVATE void RemovePredecessorAt(int predecessor_id);
@@ -553,6 +473,11 @@ class MergePointInterpreterFrameState {
   bool is_loop() const {
     return basic_block_type() == BasicBlockType::kLoopHeader;
   }
+  bool was_loop() const {
+    bool res = kWasLoopBit::decode(bitfield_);
+    DCHECK_IMPLIES(res, !is_loop());
+    return res;
+  }
 
   bool exception_handler_was_used() const {
     DCHECK(is_exception_handler());
@@ -608,6 +533,7 @@ class MergePointInterpreterFrameState {
   using kIsResumableLoopBit = kBasicBlockTypeBits::Next<bool, 1>;
   using kIsLoopWithPeeledIterationBit = kIsResumableLoopBit::Next<bool, 1>;
   using kIsInline = kIsLoopWithPeeledIterationBit::Next<bool, 1>;
+  using kWasLoopBit = kIsInline::Next<bool, 1>;
 
   // For each non-Phi value in the frame state, store its alternative
   // representations to avoid re-converting on Phi creation.

@@ -362,7 +362,7 @@ class Graph final : public ZoneObject {
   ValueNode* GetConstant(compiler::ObjectRef ref);
 
   ValueNode* GetTrustedConstant(compiler::HeapObjectRef ref,
-                                IndirectPointerTag tag);
+                                TrustedPointerTag tag);
 
   Zone* zone() const { return compilation_info_->zone(); }
   compiler::JSHeapBroker* broker() const { return compilation_info_->broker(); }
@@ -381,6 +381,10 @@ class Graph final : public ZoneObject {
   }
 
   MaglevCompilationInfo* compilation_info() const { return compilation_info_; }
+
+#if defined(V8_FUZZILLI) || defined(V8_REDLINE)
+  void ExtractOptimizedCodeCoverage();
+#endif
 
  private:
   MaglevCompilationInfo* compilation_info_;

@@ -1925,7 +1925,7 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     case IrOpcode::kStoreTrapOnNull:
     case IrOpcode::kStore:
     case IrOpcode::kStorePair:
-    case IrOpcode::kStoreIndirectPointer:
+    case IrOpcode::kStoreTrustedPointer:
     case IrOpcode::kStackSlot:
     case IrOpcode::kWord32And:
     case IrOpcode::kWord32Or:
@@ -2069,7 +2069,6 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     case IrOpcode::kBitcastTaggedToWordForTagAndSmiBits:
     case IrOpcode::kBitcastWordToTagged:
     case IrOpcode::kBitcastWordToTaggedSigned:
-    case IrOpcode::kBitcastWord32ToWord64:
     case IrOpcode::kChangeInt32ToInt64:
     case IrOpcode::kChangeUint32ToUint64:
     case IrOpcode::kChangeInt32ToFloat64:
