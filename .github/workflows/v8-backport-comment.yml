@@ -1,0 +1,63 @@
+name: Comment on V8 backports to main
+
+on:
+  pull_request_target:
+    types: [opened]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  comment:
+    name: Comment on V8 backports to main
+    if: github.repository == 'nodejs/node'
+    runs-on: ubuntu-slim
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Check whether the pull request backports V8 patches
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # V8 updates (major updates and patch updates) change
+          # deps/v8/include/v8-version.h. A pull request that changes deps/v8
+          # without changing the V8 version is treated as a backport of
+          # individual V8 patches. The API lists at most 3000 files, sorted by
+          # path, which is enough to reach deps/v8/include/ in a V8 update.
+          files=$(gh api --paginate \
+            "/repos/$GITHUB_REPOSITORY/pulls/$NUMBER/files?per_page=100" \
+            --jq '.[].filename')
+          if printf '%s\n' "$files" | grep -q '^deps/v8/' &&
+             ! printf '%s\n' "$files" | grep -qx 'deps/v8/include/v8-version.h'; then
+            echo 'is_backport=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'is_backport=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Comment with V8 backport guidance
+        if: steps.check.outputs.is_backport == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          # Keep each paragraph on a single line. GitHub renders a line break
+          # in a comment as a hard line break.
+          MESSAGE: |-
+            This pull request changes `deps/v8` on the `main` branch without updating the V8 version, so it looks like a backport of individual V8 patches.
+
+            As a general rule, do not backport individual V8 patches to the Node.js `main` branch. Wait for them to be included in a V8 major version update instead. An individual V8 patch adds up audit cost and further delays the pending V8 update.
+
+            A patch may be backported to `main` when at least one of these criteria applies:
+
+            * It fixes a build issue on a platform or toolchain supported on `main`.
+            * It fixes a security issue.
+            * It unblocks a pending V8 update, for example by adjusting how the Node.js code uses a V8 API so that it works with the future update.
+
+            If the patch has demonstrated real-world urgency and impact that justifies landing it before the next V8 major version update, it's recommended to backport it to the release staging branches like `v<MAJOR>.x-staging` (see [Criteria for backporting](https://github.com/nodejs/node/blob/HEAD/doc/contributing/backporting-to-release-lines.md#criteria-for-backporting) to decide what release line to target) instead of `main`.
+
+            Please explain in the pull request description which of these criteria applies. Otherwise, consider closing this pull request and waiting for the next V8 update instead of fast-tracking a backport. See [Backporting patches to `main`](https://github.com/nodejs/node/blob/HEAD/doc/contributing/maintaining/maintaining-V8.md#backporting-patches-to-main) for details.
+        run: |
+          printf '%s\n' "$MESSAGE" |
+            gh pr comment "$NUMBER" --repo "$GITHUB_REPOSITORY" --body-file -
